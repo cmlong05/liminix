@@ -250,7 +250,7 @@ in
       shipping = {
         enable = mkEnableOption "fifo for log shipping";
         command = mkOption {
-          description = "log shipping command, should accept one parmeter which is the file name to read";
+          description = "log shipping command, should accept one parameter which is the file name to read";
           type = types.pathInStore;
           example = lib.literalExpression ''
             writeAshScript "shipper" {} \'\'
