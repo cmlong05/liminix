@@ -15,7 +15,7 @@
 let
   inherit (liminix.services) longrun;
   inherit (builtins) map;
-  inherit (lib) optional concatStringsSep;
+  inherit (lib) optionals optional concatStringsSep;
   inherit (service) name;
 
   restart-flag =
@@ -52,5 +52,8 @@ let
 in
 service.overrideAttrs (o: {
   buildInputs = (lim.orEmpty o.buildInputs) ++ optional (watch != [ ]) watcher;
-  dependencies = (lim.orEmpty o.dependencies) ++ optional (watch != [ ]) watcher;
+  dependencies =
+    (lim.orEmpty o.dependencies)
+    ++ optional (watch != [ ]) watcher
+    ++ optionals (watch != [ ]) (map (s: s "service") watch);
 })
