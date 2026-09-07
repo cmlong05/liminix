@@ -8924,3 +8924,212 @@ existent store directory
 
 the cheap fix would be for svc.open to only prepend .outputs if that
 directory exists, though that is going to break the .properties stuff
+
+Mon Aug 10 21:26:54 BST 2026
+
+so what we need is
+
+X a new name for slops [undercroft]
+X a derivation that builds it
+X a module that runs it
+  - needs to put sops on $PATH
+X install the module on a vhost on loaclhost
+  - undercroft terminates tls, so unless we're going to
+    make nginx do tcp proxying, perhaps let's just put it on another port
+X check that libfetch can present a client cert
+X a secrets file
+   - wifi password
+   - rsync password for backblaze
+   - pppoe/l2tp
+   - ssh auth keys?
+   - root password?
+
+* a proxy of some kind on bordervm so that hosts on the bordervm lan
+  can get certs and secrets
+   - bordervm needs to forward 19614 to loaclhost
+   - and add entry for undercroft.lan in /etc/hosts
+   - haven't done this because outsdie is plugged into the lan anyway
+X certifix-client
+
+* the secrets are arriving on outsdie. in theory all we need do is
+make it actually use them in its config
+
+* add levitate to outsdie
+  - could we add levitate to the tftpboot image
+    and use it to write the final image
+  - levitate chroots to a subdir of /run so won't interfere
+    with phram shenanigans
+
+* flash outsdie onto gl-ar750
+* unplug it from the serial port
+
+- upgrade kernel and audit firewall on lenscap
+- upgrade kernel on old outsdie
+- find omnia, plug in, upgrade kernel and install rotuer config
+
+
+
+
+Mon Aug 10 21:29:04 BST 2026
+
+This is interesting:
+
+# LOG-SHIPPING-START
+
+@400000006a7a2b4d151e2ae1 outsdie ntp 2026-08-10T19:48:56Z Selected source 185.51.192.62 (pool.ntp.org)
+@400000006a7a318b019b18e1 outsdie int.link.dhcpc udhcpc: sending renew to server 192.168.8.1
+# LOG-SHIPPING-STOP
+
+@400000006a7a318b028436d0 outsdie int.link.dhcpc udhcpc: lease of 192.168.8.47 obtained from 192.168.8.1, lease time 3600
+# LOG-SHIPPING-START
+
+
+there's only one log entry that would be missed but why is it stopping
+anyway? is there backfill?
+
+Wed Aug 12 22:21:41 BST 2026
+
+we can't reference secrets as inputs to the wap profile because it doesn't
+know how to make its hostap services dependent on the secret service
+
+... which is odd because apparently I did write all the stuff for
+doing that and it should do.
+
+the hostapd service is made by svc.secrets.subscriber, which updates its
+dependencies to include the secrets-service being watched
+
+when the watcher starts, it uses s6-svwait to wait for hostapd - but
+this is part of its run and there is no readiness notification, so no
+dependency loop - and then calls watch-outputs to restart that service
+as needed.
+
+which bit is supposed to cause the hostapd to not start in the first place
+until it has secrets? surely because it is dependent on a controlled service
+it should not be started nutil that service is started with up-tree
+
+Sat Aug 15 15:18:01 BST 2026
+
+outboard.nix doesn't do readiness notification, so perhaps hostapd is
+just starting too quickly? but i don't think that's it as hostapd is
+not started by the s6-rc-up-tree that brings up outboard, it gets
+kicked off way earlier
+
+Mon Aug 17 13:09:34 BST 2026
+
+a795591e218335ae964630d194f541d585ec71e5
+
+    secrets subscriber: depend on watched service(s)
+
+    if the secrets service has a long chain of dependencies (e.g https
+    fetch which requires ntp which requires network ...) but the
+    restartable service (e.g. hostapd) would otherwise start at boot, it
+    might have timed out of its restart loop before we even get to the
+    point that it could start successfully with a valid config
+
+    hand on heart: I am unsure if this is the right thing. maybe
+    secrets-consuming services should be required to provide placeholders
+    if there is no secret yet? the consequnce of adding this dependency is
+    if the secrets service fails, then the services depending on it will
+    all be brought down
+
+if we're going to change this behaviour we probably should make it
+easier to provide the placeholders. outputRef could have a third parameter
+
+outputRef config.services.secrets "wpa_passphrase" "not the real wifi secret"
+
+output-template.fnl already has a default arg, although it doesn't
+look at it until after it does (assert (svc.open service-path)) [which
+may or may not be ok, watch-fsevents may be confused by dangling
+symlink but we're not calling it]
+
+Mon Aug 17 13:29:59 BST 2026
+
+~I am mystified how services.sshd.authorizedKeys is supposed to work~
+
+sshd service blows up with hard-to-understand error messages if the
+yaml shape is not what it is expecting. should be
+
+ssh:
+    authorized_keys:
+        root:
+            - blah
+            - blah
+            - blah
+
+Ideally we would have something on the sops server documenting the
+schema, but it would be nice also to display an error message that
+says what the problem is
+
+Mon Aug 24 11:24:19 BST 2026
+
+the mystery LOG-SHIPPING-STOP continues to happen. it could be related
+to dhcp renews or it could be coincidental that they're the only other
+things in the log on a quiescent device
+
+
+wha gwan? if it's getting a NAK then it's quite reasonable for it to
+stop logging, but why is it getting a NAK? it gets the same address
+reissued whrn it sends discover
+
+
+
+[12:27:17.566] @400000006a8c2ab9235068a2 outsdie int.link.dhcpc udhcpc: sending renew to server 192.168.8.1
+[12:27:17.566] # LOG-SHIPPING-STOP
+
+[12:27:17.566] @400000006a8c2ab923c7f48e outsdie int.link.dhcpc udhcpc: received DHCP NAK
+[12:27:17.567] @400000006a8c2ab9247de66c outsdie int.link.dhcpc dhcp-notify nak
+[12:27:17.567] @400000006a8c2ab924922421 outsdie int.link.dhcpc received NAK on int
+[12:27:17.568] @400000006a8c2ab9269291fa outsdie int.link.dhcpc dhcp-notify deconfig
+[12:27:18.544] @400000006a8c2aba2aca54d0 outsdie log-shipper-live s6-tcpclient: fatal: unable to resolve loghost.telent.net: no available DNS server
+[12:27:19.520] @400000006a8c2abb302f1ab1 outsdie log-shipper-live s6-tcpclient: fatal: unable to resolve loghost.telent.net: no available DNS server
+[12:27:20.569] @400000006a8c2abc27c0ecaa outsdie int.link.dhcpc udhcpc: broadcasting discover
+[12:27:20.570] @400000006a8c2abc27ddc586 outsdie int.link.dhcpc udhcpc: broadcasting select for 192.168.8.47, server 192.168.8.1
+[12:27:20.571] @400000006a8c2abc2869f44b outsdie int.link.dhcpc udhcpc: lease of 192.168.8.47 obtained from 192.168.8.1, lease time 3600
+[12:27:20.571] @400000006a8c2abc28c97faf outsdie int.link.dhcpc dhcp-notify bound
+[12:27:20.572] @400000006a8c2abc308b097b outsdie int.link.dhcpc-watcher event   ip=     192.168.8.47
+
+Mon Aug 24 12:56:33 BST 2026
+
+looks like we're playing with two ip addresses somehow?
+
+
+# grep 192.168.8 /run/log/*
+[12:56:22.212] /run/log/current:@400000000000003b1a9e9ed2 outsdie int.link.dhcpc udhcpc: broadcasting select for 192.168.8.48, server 192.168.8.1
+[12:56:22.213] /run/log/current:@400000000000003b214ca3c6 outsdie int.link.dhcpc udhcpc: lease of 192.168.8.48 obtained from 192.168.8.1, lease time 3600
+[12:56:22.214] /run/log/current:@400000000000003b29b11916 outsdie int.link.dhcpc-watcher event  ip=     192.168.8.48
+[12:56:22.215] /run/log/current:@400000000000003b385c37d5 outsdie int.link.dhcpc-lease-acquired dhcp lease acquired 192.168.8.48
+[12:56:22.215] /run/log/current:@400000006a8c23d50e5060a8 outsdie int.link.dhcpc-watcher event  ip=     192.168.8.48
+[12:56:22.257] /run/log/current:@400000006a8c2ab9235068a2 outsdie int.link.dhcpc udhcpc: sending renew to server 192.168.8.1
+[12:56:22.257] /run/log/current:@400000006a8c2abc27ddc586 outsdie int.link.dhcpc udhcpc: broadcasting select for 192.168.8.47, server 192.168.8.1
+[12:56:22.257] /run/log/current:@400000006a8c2abc2869f44b outsdie int.link.dhcpc udhcpc: lease of 192.168.8.47 obtained from 192.168.8.1, lease time 3600
+[12:56:22.257] /run/log/current:@400000006a8c2abc308b097b outsdie int.link.dhcpc-watcher event  ip=     192.168.8.47
+[12:56:22.283] /run/log/current:@400000006a8c2abd0a6d2801 outsdie int.link.dhcpc-watcher event  ip=     192.168.8.47
+
+we start and swiftly kill three or four udhcp processes at startuo
+time (why so short timeout?) I wonder if there's a race here meaning we
+get > 1 address allocated and configure the wrong one
+
+Mon Aug 24 21:28:59 BST 2026
+
+the udhcp service times out a few times because it starts before any
+member has been added to the bridge. perhaps there's some way of
+making it dependent on the bridge having carrier, but that would
+depend on carrier detection for bridges being implemented as "at least
+one member has carrier"
+
+it takes 9 seconds to time out, which is 3 tries * 3 seconds delay
+
+It's notable that we're trying for a renew every 30 minutes which is
+half the lease time, so it's not the lease expiring that causes
+shipping to stop. and we don't even run anything on renew, so it can
+only be something in udhcp
+
+#   kill -USR1 390 # renew lease
+
+this does _not_ cause shipping to stop. except occasionally it does,
+just not reliably. I tihnk it may be only if a little while has elapsed since the previous renew
+
+
+# sleep 60 ; kill -USR1 390  # this seems to do it.
+
+# sleep 30 ; kill -USR1 390  # this didn't
