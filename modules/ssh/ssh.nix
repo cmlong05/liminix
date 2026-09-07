@@ -43,7 +43,7 @@ let
     (if address != null then "-p ${address}:${toString port}" else "-p ${toString port}")
   ]
   ++ [ extraConfig ];
-  isKeyservice = typeOf authorizedKeys == "lambda";
+  isKeyservice = authorizedKeys ? __functor;
   authKeysConcat =
     if authorizedKeys != null && !isKeyservice then
       mapAttrs (n: v: concatStringsSep "\\n" v) authorizedKeys
