@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Overrides for the JDCloud RE-CS-02, included through
+ * hardware.dts.includes after upstream's board dts.
+ *
+ * This is the complete list of places where the device tree we build
+ * differs from what upstream describes. They are overrides rather than
+ * patches so that every upstream file stays byte for byte: the board dts,
+ * the board dtsi and the vendored ipq6018-ess.dtsi are all used as taken.
+ */
+
+/*
+ * NSS crypto clock. Upstream's ipq6018-ess.dtsi asks for 600 MHz on
+ * GCC_NSS_CRYPTO_CLK, but the freq_tbl of nss_crypto_clk_src in mainline
+ * gcc-ipq6018.c only offers 24 MHz and 300 MHz, so clk_rcg2 cannot build a
+ * parent/divider for it: the CMD_UPDATE bit never self-clears and the
+ * kernel logs
+ *
+ *   nss_crypto_clk_src: rcg didn't update its configuration.
+ *   WARNING: CPU: ... at drivers/clk/qcom/clk-rcg2.c:136 update_config
+ *
+ * from qca_ppe_driver_init -> of_clk_set_defaults -> clk_set_rate. Measured
+ * on hardware the rate settles at 300 MHz anyway (debugfs:
+ * nss_crypto_clk_src clk_rate = 300000000, clk_parent = nss_crypto_pll,
+ * clk_enable_count = 1), i.e. 600 MHz was never achievable here and asking
+ * for it bought nothing but the warning. VIKINGYFY's immortalwrt "owrt"
+ * branch carries the same 300 MHz value, so this is not a number we
+ * invented.
+ *
+ * This used to be a LOCAL CHANGE inside the vendored copy of that dtsi;
+ * expressing it as an override leaves that file identical to upstream's and
+ * keeps the deviation visible in one place. Both branches need it.
+ */
+&switch {
+	assigned-clock-rates = <300000000>, <300000000>;
+};
+
+/*
+ * Bluetooth port. Upstream enables &blsp1_uart6 with its pin group even
+ * named btuart_pins (gpio48/49 muxed to blsp5_uart), but this board has no
+ * Bluetooth - nor does the sibling board upstream writes no such block for
+ * (ipq6010-re-cs-07.dts). Leaving it "okay" is not inert: CONFIG_SERIAL_MSM
+ * is enabled for the console, so the node binds and registers a second tty,
+ * and the pin group drives two pins to a serial function whose wiring on
+ * this board we do not know. The btuart-pins group stays in the tree as
+ * upstream defines it; with no device referencing it, pinctrl never applies
+ * it. If a Bluetooth module turns out to be wired to that port, deleting
+ * this override is all it takes.
+ */
+&blsp1_uart6 {
+	status = "disabled";
+};
