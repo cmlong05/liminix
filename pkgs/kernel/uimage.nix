@@ -79,7 +79,13 @@ stdenv.mkDerivation {
         };
     };
     _VARS
-    mkimage -f mkimage.its -E ${
+    # NB: no `-E` (external data) here: external-data FIT images are
+    # only understood by newer U-Boot versions. Older U-Boots (e.g.
+    # the 2016.01-based vendor bootloaders found on IPQ60xx devices)
+    # fail hash verification with a "can't get image data" error.
+    # Plain embedded-data FIT is what OpenWrt ships and works
+    # everywhere.
+    mkimage -f mkimage.its ${
       lib.optionalString (alignment != null) "-B 0x${lib.toHexString alignment}"
     } kernel.uimage
     mkimage -l kernel.uimage
