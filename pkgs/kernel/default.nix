@@ -9,11 +9,21 @@
   version ? "0",
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
+  rawConfigFile ? null,
 }:
 let
   stdenv = gcc13Stdenv;
   writeConfig = import ./write-kconfig.nix { inherit lib writeText; };
-  kconfigFile = writeConfig "kconfig" config;
+  # config items from the attrset (used both standalone and as an
+  # override layer on top of rawConfigFile)
+  attrConfig = writeConfig "kconfig-attr" config;
+  kconfigFile =
+    if rawConfigFile != null then
+      writeText "kconfig" (
+        builtins.readFile rawConfigFile + "\n" + builtins.readFile attrConfig
+      )
+    else
+      attrConfig;
   arch = stdenv.hostPlatform.linuxArch;
   targetNames = map baseNameOf targets;
   inherit lib;
@@ -78,8 +88,9 @@ stdenv.mkDerivation rec {
     ./phram-allow-cached-mappings.patch
   ++ lib.optional
     # this is inexact. kernels new enough to contain 2b0996c7646 but
-    # not new enough to contain 2fa490c0d759191
-    ((lib.versionAtLeast version "6.12.0") && (lib.versionOlder version "6.19.0"))
+    # not yet the upstream ath9k AHB of_match conversion (that landed
+    # in v6.17, so the workaround is only needed for 6.12..6.16)
+    ((lib.versionAtLeast version "6.12.0") && (lib.versionOlder version "6.17.0"))
     ./ath9k-ahb-replace-id_table-with-of.patch;
 
   # this is here to work around what I think is a bug in nixpkgs
@@ -112,7 +123,10 @@ stdenv.mkDerivation rec {
 
   checkConfigurationPhase = ''
     echo Checking required config items:
-    if comm -2 -3 <(grep 'CONFIG' ${kconfigFile} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
+    # Only check the attrset-supplied items: a rawConfigFile (e.g. a
+    # full OpenWrt .config) contains items for a possibly different
+    # kernel version that olddefconfig legitimately drops.
+    if comm -2 -3 <(grep 'CONFIG' ${attrConfig} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
       echo -e "^^^ Some configuration lost :-(\nPerhaps you have mutually incompatible settings, or have disabled options on which these depend.\n"
       exit 0
     fi
