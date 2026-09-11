@@ -57,8 +57,11 @@ int main(int argc, char *argv[], char *envp[])
 
     write(1, banner, strlen(banner));
 
+    /* /proc is always needed (we read /proc/cmdline below). /dev is
+     * NOT mounted here: s6-linux-init mounts a devtmpfs on /dev
+     * itself when it takes over, and a second mount would fail with
+     * EBUSY. Only the device (rootfs-mounting) branch needs it. */
     AVER(mount("none", "/proc", "proc", 0, NULL));
-    AVER(mount("none", "/dev", "devtmpfs", 0, NULL));
 
     int cmdline = open("/proc/cmdline", O_RDONLY, 0);
 
@@ -80,6 +83,7 @@ int main(int argc, char *argv[], char *envp[])
 
     if(opts.device) {
 	if(!opts.fstype) opts.fstype = "jffs2"; /* backward compatibility */
+	AVER(mount("none", "/dev", "devtmpfs", 0, NULL));
 	write(1, "rootdevice ", 11);
 	write(1, opts.device, strlen(opts.device));
 	write(1, " (", 2);
@@ -96,13 +100,24 @@ int main(int argc, char *argv[], char *envp[])
 	char *exec_args[] = { "activate",  "/target", NULL };
 	AVER(fork_exec("/target/persist/activate", exec_args));
 	AVER(chdir("/target"));
-
 	AVER(mount("/target", "/", "bind", MS_BIND | MS_REC, NULL));
 	AVER(chroot("."));
 
 	argv[0] = "init";
 	argv[1] = NULL;
 	AVER(execve("/persist/init", argv, envp));
+    } else {
+	/* No root device on the command line: the whole system is
+	 * embedded in this initramfs (boot.initramfs.fullSystem).
+	 * Populate the root filesystem with filesystem.contents via
+	 * activate, then hand over to s6 init (installed at
+	 * /init.s6 by the fullinitramfs builder). */
+	write(1, "full-system initramfs: activating\n", 34);
+	char *exec_args[] = { "activate",  "/", NULL };
+	AVER(fork_exec("/activate", exec_args));
+	argv[0] = "init";
+	argv[1] = NULL;
+	AVER(execve("/init.s6", argv, envp));
     }
     die();
 }
