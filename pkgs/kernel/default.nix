@@ -9,11 +9,21 @@
   version ? "0",
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
+  rawConfigFile ? null,
 }:
 let
   stdenv = gcc13Stdenv;
   writeConfig = import ./write-kconfig.nix { inherit lib writeText; };
-  kconfigFile = writeConfig "kconfig" config;
+  # config items from the attrset (used both standalone and as an
+  # override layer on top of rawConfigFile)
+  attrConfig = writeConfig "kconfig-attr" config;
+  kconfigFile =
+    if rawConfigFile != null then
+      writeText "kconfig" (
+        builtins.readFile rawConfigFile + "\n" + builtins.readFile attrConfig
+      )
+    else
+      attrConfig;
   arch = stdenv.hostPlatform.linuxArch;
   targetNames = map baseNameOf targets;
   inherit lib;
@@ -110,7 +120,10 @@ stdenv.mkDerivation rec {
 
   checkConfigurationPhase = ''
     echo Checking required config items:
-    if comm -2 -3 <(grep 'CONFIG' ${kconfigFile} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
+    # Only check the attrset-supplied items: a rawConfigFile (e.g. a
+    # full OpenWrt .config) contains items for a possibly different
+    # kernel version that olddefconfig legitimately drops.
+    if comm -2 -3 <(grep 'CONFIG' ${attrConfig} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
       echo -e "^^^ Some configuration lost :-(\nPerhaps you have mutually incompatible settings, or have disabled options on which these depend.\n"
       exit 0
     fi
