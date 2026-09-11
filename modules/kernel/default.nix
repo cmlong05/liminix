@@ -58,6 +58,17 @@ in
           };
         '';
       };
+      rawConfig = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = ''
+          Path to a raw .config-style text file (e.g. a complete
+          OpenWrt kernel config) used as the base kernel
+          configuration instead of the attrset alone. The attrset in
+          `config` is appended on top (overriding entries). Only the
+          attrset items are verified by the build.
+        '';
+      };
       conditionalConfig = mkOption {
         description = ''
           Kernel config options that should only be applied when
@@ -85,6 +96,7 @@ in
       liminix.builders.kernel.override {
         config = mergedConfig;
         inherit (config.kernel) version src extraPatchPhase;
+        rawConfigFile = config.kernel.rawConfig;
         targets = config.kernel.makeTargets;
       };
 
