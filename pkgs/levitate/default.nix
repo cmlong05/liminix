@@ -93,4 +93,5 @@ writeScriptBin "levitate" ''
     (cd $destdir && cp -a $path .$path)
   done
   ${sysconfig}/bin/activate $destdir
+  echo Copied files for floating minisystem. Now reboot and reconnect. Host key will have changed
 ''
