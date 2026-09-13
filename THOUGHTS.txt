@@ -9133,3 +9133,35 @@ just not reliably. I tihnk it may be only if a little while has elapsed since th
 # sleep 60 ; kill -USR1 390  # this seems to do it.
 
 # sleep 30 ; kill -USR1 390  # this didn't
+
+Mon Sep  7 12:31:47 BST 2026
+
+literal_or_output is defined differently in hostapd vs ppp
+
+what it does: for use with output-template, when its param is a string
+or a number then it just prints  the param, but when passed a lambda
+it assumes that lambda was made by outputRef and it transforms it into
+"{{ output(${toJSON (o "service")}, ${toJSON (o "path")})") }}"
+which  output-template will expand. This feels almost as precarious an
+evaluation model as TeX
+
+- potentially we could remove the conditional if we said e.g. that
+  the `output` function returns its constant second arg if passed
+  nil as the first arg. this isn't making a huge difference though
+
+- we could have a function that encapsulated literal_or_output and the
+  invocation of output-template, then we would DRY up {{{ }}}.
+  however .. its input would be the template and we would still
+  need to figure out how to represent that
+  ["# some text\n"
+   "username = " (outputRef secrets "name") "\n"
+   ...
+  ]
+
+- we could define __toString on the outputRef attrset. arguably this
+  is a bit cheeky because we would be defining it globally, but if the
+  expansion is "{{{ blah }}}" then it only is appropriate in a
+  quite limited context
+
+why did we decide to make outputRef a function anyway and not a
+attrset?
