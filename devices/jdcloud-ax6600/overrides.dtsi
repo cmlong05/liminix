@@ -6,7 +6,7 @@
  * This is the complete list of places where the device tree we build
  * differs from what upstream describes. They are overrides rather than
  * patches so that every upstream file stays byte for byte: the board dts,
- * the board dtsi and the vendored ipq6018-ess.dtsi are all used as taken.
+ * the board dtsi and the fetched ipq6018-ess.dtsi are all used as taken.
  */
 
 /*
