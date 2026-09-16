@@ -163,7 +163,6 @@ in
       };
       sharedDirectories = {
         liminix = {
-          securityModel = "none";
           source = builtins.toString ./.;
           target = "/home/liminix/liminix";
         };
