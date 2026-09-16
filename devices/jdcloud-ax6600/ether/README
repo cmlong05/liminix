@@ -1,0 +1,73 @@
+Qualcomm ESS/PPE/EDMA/UNIPHY in-tree ethernet port (E phase)
+
+Provenance: upstream OpenWrt master (openwrt/openwrt, mid-2026,
+qualcommax still on kernel 6.18), target/linux:
+- `generic/pending-6.18/737-01..737-07` - net core prerequisites that
+  are NOT in mainline 6.18.49: phylink internal-PCS handling,
+  phylink_release_pcs, firmware-node (fwnode) support for PCS
+  drivers, late PCS attach, pcs-handle dt-binding, `.pcs_link_down`.
+  Preceded by `generic/backport-6.18/703-01,703-02` (v7.0 phylink
+  resolve/helpers refactors, also not in 6.18.49).
+- `qualcommax/patches-6.18/0950..0953` - wiring: DSA out-of-band
+  tagging protocol, UNIPHY PCS driver (Kconfig/Makefile), PPE switch
+  driver, EDMA driver.
+- `qualcommax/patches-6.18/0080/0082/0191` - IPQ6018 CMN PLL
+  dt-bindings + driver data + keep-bus-clocks (base driver
+  `ipq-cmn-pll.c` is already mainlined in 6.18).
+- `qualcommax/patches-6.18/0904/0917` - gcc-ipq6018 networking-clock
+  workarounds.
+- `qualcommax/files/...` - driver/dts sources, fetched at build time
+  (qca_edma, qca_ppe_main/scheduler/vlan, pcs-qca-uniphy,
+  ipq6018-ess.dtsi, headers). They are NOT in this tree: `./SOURCES.nix`
+  holds the pin, the per-file blob sha and sha256, and `default.nix`
+  installs them into the kernel tree.
+
+Layout & usage (all done in `kernel.extraPatchPhase` of
+devices/jdcloud-ax6600/default.nix; in this wired-only branch there are
+no wifi patches underneath - the radio patches that the ax6600 branch
+stacks this port on top of are not present here):
+
+    fetch each file and patch from the pin in ../SOURCES.nix
+    install the files into the kernel root
+    apply the patches in the order listed in ./SOURCES.nix
+    apply fixups.patch            (0950's failed hunks + one Kconfig line)
+    sentinel greps verify the result
+
+`ether/src/` and `ether/patches/` no longer exist. What is left here is
+what the port owns: `fixups.patch` and these two documents.
+
+Order (matters): 703-01, 703-02, 737-01 .. 737-07, 0080, 0082, 0191,
+0904, 0917, 0950, 0951, 0952, 0953. Two of them do not apply whole to
+mainline 6.18.49, because their contexts assume OpenWrt's cumulative net
+tree, but only one of the two needs anything from us:
+
+- `0950`: mainline 6.18.49 has no MXL862 DSA tags, so DSA_TAG_PROTO_OOB
+  is appended with value 32, and the CONFIG_NET_DSA_TAG_OOB / net/dsa.h
+  includes are inserted in skbuff.c. Both are in `fixups.patch` - without
+  them `net/dsa/tag_oob.c` and the SKB_EXT_DSA_OOB entry do not compile.
+- `737-02`: its last hunk (the guard around the PCS handover in
+  phylink_major_config) also fails, but the patch's own earlier hunks
+  already applied that handover, and the guard tests `mac_select_pcs`,
+  which this stack never implements. It is deliberately NOT supplied;
+  see the head of `fixups.patch`.
+
+`fixups.patch` also carries `select PAGE_POOL` for QCOM_EDMA: the pinned
+0953 leaves that dependency implicit, and upstream only gets away with it
+because their target config sets `CONFIG_PAGE_POOL=y`. It has to be a
+Kconfig select and cannot be a line in our kernel config, because mainline
+declares PAGE_POOL with no prompt and kconfig ignores .config for promptless
+symbols.
+
+kernel config enables: NET_DSA, NET_DSA_TAG_OOB, PCS_QCA_UNIPHY,
+QCOM_80211AX_PPE, QCOM_EDMA, IPQ_CMN_PLL (all =y, so the DSA ports
+register at boot).
+
+Board side (done): the board dts includes ipq6018-ess.dtsi and enables
+the qca8075-package PHYs / uniphy0+1 / switch ports (swport1..5:
+lan1-4 psgmii via QCA8075, wan 2500base-x via QCA8081) / edma,
+modelled on OpenWrt dts/ipq6010-re-cs-02.dts. See
+../ipq6010-jdcloud-re-cs-02.dts (ethernet section) and ../BRINGUP.md.
+
+Historical alternative routes (qca-ssdk/qca-nss-dp external modules;
+staying on 6.12 with a full net-core backport) were rejected in
+favour of this in-tree 6.18 port; see BRINGUP.md E section.
