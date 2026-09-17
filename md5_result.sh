@@ -1,21 +1,20 @@
 #!/bin/sh
 # Print size + md5 for every flashable Liminix artifact for the JDCloud
-# AX6600 on this (wired-only) branch. Usage:
+# AX6600 on this branch. Usage:
 #   sh md5_result.sh
 #
-# Ported from the `ax6600` branch's result-md5.sh (commit f1e65ed),
-# with the artifact list adjusted: this branch has no wifi configs
-# (result-wifi / result-wifi-ram / result-ram) and no TFTP/boot.scr path
-# (result / result-lan). The only image it covers:
+# Ported from the `ax6600` branch's result-md5.sh (commit f1e65ed), with
+# the artifact list adjusted: this branch has no TFTP/boot.scr path
+# (result / result-lan). Both images it covers are single full-system FIT
+# ram images for the U-Boot web uploader:
 #
-#   result-lan-ram  - `ax6600-lan-ram.nix -A outputs.uimage` (single
-#                     full-system FIT ram image)
+#   result-lan-ram  - `ax6600-lan-ram.nix -A outputs.uimage`   (wired)
+#   result-wifi     - `ax6600-wifi-ram.nix -A outputs.uimage`  (wired + radio)
 #
-# Record the md5 before uploading to the U-Boot web uploader, and verify
-# it again after boot.
+# Record the md5 before uploading, and verify it again after boot.
 set -u
 cd "$(dirname "$0")"
-for r in result-lan-ram; do
+for r in result-lan-ram result-wifi; do
     if [ -e "$r" ]; then
         real=$(readlink -f "$r")
         printf '%-16s -> %s\n' "$r" "$real"

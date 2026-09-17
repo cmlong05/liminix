@@ -1,0 +1,210 @@
+# ath11k radio port for the JDCloud AX6600 (RE-CS-02)
+
+Provenance: **ImmortalWrt, pinned in `../SOURCES.nix`** (the same ref the
+board device tree and the ethernet port come from), plus the upstream repos
+that pin names. What ImmortalWrt does for this board's wifi is a patch set on
+upstream Linux, not vendor code:
+
+```
+upstream Linux 6.18
+ ├─ target/linux/generic/pending-6.18/790-bus-mhi-core-add-SBL-state-callback.patch
+ ├─ target/linux/qualcommax/patches-6.18/0112,0113,0114,0115,0116,0119,0136,
+ │                                      0903,0905,0906,0907,0908
+ │      (q6v5_wcss remoteproc: secure PIL, split q6/m3 firmware, IPQ6018
+ │       driver data, PRNG proxy clock, optional resets, ssr name, wifi node)
+ ├─ package/kernel/mac80211/patches/ath11k/{100,101,201,453,903,906,907,910,
+ │                                          931,948,949,983,984}
+ ├─ package/kernel/mac80211/patches/subsys/*          (21 patches, NOT applied)
+ ├─ linux-firmware            → ath11k/QCN9074/hw1.0/{amss,m3}.bin
+ │                              ath11k/IPQ6018/hw1.0/board-2.bin
+ ├─ CodeLinaro ath11k-firmware → /lib/firmware/IPQ6018/{q6,m3}_fw.*
+ └─ openwrt/firmware_qca-wireless → board-jdcloud_re-cs-02.qcn9074
+```
+
+The backports tree ImmortalWrt builds mac80211 from is upstream Linux renamed
+(`CPTCFG_` → `CONFIG_`), plus those patches and nothing else — `research/port/`
+proves that byte for byte. So "porting ImmortalWrt's wifi" is applying the same
+upstream patches to this device's 6.18.49 kernel and supplying the same
+firmware; it is not importing a driver.
+
+## Layout
+
+- `SOURCES.nix` — the manifest, and the only place that answers "what does the
+  radio take from upstream". Every fetched patch with its git blob id and
+  sha256, every firmware file, the calibration offsets, the kernel symbols and
+  why each is needed, and the reference material that is checked but not
+  applied.
+- `960-…`, `961-…`, `970-…`, `999-…` — the four patches this port owns, written
+  against failures seen on this board and on Liminix's boot shape. Everything
+  else is fetched.
+- the device: `../default.nix` runs the manifest's patch lists in
+  `kernel.extraPatchPhase` and turns `kconfig` into the `WLAN` conditional
+  block; `../../ax6600-wifi.nix` is the service side and
+  `../../ax6600-wifi-ram.nix` the buildable image.
+
+`../SOURCES.nix` carries `wifiNodePatch` (upstream 0906, the wifi@c000000
+node) because the board device tree cannot compile without it whether or not
+the radio is driven; the port's kernel patches are applied immediately after
+it, so 0906 lands before 0907 exactly as upstream orders them.
+
+## What is applied, and in what order
+
+1. `wifiNodePatch` (0906) — device tree only.
+2. `kernel`, in the listed order: 790, 0112, 0113, 0114, 0115, 0116, 0119,
+   0136, 0903, 0905, 0907, 0908. Order is load-bearing: 0113 adds the
+   secure-PIL path to `q6v5_wcss.c`, 0114 splits q6/m3, and 0136 is what
+   populates the IPQ6018 entry (`need_mem_protection = true`,
+   `m3_firmware_name = "IPQ6018/m3_fw.mdt"`).
+3. `ath11k`, in the listed order — the ImmortalWrt ath11k set.
+4. `ath11kFork` — one patch that exists only in the fork whose image the
+   reference unit runs.
+5. `linux` — seven ath11k fixes that are upstream but not in the 6.18.49
+   tarball, fetched from the commit itself.
+6. `local` — this port's four patches.
+
+All of it applies to pristine 6.18.49 with zero fuzz and no reject files; the
+build asserts that (a `.rej` scan) rather than trusting it. That is why the
+patch phase for the radio is strict, while the ethernet phase next to it still
+tolerates two known partial patches.
+
+## What is deliberately not applied
+
+- **`subsys` — the 21 mac80211/cfg80211 patches.** This is the one large
+  difference between this stack and the reference's. It is off because it
+  breaks bring-up here: with the set applied, both radios fail at
+  firmware-ready (PCI `qmi failed to load bdf file`, -110; AHB fails in
+  `ath11k_core_qmi_firmware_ready`), and removing the set restores them.
+  Dropping 905 changes nothing, so the whole set is the problem, not one
+  patch. It is listed with every hash so that a future bisect is a one-line
+  change; two of the 21 need a rebase first (301: `CPTCFG_` →
+  `CONFIG_MAC80211_MESH`; 304 hunk 4/8).
+- **`ath11k` 905 (regulatory intersection removal).** It looks like the
+  highest-value single patch — it changes which widths the driver advertises —
+  but it was applied during the bisect above and did not help, and it is
+  implicated in earlier bring-up failures. First candidate for an A/B.
+- **920–925 (QCN6122, 900 thermal symbol, 947).** Different hardware, or
+  backports-only plumbing that collides with an in-tree config. 923 is worth
+  remembering: it is also where `service_ins_id += userpd_id` comes from.
+- **OpenWrt master's ath11k 950/951** (AHB CE interrupts). ImmortalWrt at our
+  pin does not have them; this port's own 960/961 cover the same failure.
+
+## Firmware and calibration
+
+| file | source |
+|---|---|
+| `ath11k/QCN9074/hw1.0/amss.bin`, `m3.bin` | linux-firmware (nixpkgs; ImmortalWrt pins the 20260810 tarball — recorded in the manifest) |
+| `ath11k/QCN9074/hw1.0/board-2.bin` | `openwrt/firmware_qca-wireless` at the commit ImmortalWrt's ipq-wifi pins, fetched and hashed |
+| `ath11k/QCN9074/hw1.0/cal-pci-0000:01:00.0.bin` | this unit's ART partition, offset 0x26800, 0x20000 bytes |
+| `IPQ6018/{q6,m3}_fw.*` | CodeLinaro ath11k-firmware, the tree ImmortalWrt's ath11k-firmware-ipq6018 installs |
+| `ath11k/IPQ6018/hw1.0/board-2.bin` | linux-firmware |
+| `ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin` | this unit's ART partition, offset 0x1000, 0x10000 bytes |
+| `regulatory.db` | wireless-regdb |
+
+The calibration slices are the `caldata_extract_mmc` table ImmortalWrt keeps
+for `jdcloud,re-cs-02`; the offsets are recorded in the manifest with the
+upstream line they came from. They are per-unit data, so no URL can supply
+them and nothing about them is baked into the image: `ax6600-wifi.nix`'s
+`services.firmware-ath11k` finds the eMMC's ART GPT partition by `PARTNAME`
+(the partition's name is literally `0:ART` — that is the string ImmortalWrt's
+`find_mmc_part()` matches), cuts the two slices out of the partition device and
+leaves them in `/lib/firmware` — at every boot, which is what the partition is
+for. Only the shell around the table is ours; the offsets, names and sizes are
+the manifest's.
+
+## How the radios come up
+
+The image builds the wireless stack in (`=y`), and a built-in driver probes its
+devices during kernel init — before any userspace exists, so before the
+firmware and calibration above can be staged. Patch 999 therefore makes both
+`ath11k_pci_probe` and `ath11k_ahb_probe` return early while the kernel is
+still booting, and two services do the work in order:
+
+1. `firmware-ath11k` — tmpfs over `/lib/firmware`, static firmware copied in,
+   ART slices read out of the eMMC.
+2. `ath11k-probe` — depends on that; waits 20s, then writes `0000:01:00.0` to
+   `/sys/bus/pci/drivers_probe` and `c000000.wifi` to
+   `/sys/bus/platform/drivers_probe`, renames the netdevs it finds to
+   `wlan5g1` / `wlan24`, and retries the PCIe card a few times (unbinding a
+   failed attempt first, which patch 970 makes safe).
+
+That is the ordering ImmortalWrt gets for free by loading `ath11k` as a module
+about 28 seconds in, after its caldata hotplug hook has run.
+
+## Kernel configuration
+
+`kconfig.infra` + `kconfig.wlan` in the manifest, applied only when
+`modules/wlan.nix` is imported (it sets `WLAN = "y"`). The wired-only images
+therefore carry none of the wireless stack, and are unchanged by this port
+except for the patches themselves — two of which (0903 PSCI, 0907 smp2p/device
+tree) do affect a wired build, and are noted in the manifest.
+
+A full-system ram image cannot load modules, so `ax6600-wifi-ram.nix` forces
+the module-form symbols to `y` and disables the device's conditional block
+(which would otherwise re-apply `=m`).
+
+## Building and booting
+
+```console
+$ nix-build --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-wifi-ram.nix -A outputs.uimage -o result-wifi
+```
+
+then upload `result-wifi` through `http://192.168.1.1/uimage.html`. The wired
+LAN comes up as before; the 5 GHz AP is `Liminix-AX6600` on channel 36 (VHT80),
+the 2.4 GHz one `Liminix-AX6600-2G` on channel 6, both WPA2 with passphrase
+`liminix-wifi` — bring-up defaults, not deployment values.
+
+Observable without a serial console: `iw dev` lists `wlan24` and `wlan5g1`,
+`dmesg` shows `firmware-ath11k: reading pre-calibration from …` followed by
+the two ath11k instances probing, and clients associate.
+
+The extraction itself was checked off-device against a dump of this board's
+ART partition: running the generated `firmware-ath11k/up` script against it
+(and a fake sysfs) produces a PCI pre-cal with md5 `8b467756…`, which is the
+md5 the working reference unit's `cal-pci-0000:01:00.0.bin` has.
+
+## Hardware status, honestly
+
+This port is a *source* port: every patch and every file is verified to apply
+and to be the pinned upstream revision, and the image builds. It has not been
+booted on hardware from this tree. What the ax6600 branch learned on the unit
+and what it means here:
+
+- **The MHI SBL callback site matters.** The manifest takes upstream's 790
+  (fired from the control-event ring) rather than the branch's own hook in the
+  MHI state machine; on hardware that difference was the whole difference
+  between ">20 MHz asserts the firmware" and "VHT80 works".
+- **Firmware version matters.** The reference unit runs QCN9074
+  WLAN.HK.2.15.0.1.r2 from VIKINGYFY's firmware repo, which measured clearly
+  better than the older linux-firmware image under sustained load. The manifest
+  records that pin and its three hashes as an alternative; the default here is
+  ImmortalWrt's own source.
+- **Sustained-load asserts were reduced, not eliminated.** The six upstream
+  fixes in the `linux` list (RX hardening, WMI and beacon leak fixes, the
+  PCI shutdown race) lengthened survival a lot; a 500 Mbit/s client could
+  still eventually take the firmware down. The AP here is AC-only for that
+  reason.
+- **The AHB radio's second pdev** (its 5 GHz half) is left idle rather than
+  given a mis-banded AP.
+- **Watchdogs are not part of this port.** The branch ran hostapd health checks
+  and a station-kicking service to recover from a firmware crash; those are
+  operational workarounds, not upstream handling, so they were left behind.
+  `research/iwrt`'s DEVELOPMENT_LOG 4.13–4.18 has the measurements.
+
+## Tracking upstream
+
+The ref lives in `../SOURCES.nix` and is shared with the device tree and the
+ethernet port; move it there, rebuild, and take the new sha256 values from
+fetchurl's error messages. What to re-check when it moves:
+
+- do the ath11k/kernel patch lists still apply with zero fuzz (the build's
+  `.rej` scan is the check);
+- has 950/951 arrived in ImmortalWrt (then the local 960/961 can go);
+- has the subsys set stopped breaking bring-up (then it can be turned on, and
+  the entry's hashes are already there);
+- has `905` become safe;
+- is `openwrt/firmware_qca-wireless` still the BDF's home
+  (`package/firmware/ipq-wifi/Makefile` says).
+
+The blob ids, not the file names, are the identity check: the same file names
+exist in several immortalwrt forks with different stacks behind them.

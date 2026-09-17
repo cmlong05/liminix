@@ -107,6 +107,7 @@ let
     "mknod"
     "mktemp"
     "mount"
+    "mountpoint"
     "mv"
     "nc"
     "netstat"
@@ -210,6 +211,15 @@ in
         BASH_IS_NONE = "y";
         SH_IS_ASH = "y";
         ASH_BASH_COMPAT = "y";
+        # POSIX shell arithmetic ($((...))): enableMinimal turns this off,
+        # which breaks service scripts that count with $((i+1)) - the ath11k
+        # radio probe and interface-naming services do.
+        FEATURE_SH_MATH = "y";
+        FEATURE_SH_MATH_64 = "y";
+        # "[" is the bracket form of test, built by CONFIG_TEST1 (NOT
+        # CONFIG_TEST, which only builds "test"), and enableMinimal turns
+        # TEST1 off. Service scripts use [ -e ... ], so it goes back on.
+        TEST1 = "y";
         FEATURE_EDITING = "y"; # readline-ish command editing
         FEATURE_EDITING_HISTORY = "128";
         FEATURE_EDITING_MAX_LEN = "1024";
@@ -223,6 +233,10 @@ in
         {
           busybox = symlink "${busybox}/bin/busybox";
           sh = symlink "${busybox}/bin/busybox";
+          # "[" is the bracket form of test, built by CONFIG_TEST1 (see the
+          # options above). It is not in the applet list, so its symlink is
+          # created here by hand.
+          "[" = symlink "${busybox}/bin/busybox";
         }
         // makeLinks
       );

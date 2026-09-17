@@ -1,17 +1,19 @@
-# JDCloud AX6600 (RE-CS-02) — Liminix **wired-only (no wifi)** bring-up
+# JDCloud AX6600 (RE-CS-02) — Liminix bring-up
 
-Branch: `test` (based on `dd65cce0bbc644396a6d7c0e440c4c895a68f944`).
+Branch: `test`.
 
-This branch carries the **Ethernet (phase E) work only**. Every trace of
-the radio work has been deliberately removed; see
-[What was excluded](#what-was-excluded-no-wifi) at the bottom for the
-exact list. Peer branch `ax6600` carries the full radio bring-up.
+This branch carries the **Ethernet (phase E) work** and, since the radio
+port landed, the **wifi work** as well. Both are ports of upstream
+OpenWrt/ImmortalWrt material that is fetched at build time rather than
+committed: the ethernet side is `./ether/`, the radio side is `./wifi/`
+(its README is the place to read about the wifi port).
 
 Status: **Ethernet kernel port + board wiring landed and build-verified;
 on-hardware validation pending** (the board is not currently reachable
-for this branch). The configuration here is a copy of the wired-only
-configuration that was built and booted on hardware on the `ax6600`
-branch, with the wifi parts taken out — no driver code was modified.
+for this branch). The wired configuration is a copy of the one that was
+built and booted on hardware on the `ax6600` branch. The wifi port is
+build-verified here (kernel, firmware and image all build); it has not
+been booted from this tree, and the note below says what that means.
 
 ## Background / hardware
 
@@ -25,8 +27,10 @@ branch, with the wifi parts taken out — no driver code was modified.
   `/initramfs.html` does the same on some builds).
 - Ethernet: QCA8075 4x1G (`lan1`..`lan4`) + QCA8081 2.5G (`wan`),
   driven by the ESS/PPE/EDMA/UNIPHY stack.
-- WiFi: **absent** — no PCIe node, no ath11k, no wireless kernel
-  config, no `wlan*` interface.
+- WiFi: QCN9074 5GHz on PCIe0 (perst GPIO53) and the IPQ6018 AHB radio,
+  both ath11k. Ported — see [WiFi](#wifi-ported) below and
+  `./wifi/README`. Only images that import `modules/wlan.nix` carry the
+  wireless stack; the wired-only images are unchanged.
 
 ## Why the ethernet driver had to be vendored
 
@@ -242,33 +246,39 @@ reads 1 GiB, the bootloader fixup did not happen, and the thing to add is
 a **bare `/memory` node** (not `memory@…`), which the fixup will then
 overwrite rather than duplicate.
 
-## What was excluded (no wifi)
+## WiFi (ported)
 
-Relative to the `ax6600` branch (`ca25acc`), the following were **not**
-brought over:
+The radio work that used to live only on the `ax6600` branch is now here,
+in the same shape as the ethernet port: ImmortalWrt's ath11k and
+remoteproc/wcss patches, its firmware, and this board's ART calibration,
+with every fetched byte pinned by URL and hash and every local byte
+accounted for.
 
-- `devices/jdcloud-ax6600/patches/100-wcss-ipq6018.patch` — `q6v5_wcss`
-  remoteproc driver data for the AHB radio.
-- `devices/jdcloud-ax6600/patches/110-ipq6018-wifi-node.patch` — the
-  `wifi@c000000` ath11k AHB node added to `ipq6018.dtsi`.
-- The whole ath11k firmware staging service (`firmware-ath11k`), the
-  QCN9074 `board-2.bin` fetch, the ART pre-cal extraction and the
-  `ath11k` kmodloader target in `devices/jdcloud-ax6600/default.nix`.
-- The `filesystem.lib.firmware.ath11k` mount point.
-- PCIe/PHY/REMOTEPROC kernel config (`PCI`, `PCIE_QCOM`, `PHY_QCOM_QMP*`,
-  `REMOTEPROC`) and the entire wireless `conditionalConfig` block
-  (`WLAN`, `ATH_COMMON`, `ATH11K*`, `QCOM_Q6V5_WCSS`, `QCOM_SMP2P`, ...).
-- `wlan0` from `hardware.networkInterfaces`, and the `iw` package from
-  `ax6600-lan.nix`.
-- The `pcie_phy`, `wifi` and `pcie0` (with its ath11k child) nodes from
-  the board dts, plus the PCIe comment block.
-- The wifi-only top-level configs `ax6600-wifi.nix`, `ax6600-wifi-ram.nix`
-  and `ax6600-ram.nix`.
+- Manifest: `./wifi/SOURCES.nix`. Prose: `./wifi/README`.
+- Applied by `./default.nix`'s `extraPatchPhase`, in the manifest's order,
+  strictly (a failed patch or a leftover `.rej` stops the build — unlike
+  the ethernet phase, which still tolerates two known partial patches).
+- Kernel configuration: `WLAN` block in the same file, applied only when
+  `modules/wlan.nix` is imported. The wired-only images therefore still
+  have no wireless kernel code at all (verified: their built `.config`
+  contains no `CONFIG_ATH11K`, no `CONFIG_QRTR`, no `CONFIG_QCOM_Q6V5_WCSS`).
+- Image: `ax6600-wifi-ram.nix` (wired router + both radios). It needs no
+  per-unit build input: the firmware service reads this board's
+  pre-calibration out of the eMMC ART partition at boot, the way
+  ImmortalWrt's `11-ath11k-caldata` does, and the (built-in) drivers are
+  bound afterwards from `services.ath11k-probe` — see the port's README
+  for why patch 999 exists.
+- Two of the manifest's patches are not wifi-only: 0903 (PSCI OSI for
+  IPQ6018) and 0907 (smp2p ack in `ipq6018.dtsi`) also affect a wired
+  build. Both are upstream's, and the wired image builds and links
+  unchanged with them applied.
 
-`modules/wlan.nix` itself still exists in the tree (it is an upstream
-base file at this commit), but **nothing in this branch imports it**, so
-no wireless kernel code or config is pulled in. The kernel's `WLAN`
-symbol therefore stays `n`.
+Not ported, on purpose: the `ax6600` branch's operational scaffolding
+(hostapd health checks, the firmware-crash station kicker, `mlog`,
+`iperf3`, kexec). Those were bring-up tools rather than upstream wifi
+handling. `research/` (gitignored) still has the `ax6600` branch's
+`DEVELOPMENT_LOG.md` measurements behind the choices the manifest
+records.
 
 ## Next steps
 
@@ -277,3 +287,9 @@ symbol therefore stays `n`.
 2. Confirm a DHCP lease on `lan1` and `2500base-x` on `wan`.
 3. Read the label MAC from the eMMC `0:ART` GPT partition and set it on
    the interfaces (`mtd_get_mac_binary` equivalent) — not done yet.
+4. Boot `ax6600-wifi-ram.nix` and check: `iw dev` shows `wlan24` and
+   `wlan5g1`; `dmesg` shows `firmware-ath11k` reading the calibration out
+   of the ART partition and `ath11k-probe` binding both devices; a client
+   associates on 5GHz. Then re-test the >20 MHz and sustained-load cases
+   the `ax6600` log describes, since those are what the manifest's
+   choices (upstream MHI 790, the Linux cherry-picks) are aimed at.

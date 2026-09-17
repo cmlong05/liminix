@@ -36,7 +36,10 @@ in
         ASN1 = "y";
         ASYMMETRIC_KEY_TYPE = "y";
         ASYMMETRIC_PUBLIC_KEY_SUBTYPE = "y";
-        CRC_CCITT = "y";
+        # CRC_CCITT removed: from 6.18 olddefconfig discards an explicit =y
+        # for this library (it has no prompt under the config we build),
+        # which trips the liminix config-consistency check. Drivers that need
+        # it (e.g. p54/rt2x00) select it themselves.
         CRYPTO = "y";
         CRYPTO_ARC4 = "y";
         CRYPTO_CBC = "y";

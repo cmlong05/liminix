@@ -7,13 +7,15 @@
 
   description = ''
 
-    == JDCloud RE-CS-02 (京东云雅典娜 AX6600) - WIRED-ONLY build
+    == JDCloud RE-CS-02 (京东云雅典娜 AX6600)
 
-    This is the no-wifi variant. All WiFi/PCIe/ath11k material has been
-    removed on purpose: no radio kernel patches, no ath11k firmware
-    staging service, no PCIe node in the device tree and no wlan
-    network interfaces. The Ethernet stack is untouched and complete.
-    See the ax6600 branch for the radio bring-up variant.
+    Both halves of this board are ported here: the ethernet switch (phase
+    E, always built) and the two radios (the wifi port, built only for
+    images that import `+modules/wlan.nix+`). Neither port keeps upstream's
+    bytes in this tree - the kernel patches, the driver sources and the
+    firmware are fetched by URL and hash at build time, and the ledger that
+    says which revision each is lives beside the port (`+./SOURCES.nix+`,
+    `+./ether/SOURCES.nix+`, `+./wifi/SOURCES.nix+`).
 
     === Hardware summary
 
@@ -22,12 +24,30 @@
       `+0:HLOS+`/`+0:HLOS_1+` (6MiB kernel FIT slots), `+rootfs+`/
       `+rootfs_1+` (2GiB), `+0:ART+` (calibration, keep a backup)
     * Ethernet: QCA8075 4x 1G switch + QCA8081 2.5G PHY over the
-      ESS/PPE/EDMA/UNIPHY stack (see phase E below). This is the only
-      network transport in this variant.
-    * WiFi: REMOVED (QCN9074 5GHz on PCIe0 and the IPQ6018 AHB radio
-      are both absent from the kernel config and the device tree)
+      ESS/PPE/EDMA/UNIPHY stack (see phase E below)
+    * WiFi: QCN9074 5GHz 4x4 ath11k on PCIe0 (perst on GPIO53) and the
+      IPQ6018 AHB radio (2.4G + 5G) driven by ath11k_ahb over the
+      q6v5_wcss remoteproc. Both are ported; see the wifi section below.
     * serial console on BLSP1 UART3 (`+serial@78b1000+`, 115200n8)
     * USB 3.0, tmp1628 status display, 3 LEDs / 3 keys
+
+    === WiFi: the ath11k port
+
+    ImmortalWrt's wifi support for this board is a patch set on upstream
+    Linux, not vendor code: its mac80211/ath11k comes from a backports tree
+    that is upstream v6.18.39 renamed, plus `+patches/ath11k/*+` and
+    `+target/linux/qualcommax/patches-6.18/*+`. This device applies those
+    same upstream patches to its own 6.18.49 kernel, at the same pin the
+    board dts and the ethernet port come from, and adds the firmware and
+    board data the two radios ask for. `+./wifi/SOURCES.nix+` is the
+    manifest - every patch with its blob sha and sha256, the firmware
+    sources, the ART calibration offsets, and the entries deliberately not
+    applied with the reason - and `+./wifi/README+` is the prose.
+
+    Radios come up only in images that import `+modules/wlan.nix+`; the
+    wired-only images build none of the wireless stack. `+ax6600-wifi-ram.nix+`
+    is the buildable one: lan1..lan4 and the access points bridged into one
+    LAN, the 2.5G port as the PPPoE uplink.
 
     === Ethernet (phase E): ESS/PPE/EDMA/UNIPHY
 
@@ -104,6 +124,13 @@
       lim,
       ...
     }:
+    let
+      # The device's own ledger. `wifi` is the radio port's manifest: its
+      # patch lists, its kernel configuration and its firmware sources. See
+      # ./wifi/README for what it is and why it looks like that.
+      sources = import ./SOURCES.nix;
+      wifi = sources.wifi;
+    in
     {
       imports = [
         ../families/ipq6018.nix
@@ -124,23 +151,23 @@
             inherit (kernelSource) url sha256;
           };
         version = "6.18.49";
-        # Ethernet only for now. The radio is not driven on this branch -
-        # no ath11k, no remoteproc, no PCIe config - but the device tree
-        # keeps it: the board dts below is upstream's, which is the radio
-        # variant, and the only thing that makes it compile here is
-        # upstream's own device-tree-only patch (wifiNodePatch in
-        # ./SOURCES.nix, fetched by URL like the dts itself) which adds the
-        # wifi@c000000 node those references point at. Adding wireless later
-        # means adding drivers and config, not touching the device tree.
+        # Two ports live here, and neither keeps upstream's bytes in this
+        # tree: the radio (./wifi/SOURCES.nix) and the ethernet switch
+        # (./ether/SOURCES.nix). Both are fetched by URL and hash from the
+        # pin in ./SOURCES.nix and applied below.
         #
-        # E phase: Qualcomm ESS/PPE/EDMA/UNIPHY in-tree ethernet
-        # (ported from upstream OpenWrt qualcommax; see ./ether/README).
-        # Nothing upstream is committed to this tree: the driver files and
-        # the patches are fetched here by URL and hash. The pin is in
-        # ./SOURCES.nix, the list and its order in ./ether/SOURCES.nix.
+        # The board dts is upstream's radio variant, so both ports are
+        # patch-only: upstream's own device-tree-only wifi-node patch
+        # (wifiNodePatch in ./SOURCES.nix) is what lets that dts compile
+        # here, and the wifi port's kernel patches then extend the same
+        # tree - 0906 before 0907, the order upstream applies them in.
         extraPatchPhase =
           let
-            sources = import ./SOURCES.nix;
+            # A driver file's path inside the kernel tree is its upstream
+            # path with the target prefix removed - the same layout the
+            # old `cp -r ether/src/. .` produced.
+            kernelPath = f: lib.removePrefix "target/linux/qualcommax/files/" f.path;
+            patchName = p: baseNameOf p.path;
             upstreamFile =
               path: hash:
               pkgs.pkgsBuildBuild.fetchurl {
@@ -148,14 +175,70 @@
                 inherit hash;
                 url = "${sources.upstream.rawBase}/${path}";
               };
-            # A driver file's path inside the kernel tree is its upstream
-            # path with the target prefix removed - the same layout the
-            # old `cp -r ether/src/. .` produced.
-            kernelPath = f: lib.removePrefix "target/linux/qualcommax/files/" f.path;
-            patchName = p: baseNameOf p.path;
+            # The wifi port's inputs come from several places; each helper
+            # fetches from the pin that owns the entry, so the sha256 in
+            # wifi/SOURCES.nix is the whole proof of which revision it is.
+            patchFrom =
+              base: p:
+              pkgs.pkgsBuildBuild.fetchurl {
+                name = baseNameOf p.path;
+                inherit (p) sha256;
+                url = "${base}/${p.path}";
+              };
+            linuxPatch =
+              p:
+              pkgs.pkgsBuildBuild.fetchurl {
+                name = "${p.commit}.patch";
+                inherit (p) sha256;
+                url = "${wifi.pins.linux.repo}/commit/${p.commit}.patch";
+              };
             wifiNodePatch = upstreamFile sources.wifiNodePatch.path sources.wifiNodePatch.sha256;
+            wifi = sources.wifi;
+            # Every wifi patch is staged by name first, then applied in the
+            # order the manifest lists: files fetched from the store are
+            # exactly the pinned revision, and the loop can walk them.
+            wifiPatchFiles =
+              map (patchFrom sources.upstream.rawBase) wifi.kernel
+              ++ map (patchFrom sources.upstream.rawBase) wifi.ath11k
+              ++ map (patchFrom wifi.pins.viking.rawBase) wifi.ath11kFork
+              ++ map linuxPatch wifi.linux;
+            # Local patches are named as *paths* (dir + file), not as strings:
+            # Nix then copies only those files into the store, so editing a
+            # document in wifi/ does not invalidate the kernel.
+            wifiLocalFiles = map (f: ./wifi + "/${f.file}") wifi.local;
           in
           ''
+          # ── WiFi (see ./wifi/README and ./wifi/SOURCES.nix) ─────────────
+          # The board dts is upstream's radio variant, so the node its &wifi
+          # reference needs must exist. Device tree only, no driver; applied
+          # strictly (no "|| echo") so a failure to apply stops the build.
+          patch -p1 --fuzz=3 < ${wifiNodePatch}
+          grep -q "wifi: wifi@c000000" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
+            || { echo "wifi node missing after patch"; exit 1; }
+          # Then the port's own patches. Unlike the ethernet set below, none
+          # of these is expected to apply partially: a failure is a real
+          # failure, and the .rej check after the last one proves it.
+          mkdir -p .wifi-patches
+          ${lib.concatMapStrings (p: ''
+            install -m644 ${p} .wifi-patches/${baseNameOf p}
+          '') (wifiPatchFiles ++ wifiLocalFiles)}
+          for p in ${
+            lib.concatStringsSep " "
+              (map baseNameOf wifiPatchFiles ++ map (f: baseNameOf f.file) wifi.local)
+          }; do
+            patch -p1 --forward --batch < .wifi-patches/$p \
+              || { echo "wifi patch failed: $p"; exit 1; }
+          done
+          if find . -name '*.rej' | grep -q .; then
+            echo "wifi patch phase left reject files:"; find . -name '*.rej'
+            exit 1
+          fi
+          # sanity: what the port is for must be in the tree
+          grep -q "qcom,ipq6018-wcss-pil" drivers/remoteproc/qcom_q6v5_wcss.c || exit 1
+          grep -q "IPQ6018/m3_fw.mdt" drivers/remoteproc/qcom_q6v5_wcss.c || exit 1
+          grep -q MHI_CB_EE_SBL_MODE include/linux/mhi.h || exit 1
+          grep -q "wifi@c000000" arch/arm64/boot/dts/qcom/ipq6018.dtsi || exit 1
+          # ── Ethernet (see ./ether/README) ────────────────────────────────
           # Sources first: install every file from the store, so what gets
           # compiled is exactly the pinned revision - there is no local copy
           # that could drift out of date.
@@ -177,12 +260,6 @@
           done
           patch -p1 --forward --batch < ${./ether/fixups.patch} \
             || { echo "ether fixups failed"; exit 1; }
-          # The board dts is upstream's radio variant, so the node its &wifi
-          # reference needs must exist. Device tree only, no driver; applied
-          # strictly (no "|| echo") so a failure to apply stops the build.
-          patch -p1 --fuzz=3 < ${wifiNodePatch}
-          grep -q "wifi: wifi@c000000" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
-            || { echo "wifi node missing after patch"; exit 1; }
           # sanity: the features the ethernet drivers need must exist
           grep -q fwnode_pcs_add_provider drivers/net/pcs/pcs.c || exit 1
           grep -q DSA_TAG_PROTO_OOB_VALUE include/net/dsa.h || exit 1
@@ -237,10 +314,14 @@
           # ignores a .config line for it and only "select" can turn it
           # on. That is why QCOM_EDMA selects it, in ether/fixups.patch.
         };
-        # NB: the wifi conditionalConfig block (WLAN -> ATH11K /
-        # QCOM_Q6V5_WCSS / PHY_QCOM_QMP_PCIE ...) is intentionally
-        # absent. This build never imports modules/wlan.nix, so no
-        # wireless stack is compiled at all.
+        # The radio's configuration, applied only when modules/wlan.nix is
+        # imported (it sets WLAN = "y", which is what arms this block), so
+        # the wired-only images carry none of it and are exactly what they
+        # were before this port. The symbols and the reason each is needed
+        # are in ./wifi/SOURCES.nix's `kconfig`: the wireless stack itself
+        # as modules, which is how the reference builds it, plus the
+        # remoteproc/QRTR/PCIe infrastructure the two radios sit on.
+        conditionalConfig.WLAN = wifi.kconfig.infra // wifi.kconfig.wlan;
       };
 
       boot = {
@@ -267,10 +348,16 @@
           flash.eraseBlockSize = 65536;
           # The board device tree comes from upstream at build time and is
           # used verbatim, wireless included: ./SOURCES.nix holds the pin and
-          # the hashes, and the radio nodes upstream's board dts declares are
-          # simply not driven yet on this branch. Nothing upstream wrote is
-          # committed to this tree, so following upstream means changing one
-          # ref and two hashes in SOURCES.nix.
+          # the hashes. Nothing upstream wrote is committed to this tree, so
+          # following upstream means changing one ref and two hashes in
+          # SOURCES.nix.
+          #
+          # Upstream's board dts is already radio-complete - it enables
+          # &pcie_phy, &pcie0 with its QCN9074 child and the AHB &wifi node -
+          # so this port adds no device-tree fragment at all. The only
+          # device-tree input the wifi side needs is wifiNodePatch, which
+          # defines the wifi@c000000 node those references resolve to, and
+          # which the wired-only images need too just to compile.
           dts =
             let
               sources = import ./SOURCES.nix;
@@ -314,9 +401,12 @@
               lan4 = link.build { ifname = "lan4"; };
               wan = link.build { ifname = "wan"; };
 
-              # NB: no wlan0 entry here. The ax6600 branch adds a wlan0
-              # link depending on the ath11k kmodloader; this build has
-              # neither the module nor the radio.
+              # NB: no wlan* entry here, on purpose. The radio's netdev names
+              # are not stable: with two ath11k instances the AHB pdevs and
+              # the PCIe radio register in probe order, so the wifi image
+              # finds them by phy/device and renames them before anything
+              # else touches them (see devices/jdcloud-ax6600/ax6600-wifi.nix).
+              # Putting a wlan link here would race that rename.
             };
         };
     };

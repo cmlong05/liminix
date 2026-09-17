@@ -1,16 +1,19 @@
 # Base configuration for JDCloud AX6600 (RE-CS-02)
 #
 # Not a complete image by itself: it sets the root password and a
-# bring-up LED service. The buildable system is ax6600-lan-ram.nix,
-# which adds the ethernet services (and, from the deployment values,
-# the hostname and LAN address) and produces the single-file
-# full-system ram image that the U-Boot web uploader at
+# bring-up LED service. The buildable systems are ax6600-lan-ram.nix
+# (ethernet only) and ax6600-wifi-ram.nix (ethernet + both ath11k
+# radios), which add their services (and, from the deployment values,
+# the hostname and LAN address) and produce the single-file full-system
+# ram image that the U-Boot web uploader at
 # http://192.168.1.1/uimage.html boots directly - no serial console,
 # no TFTP server.
 #
 # Deployment (hostname, LAN address, DHCP pool) is not a property of
 # the board, so it is not here either: ax6600-lan.nix reads it from
-# ./devices/jdcloud-ax6600/config.nix, which carries only data.
+# ./devices/jdcloud-ax6600/config.nix, which carries only data. Nor is
+# the radio's per-unit calibration: the wifi image reads that from the
+# board's own ART partition at boot (see ./ax6600-wifi.nix).
 {
   pkgs,
   ...

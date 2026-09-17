@@ -167,6 +167,21 @@ in
   # this file is still the one place that lists every non-local input.
   ether = import ./ether/SOURCES.nix immortalwrt;
 
+  # ── The wifi port ────────────────────────────────────────────────────
+  #
+  # Same rule again, for the radio: the ath11k patches, the remoteproc/wcss
+  # patches, the MHI SBL hook and the firmware list are the port's own
+  # manifest, in wifi/SOURCES.nix. It is a function of the same pin and
+  # declares its own secondary pins (upstream Linux for the cherry-picks, the
+  # firmware repositories, the fork whose ath11k set the reference unit
+  # runs). Only the patches the port itself wrote are files in wifi/.
+  #
+  # The wifi node patch (wifiNodePatch above) is deliberately not repeated
+  # there: the board dts needs it to compile whether or not the radio is
+  # driven, so it belongs to the device tree, and the port applies its kernel
+  # patches immediately after it - the same 0906 < 0907 order as upstream.
+  wifi = import ./wifi/SOURCES.nix immortalwrt;
+
   # The SoC dtsi and the dt-bindings headers, from the kernel the device
   # builds. default.nix reads url and sha256 from here - this is the only
   # place the kernel pin lives.
