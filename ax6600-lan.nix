@@ -2,7 +2,8 @@
 # phase-E ethernet: the four DSA LAN ports lan1..lan4 (QCA8075 via the
 # in-tree ESS/PPE/EDMA stack) bridged into "int" at the address and
 # with the DHCP pool given by devices/jdcloud-ax6600/config.nix, and the
-# 2.5G "wan" port as a DHCP client uplink.
+# 2.5G "wan" port as a PPPoE client uplink (the account comes from the
+# same deployment file).
 #
 # WIRED-ONLY / NO-WIFI build: there is no wireless interface, no ath11k
 # module and no radio in the device tree. The only network transport is
@@ -55,7 +56,7 @@ in
     ./modules/network
     ./modules/dnsmasq
     ./modules/bridge
-    ./modules/dhcp4c
+    ./modules/ppp
     ./modules/ssh
   ];
 
@@ -87,14 +88,22 @@ in
     ranges = lib.optional (deployment.lan.dhcpRange != null) deployment.lan.dhcpRange;
   };
 
-  # 2.5G WAN as DHCP client (no carrier yet on bring-up boards).
-  services.wan-dhcp = svc.dhcp4c.client.build {
+  # 2.5G WAN as a PPPoE client. The service creates its own interface
+  # (the "wan" netdev is only the ethernet port the session runs over),
+  # and exposes address / peer-address / ns1 / ns2 / ipv6-* as outputs,
+  # so the default route is taken `via` the negotiated local address
+  # rather than from a DHCP lease. If the uplink never gets carrier the
+  # session just sits there retrying; `debug = true` here (and
+  # `ppp-options = [ ... ]`) is what to reach for when diagnosing it.
+  services.wan = svc.pppoe.build {
     interface = nifs.wan;
+    username = deployment.wan.pppoe.username;
+    password = deployment.wan.pppoe.password;
   };
   services.defaultroute4 = svc.network.route.build {
-    via = "$(output ${config.services.wan-dhcp} address)";
+    via = "$(output ${config.services.wan} address)";
     target = "default";
-    dependencies = [ config.services.wan-dhcp ];
+    dependencies = [ config.services.wan ];
   };
 
   # SSH (openssh), so the board is reachable without a serial console:
