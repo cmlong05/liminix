@@ -122,6 +122,13 @@ in
   services.firmware-ath11k = pkgs.liminix.services.oneshot {
     name = "firmware-ath11k";
     up = ''
+      # NB for whoever edits this next: busybox here is built with
+      # `make allnoconfig` (modules/busybox.nix sets enableMinimal), so any
+      # applet *option* that is not explicitly enabled is missing. `stat -c`
+      # is one of them - it silently reported every extracted file as "0
+      # bytes" until this was found. Prefer invocations that need no optional
+      # feature (wc -c rather than stat -c%s), and check before adding one.
+
       # /lib/firmware belongs to the root filesystem, which may be read-only,
       # and the calibration has to be written into it: put a tmpfs over the
       # whole directory and copy the static firmware back in on top.
@@ -142,22 +149,34 @@ in
       # to it are named the same way). "ART" is accepted too, because a
       # partition relabelled by hand or by a different flashing tool would
       # otherwise be invisible.
+      #
+      # Wait for it: this service runs about five seconds in, and the eMMC's
+      # partition nodes are not guaranteed to be there yet on a cold boot.
       art=""
-      for u in /sys/class/block/mmcblk*p*/uevent; do
-        [ -e "$u" ] || continue
-        case "$(sed -n 's/^PARTNAME=//p' "$u")" in
-          0:ART|ART)
-            dev=''${u%/uevent}
-            art=/dev/''${dev##*/}
-            break
-            ;;
-        esac
+      waited=0
+      while [ $waited -lt 30 ]; do
+        for d in /sys/class/block/mmcblk*p*; do
+          [ -e "$d/uevent" ] || continue
+          case "$(sed -n 's/^PARTNAME=//p' "$d/uevent")" in
+            0:ART|ART)
+              # only accept it once the device node exists and is a block
+              # device - dd needs something to open
+              if [ -b "/dev/''${d##*/}" ]; then
+                art="/dev/''${d##*/}"
+                break
+              fi
+              ;;
+          esac
+        done
+        [ -n "$art" ] && break
+        sleep 1
+        waited=$((waited + 1))
       done
 
       if [ -z "$art" ]; then
-        echo "firmware-ath11k: no ART partition on the eMMC - the radios will not come up" > /dev/kmsg
+        echo "firmware-ath11k: no ART block device on the eMMC after 30s - the radios will not come up" > /dev/kmsg
       else
-        echo "firmware-ath11k: reading pre-calibration from $art" > /dev/kmsg
+        echo "firmware-ath11k: reading pre-calibration from $art (after ''${waited}s)" > /dev/kmsg
         # file|offset|size, byte-relative to the partition device, exactly as
         # caldata_extract_mmc's dd does it.
         for cal in ${caldataTable}; do
@@ -166,8 +185,10 @@ in
           cal_offset=''${cal_rest%%|*}
           cal_size=''${cal_rest##*|}
           dd if="$art" of=/lib/firmware/$cal_file bs=1 \
-            skip=$cal_offset count=$cal_size 2>/dev/null
-          got=$(stat -c%s /lib/firmware/$cal_file 2>/dev/null || echo 0)
+            skip=$cal_offset count=$cal_size 2>/dev/null \
+            || echo "firmware-ath11k: dd failed reading $cal_file from $art" > /dev/kmsg
+          # wc, not stat: see the note at the top of this script
+          got=$(wc -c < /lib/firmware/$cal_file 2>/dev/null || echo 0)
           [ "$got" = "$cal_size" ] \
             || echo "firmware-ath11k: $cal_file is $got bytes, wanted $cal_size" > /dev/kmsg
         done

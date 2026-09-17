@@ -813,6 +813,81 @@ in
         { path = "package/firmware/linux-firmware/qca_ath11k.mk"; blob = "a373cf5774abdde2312f8cf260b3e98c9aa87a2c"; note = "ath11k-firmware-qcn9074: linux-firmware's ath11k/QCN9074/hw1.0/*."; }
         { path = "package/firmware/ipq-wifi/Makefile"; blob = "04f649935392f5d9dad318c5cccbc82d5b202a40"; note = "ipq-wifi-jdcloud_re-cs-02, from firmware_qca-wireless at 0c67bbcc."; }
       ];
+      # How the calibration is obtained at runtime: not by a file the image
+      # ships, but by procd running a hotplug script when the driver asks for
+      # a file that is not there. The four upstream pieces of that chain,
+      # recorded because the port reproduces its *effect*, not its mechanism
+      # (Liminix has no procd and no firmware user-helper fallback).
+      firmwareHotplug = {
+        kernelConfig = {
+          path = "target/linux/generic/config-6.18";
+          blob = "cf51b111f363735c30c0e8eb4b94b2990f356b6d";
+          symbols = [
+            "CONFIG_FW_LOADER_USER_HELPER=y"
+            "CONFIG_FW_LOADER_USER_HELPER_FALLBACK=y"
+            "CONFIG_UEVENT_HELPER=y"
+            "CONFIG_UEVENT_HELPER_PATH=\"/sbin/hotplug\""
+          ];
+          note = "The direct /lib/firmware lookup fails first; the fallback then asks userspace for the file.";
+        };
+        procdRule = {
+          path = "package/system/procd/files/hotplug.json";
+          blob = "9fecddae6be1f088e6ec5e7ab68a1d186cf5251c";
+          rule = ''[ "if", [ "has", "FIRMWARE" ], [ [ "exec", "/sbin/hotplug-call", "%SUBSYSTEM%" ], [ "load-firmware", "/lib/firmware" ], [ "return" ] ] ]'';
+          note = "Runs every /etc/hotplug.d/firmware/* script, then hands the file the script just wrote back to the request_firmware() that is still waiting.";
+        };
+        dispatcher = {
+          path = "package/base-files/files/sbin/hotplug-call";
+          blob = "f595b9e75fa958ca6ade484134e625050bd8c7d5";
+          note = "Sets HOTPLUG_TYPE and sources /etc/hotplug.d/\$HOTPLUG_TYPE/*.";
+        };
+        hook = {
+          path = "target/linux/qualcommax/ipq60xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata";
+          blob = "1d002b15becbfd0d17a0819b3646647740abe21e";
+        };
+      };
+    };
+    # The other tree this port was measured against: VIKINGYFY's immortalwrt
+    # fork, at the revision the working reference unit runs. Same calibration
+    # mechanism (its procd rule and its caldata entries for jdcloud,re-cs-02
+    # are byte-for-byte the same as upstream's), but it fork-replaced both
+    # ath11k firmware packages with its own repository, which is where the
+    # QCN9074 2.15.0.1.r2 firmware comes from.
+    vikingFork = {
+      repo = "https://github.com/VIKINGYFY/immortalwrt";
+      ref = "90448eeb2b8f5d172caedfe6d96ab3bacb058c09";
+      sameCaldataAsUpstream = true;
+      devicePackages = "ipq-wifi-jdcloud_re-cs-02 ath11k-firmware-qcn9074-ddwrt luci-app-athena-led luci-i18n-athena-led-zh-cn";
+      targetDefaults = "kmod-ath11k kmod-ath11k-ahb kmod-ath11k-pci ... plus ath11k-firmware-ipq6018-ddwrt in the ipq60xx target.mk";
+      firmwarePackage = {
+        path = "package/firmware/ath11k-firmware/Makefile";
+        repo = "https://github.com/VIKINGYFY/ath11k-firmware-ddwrt";
+        ref = "0c817c46568ef6871042c7e2efc95ac24a1f02e6";
+        date = "2026-08-21";
+        installs = [
+          "Package/ath11k-firmware-qcn9074-ddwrt: QCN9074/hw1.0/* -> /lib/firmware/ath11k/QCN9074/hw1.0/"
+          "Package/ath11k-firmware-ipq6018-ddwrt: IPQ6018/hw1.0/* -> /lib/firmware/IPQ6018/"
+        ];
+        contents = [
+          "QCN9074/hw1.0/amss.bin 4128520 bytes, m3.bin 340108, board-2.bin 811180, regdb.bin, fw_version.txt"
+          "IPQ6018/hw1.0/q6_fw.* + m3_fw.* + board-2.bin 787208 + regdb.bin + fw_version.txt"
+        ];
+        note = ''
+          The QCN9074 amss.bin here is the 2.15.0.1.r2 image the ax6600 log
+          identified as the reference's, and it is 4 128 520 bytes (the
+          linux-firmware one this port ships by default is 4 227 408) - so the
+          two are different builds, not just different pins.
+
+          Two things worth knowing if the fork is ever taken as the source
+          instead of upstream immortalwrt: its QCN9074 board-2.bin (811 180
+          bytes, the generic one) is installed to the same path as
+          ipq-wifi-jdcloud_re-cs-02's board-specific file (131 176 bytes), and
+          its IPQ6018 board-2.bin lands in /lib/firmware/IPQ6018/ whereas
+          ath11k asks for ath11k/IPQ6018/hw1.0/board-2.bin (hw.dir is
+          "IPQ6018/hw1.0", core.c). This port places each file where the
+          driver looks.
+        '';
+      };
     };
   };
 }
