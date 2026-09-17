@@ -36,8 +36,7 @@ in
   users.root = {
     # Use mkpasswd -m sha512crypt to create
     # your own hashed password string.
-    passwd = "$6$uqFC7Xu7q2uWTquh$axLjr8YpuQE.dqHlgQTXaeglki/FLsaLMX6RyKHWbYUL2VA4FRFmd2N/MNrqdGaKfzDrdbFJUxnPrfmjIciP80
-";
+    passwd = "$6$uqFC7Xu7q2uWTquh$axLjr8YpuQE.dqHlgQTXaeglki/FLsaLMX6RyKHWbYUL2VA4FRFmd2N/MNrqdGaKfzDrdbFJUxnPrfmjIciP80";
   };
 
   # Tools useful for bring-up and for preparing the eMMC in phase 3
