@@ -68,11 +68,31 @@
     image (`+outputs.uimage+`) that the U-Boot web uploader at
     `/uimage.html` can boot directly - no root device, no TFTP.
 
-    `+outputs.tftpboot+` (the default output) loads kernel, dtb and a
-    squashfs rootfs into RAM (rootfs exposed via the phram driver as
-    `/dev/mtdblock0`) and boots without touching the eMMC. Requires a
-    serial console and a TFTP server on 192.168.1.2 serving the
-    `+result/+` directory.
+    There is no TFTP / `+boot.scr+` path on this branch: the full-system
+    ram image above is the only output, and `+hardware.defaultOutput+`
+    points at it.
+
+    === Deployment
+
+    The network this board is deployed into - its hostname, and the LAN
+    address and DHCP pool it serves - is not part of the hardware
+    description: it lives in `+./config.nix+`, next to this file, as
+    plain data (`+hostname+`, `+lan.address+`, `+lan.prefixLength+`,
+    `+lan.dhcpRange+`). `+ax6600-lan.nix+` imports it and reads the
+    address and the DHCP pool from it.
+
+    A different network means a different values file, selected with the
+    same `-I` idiom used for the configuration itself:
+
+    ```console
+    $ nix-build --arg device "import ./devices/jdcloud-ax6600" \
+        -I liminix-config=./ax6600-lan-ram.nix \
+        -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix \
+        -A outputs.uimage
+    ```
+
+    Without `+-I liminix-deployment+` the build falls back to
+    `+config.nix+`, so the common case needs no extra argument.
 
   '';
 
@@ -87,7 +107,6 @@
     {
       imports = [
         ../families/ipq6018.nix
-        ../../modules/outputs/tftpboot.nix
         # hardware.networkInterfaces (lan1..lan4, wan) is built with the
         # network module's link service, so it must always be present
         ../../modules/network
@@ -228,24 +247,23 @@
         commandLine = [
           "console=ttyMSM0,115200n8"
         ];
-        tftp = {
-          ipaddr = "192.168.1.1";
-          serverip = "192.168.1.2";
-          # Rootfs is TFTP-loaded at this address. Must stay clear of
-          # the kernel decompression area (loadAddress 0x41000000 +
-          # ~64MiB) and of U-Boot's fdt_high (0x48500000).
-          loadAddress = lim.parseInt "0x70000000";
-        };
       };
 
       hardware =
         {
-          defaultOutput = "tftpboot";
-          # tftpboot uses phram to expose the RAM rootfs as /dev/mtdblock0
+          # The full-system ram image is the only output on this branch
+          # (see the Development boot note above).
+          defaultOutput = "uimage";
+          # Not used by the ram image, which overrides boot.commandLine
+          # with no root= at all (see ax6600-lan-ram.nix): this is what a
+          # non-initramfs build would put on the kernel command line, and
+          # wants revisiting once phase 3 gives the board a rootfs on the
+          # eMMC.
           rootDevice = "/dev/mtdblock0";
           loadAddress = lim.parseInt "0x41000000";
           entryPoint = lim.parseInt "0x41000000";
-          # only used by tftpboot (phram mtdparts)
+          # Used by the flash image outputs (jffs2/mtdimage), not by the
+          # ram image.
           flash.eraseBlockSize = 65536;
           # The board device tree comes from upstream at build time and is
           # used verbatim, wireless included: ./SOURCES.nix holds the pin and
