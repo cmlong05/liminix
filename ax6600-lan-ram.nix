@@ -12,8 +12,9 @@
 #     -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
 # then upload result-lan-ram via /uimage.html.
 #
-# Once booted: lan1..lan4 are bridged into "int" (192.168.9.1/24,
-# dnsmasq 192.168.9.100-200) and the 2.5G "wan" runs a DHCP client.
+# Once booted: lan1..lan4 are bridged into "int" at the address and with
+# the dnsmasq pool given by devices/jdcloud-ax6600/config.nix (currently
+# 10.10.10.1/24), and the 2.5G "wan" runs a DHCP client.
 # Success is observable without a serial console: a PC on lan1 gets a
 # lease; on panic the pstore ramoops region (0x60000000) survives for
 # a U-Boot 'md' read after reboot. (No ssh: dropbear fails to build
