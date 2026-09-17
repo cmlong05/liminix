@@ -6,3 +6,6 @@ nix-build -Q \
     -A outputs.uimage \
     -o result-lan-ram && \
     sh md5_result.sh
+
+# ttl 命令
+sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
