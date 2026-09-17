@@ -22,7 +22,7 @@
   # The wired LAN bridge ("int") that dnsmasq serves on lan1..lan4: this
   # machine is .1 and hands out .50-.200.
   lan = {
-    address = "10.10.10.1";
+    address = "10.10.10.10";
     prefixLength = 24;
     # dnsmasq `--dhcp-range` syntax: start,end,netmask,leasetime. Null if
     # DHCP is not served.
