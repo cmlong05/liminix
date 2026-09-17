@@ -32,7 +32,11 @@ stdenv.mkDerivation rec {
     flex
     pkg-config
     openssl
-    ncurses.all
+    # list the outputs explicitly: "ncurses.all" is a list, and nested
+    # lists in dependency attributes are deprecated since nixpkgs 26.05
+    ncurses.out
+    ncurses.dev
+    ncurses.man
     perl
   ]);
   CC = "${stdenv.cc.bintools.targetPrefix}gcc";
