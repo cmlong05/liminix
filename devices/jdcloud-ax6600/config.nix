@@ -28,4 +28,24 @@
     # DHCP is not served.
     dhcpRange = "10.10.10.50,10.10.10.200,255.255.255.0,12h";
   };
+
+  # Upstream: the 2.5G "wan" port runs a PPPoE session, so this board is a
+  # PPPoE client and the ISP's access concentrator supplies the address,
+  # the peer address and the DNS servers. `ax6600-lan.nix` reads these two
+  # values and passes them to `services.wan`.
+  #
+  # EDIT: put the broadband account here. ISPs document it as the "PPPoE
+  # username/password" (sometimes as the PAP or CHAP credentials).
+  #
+  # NB: this file is tracked by git, so credentials written here are
+  # committed. To keep them out of the repository, copy this file to an
+  # untracked name and select it with `-I liminix-deployment=...`, or use
+  # the `modules/secrets` service as described in doc/configuration.adoc
+  # ("Runtime secrets").
+  wan = {
+    pppoe = {
+      username = "xga102782536";
+      password = "443508";
+    };
+  };
 }
