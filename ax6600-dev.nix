@@ -39,9 +39,10 @@ in
   };
 
   users.root = {
-    # password is "secret". Use mkpasswd -m sha512crypt to create
+    # Use mkpasswd -m sha512crypt to create
     # your own hashed password string.
-    passwd = "$6$y7WZ5hM6l5nriLmo$5AJlmzQZ6WA.7uBC7S8L4o19ESR28Dg25v64/vDvvCN01Ms9QoHeGByj8lGlJ4/b.dbwR9Hq2KXurSnLigt1W1";
+    passwd = "$6$uqFC7Xu7q2uWTquh$axLjr8YpuQE.dqHlgQTXaeglki/FLsaLMX6RyKHWbYUL2VA4FRFmd2N/MNrqdGaKfzDrdbFJUxnPrfmjIciP80
+";
   };
 
   # Tools useful for bring-up and for preparing the eMMC in phase 3
