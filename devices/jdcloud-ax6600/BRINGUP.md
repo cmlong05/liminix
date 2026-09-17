@@ -61,21 +61,13 @@ Provenance and patch-by-patch notes: `./ether/README`.
 
 ## Build
 
-Full-system ram image (single FIT, no root device, upload via U-Boot web
-UI — the easiest path and the only one that needs no serial console):
+Full-system ram image (single FIT, no root device and no serial console:
+uploaded through the U-Boot web UI, and the only image on this branch):
 
 ```console
 $ nix-build --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
 $ md5sum result-lan-ram      # record before flashing
-```
-
-TFTP image (serial console + TFTP server on 192.168.1.2, paste
-`result-lan/boot.scr` at the U-Boot prompt):
-
-```console
-$ nix-build --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-lan.nix -A outputs.tftpboot -o result-lan
 ```
 
 ## Boot it
@@ -104,11 +96,14 @@ once s6 is running — see the dts comments.
 cat /proc/cmdline                  # no root= (full-system mode)
 dmesg | grep -iE 'ppe|edma|uniphy|qca8075|qca8081|mdio'
 ip link                            # lan1..lan4, wan, int
-ip addr show int                   # 192.168.9.1/24
+ip addr show int                   # the deployment's LAN address
 ```
 
-Then plug a PC into `lan1`: it should get a DHCP lease from
-192.168.9.100-200, be able to `ping 192.168.9.1`, and reach ssh (below).
+Then plug a PC into `lan1`: it should get a DHCP lease from the
+deployment's pool, be able to `ping` the address above, and reach ssh
+(below). The address and pool are set in
+`devices/jdcloud-ax6600/config.nix` (currently
+`10.10.10.1/24`, pool `10.10.10.50-200`).
 The 2.5G `wan` port runs a DHCP client and is expected to negotiate
 `2500base-x`.
 
@@ -118,7 +113,7 @@ The 2.5G `wan` port runs a DHCP client and is expected to negotiate
 is reachable over the LAN bridge without a serial console:
 
 ```console
-$ ssh root@192.168.9.1          # password "secret"
+$ ssh root@10.10.10.1
 ```
 
 The credential is the `users.root.passwd` hash in `ax6600-dev.nix`, so
@@ -178,8 +173,10 @@ end to end.** Observed:
 [    6.598] … lan3: Link is Up - 1Gbps/Full - flow control rx/tx
 ```
 
-`int` came up on 192.168.9.1/24, dnsmasq served a lease to the attached
-PC, and ssh worked over the bridge. Two issues were found and resolved:
+`int` came up on the deployment's address (then `192.168.9.1/24`; the
+deployment values in `./config.nix` have since moved to `10.10.10.1/24`),
+dnsmasq served a lease to the attached PC, and ssh worked over the
+bridge. Two issues were found and resolved:
 
 ### 1. `nss_crypto_clk_src: rcg didn't update its configuration` (fixed)
 

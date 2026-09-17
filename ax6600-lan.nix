@@ -1,29 +1,53 @@
-# TFTP-rootfs config for JDCloud AX6600 (RE-CS-02) exercising the
+# Wired-LAN configuration for JDCloud AX6600 (RE-CS-02) exercising the
 # phase-E ethernet: the four DSA LAN ports lan1..lan4 (QCA8075 via the
-# in-tree ESS/PPE/EDMA stack) bridged into "int" on 192.168.9.0/24,
-# and the 2.5G "wan" port as a DHCP client uplink.
+# in-tree ESS/PPE/EDMA stack) bridged into "int" at the address and
+# with the DHCP pool given by devices/jdcloud-ax6600/config.nix, and the
+# 2.5G "wan" port as a DHCP client uplink.
 #
 # WIRED-ONLY / NO-WIFI build: there is no wireless interface, no ath11k
 # module and no radio in the device tree. The only network transport is
 # this wired bridge plus the WAN uplink, which is all this variant
 # needs. (The ax6600 branch carries the radio bring-up image.)
 #
-# Boot like ax6600-dev.nix: serial console + TFTP on 192.168.1.2
+# These services are built through ax6600-lan-ram.nix, which wraps them
+# in the single-file full-system ram image:
 #   nix-build --arg device "import ./devices/jdcloud-ax6600" \
-#     -I liminix-config=./ax6600-lan.nix -A outputs.tftpboot -o result-lan
-# then paste result-lan/boot.scr at the U-Boot prompt.
+#     -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
 #
 # Success indicators: dmesg shows the ppe/edma/uniphy probes and
 # "lan1..lan4, wan" netdevs; "ip link" lists them; plugging a PC into
-# lan1 gets a DHCP lease from 192.168.9.0/24.
+# lan1 gets a DHCP lease on the deployment's LAN subnet.
 {
   config,
+  lib,
   pkgs,
   ...
 }:
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
+
+  # Which network this image serves. The values are plain data in
+  # ./devices/jdcloud-ax6600/config.nix. By default we build for the
+  # network the board is currently deployed on; to build the same system
+  # for a different one, choose its file with the same -I idiom already
+  # used for the configuration:
+  #
+  #   -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix
+  #
+  # An unset -I is not an error (the angle-bracket lookup is what
+  # fails), but a values file that exists and does not evaluate must
+  # not fall back silently to the default network: hence the two steps -
+  # tryEval only survives the missing -I, pathExists decides, and the
+  # file itself is then imported without any error suppression.
+  deployment =
+    let
+      lookup = builtins.tryEval <liminix-deployment>;
+    in
+    if lookup.success && builtins.pathExists (toString lookup.value) then
+      import lookup.value
+    else
+      import ./devices/jdcloud-ax6600/config.nix;
 in
 {
   imports = [
@@ -34,6 +58,8 @@ in
     ./modules/dhcp4c
     ./modules/ssh
   ];
+
+  hostname = lib.mkDefault deployment.hostname;
 
   services.int = svc.bridge.primary.build {
     ifname = "int";
@@ -52,14 +78,13 @@ in
   services.int-address = svc.network.address.build {
     interface = config.services.int;
     family = "inet";
-    address = "192.168.9.1";
-    prefixLength = 24;
+    inherit (deployment.lan) address prefixLength;
   };
 
   services.dhcpv4 = svc.dnsmasq.build {
     interface = config.services.int;
     domain = "lan";
-    ranges = [ "192.168.9.100,192.168.9.200,255.255.255.0,12h" ];
+    ranges = lib.optional (deployment.lan.dhcpRange != null) deployment.lan.dhcpRange;
   };
 
   # 2.5G WAN as DHCP client (no carrier yet on bring-up boards).
@@ -72,8 +97,7 @@ in
     dependencies = [ config.services.wan-dhcp ];
   };
 
-  # SSH (dropbear), so the board is reachable without a serial console:
-  #   ssh root@192.168.9.1     (password "secret")
+  # SSH (openssh), so the board is reachable without a serial console:
   # Listens on all interfaces (address = null) - the only interfaces on
   # this wired-only build are the "int" LAN bridge and the 2.5G WAN.
   # All allow* options default to true in modules/ssh, so root may log

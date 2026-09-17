@@ -4,21 +4,18 @@
 #   sh md5_result.sh
 #
 # Ported from the `ax6600` branch's result-md5.sh (commit f1e65ed),
-# with the artifact list adjusted: this branch has no wifi configs, so
-# result-wifi / result-wifi-ram / result-ram do not exist here. What it
-# does cover:
+# with the artifact list adjusted: this branch has no wifi configs
+# (result-wifi / result-wifi-ram / result-ram) and no TFTP/boot.scr path
+# (result / result-lan). The only image it covers:
 #
-#   result          - `ax6600-dev.nix -A outputs.default` (tftpboot:
-#                     boot.scr + dtb + image + rootfs)
-#   result-lan      - `ax6600-lan.nix -A outputs.tftpboot` (same layout)
 #   result-lan-ram  - `ax6600-lan-ram.nix -A outputs.uimage` (single
-#                     full-system FIT, the RAM-only image)
+#                     full-system FIT ram image)
 #
 # Record the md5 before uploading to the U-Boot web uploader, and verify
-# it again after the download/flash.
+# it again after boot.
 set -u
 cd "$(dirname "$0")"
-for r in result result-lan result-lan-ram; do
+for r in result-lan-ram; do
     if [ -e "$r" ]; then
         real=$(readlink -f "$r")
         printf '%-16s -> %s\n' "$r" "$real"
