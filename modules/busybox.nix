@@ -26,7 +26,6 @@ let
       appletOptions = builtins.concatStringsSep "\n" (map (n: "CONFIG_${toUpper n} y") applets);
     in
     {
-      enableMinimal = true;
       extraConfig = ''
         ${extraOptions}
         ${appletOptions}
@@ -107,6 +106,7 @@ let
     "mknod"
     "mktemp"
     "mount"
+    "mountpoint"
     "mv"
     "nc"
     "netstat"
