@@ -166,11 +166,33 @@ extraPkgs
       nettle = null;
     };
 
+  # nixpkgs here ships dropbear 2026.91, whose manpage is man(7)
+  # (.TP/.B).  The vendored add-authkeyfile-option.patch still carries its
+  # manpages/dropbear.8 hunk in the older mdoc form, which does not apply,
+  # but we keep that file byte-identical to upstream liminix so it stays
+  # diffable against it.  Drop just that one file-diff here and apply the
+  # retargeted manpage entry from add-authkeyfile-option-manpage.patch.
   dropbear = crossOnly prev.dropbear (
     d:
+    let
+      authkeyfilePatch =
+        let
+          # a file-diff runs from its "diff --git" header to the next
+          # one, so splitting on that header and filtering out the
+          # manpages/dropbear.8 section drops exactly one file
+          sections = lib.splitString "diff --git "
+            (builtins.readFile ./pkgs/dropbear/add-authkeyfile-option.patch);
+          isManpage = s: lib.hasPrefix "a/manpages/dropbear.8 " s;
+          wanted = builtins.filter (s: !(isManpage s)) sections;
+        in
+        assert lib.length wanted == lib.length sections - 1;
+        builtins.toFile "dropbear-add-authkeyfile-option.patch"
+          (lib.concatStringsSep "diff --git " wanted);
+    in
     d.overrideAttrs (o: rec {
       patches = o.patches ++ [
-        ./pkgs/dropbear/add-authkeyfile-option.patch
+        authkeyfilePatch
+        ./pkgs/dropbear/add-authkeyfile-option-manpage.patch
       ];
       postPatch = ''
         (echo '#define DSS_PRIV_FILENAME "/run/dropbear/dropbear_dss_host_key"'

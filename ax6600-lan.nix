@@ -106,7 +106,7 @@ in
     dependencies = [ config.services.wan ];
   };
 
-  # SSH (openssh), so the board is reachable without a serial console:
+  # SSH (dropbear), so the board is reachable without a serial console:
   # Listens on all interfaces (address = null) - the only interfaces on
   # this wired-only build are the "int" LAN bridge and the 2.5G WAN.
   # All allow* options default to true in modules/ssh, so root may log

@@ -128,12 +128,15 @@ false; authorizedKeys = { root = [ "ssh-ed25519 AAAA... " ]; }; }`.
 nixpkgs without a patch fix. `pkgs/dropbear/add-authkeyfile-option.patch`
 is applied by `overlay.nix` to the nixpkgs `dropbear`, and the version in
 nixpkgs here is **2026.91**, whose manpage switched from mdoc (`.It Fl`)
-to man (`.TP`/`.B`) format. The patch's `manpages/dropbear.8` hunk
-therefore only applies after being rewritten for the new format; it is
-rewritten on this branch (verified by `patch -p1 --dry-run` against the
-real 2026.91 source - all 6 files apply, with only benign offsets).
-Without that rewrite, enabling ssh fails the dropbear build. This is why
-the `ax6600` branch's own LAN image shipped without ssh.
+to man (`.TP`/`.B`) format. The patch's `manpages/dropbear.8` hunk is
+therefore dead weight: the vendored file is left byte-identical to
+upstream and `overlay.nix` drops that one file-diff before applying it,
+while the retargeted `.TP`/`.B` entry is applied from
+`pkgs/dropbear/add-authkeyfile-option-manpage.patch` instead (verified by
+`patch -p1 --dry-run` against the real 2026.91 source - all 6 files
+apply, with only benign offsets). Without that retarget, enabling ssh
+fails the dropbear build. This is why the `ax6600` branch's own LAN
+image shipped without ssh.
 
 ## Hardware evidence from the `ax6600` branch (same config + wifi)
 
