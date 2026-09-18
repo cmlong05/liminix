@@ -18,8 +18,9 @@
 # account from that same file.
 # Success is observable without a serial console: a PC on lan1 gets a
 # lease; on panic the pstore ramoops region (0x60000000) survives for
-# a U-Boot 'md' read after reboot. (No ssh: dropbear fails to build
-# on the current nixpkgs channel - patch drift in its manpage.)
+# a U-Boot 'md' read after reboot. (SSH is enabled by ./ax6600-lan.nix,
+# which this file imports, so the board is also reachable over the
+# network as soon as the LAN address is up.)
 {
   config,
   pkgs,
