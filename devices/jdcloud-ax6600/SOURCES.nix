@@ -1,85 +1,7 @@
-# Where every non-local input of this device comes from - the board device
-# tree and the ethernet driver - and how our delta from it is expressed.
-# Read this before touching either.
-#
-# The goal is: as little local code as possible, and provenance that can be
-# re-checked mechanically. So upstream's board description is NOT committed
-# to this tree at all - it is fetched at build time from the pin below (with
-# fetchurl, so the sha256 values in this file are the proof of which
-# revision we are on) and used verbatim, wireless and all. There is no local
-# board .dts and no patch to it:
-#
-#   - upstream's board dts is the radio variant: it enables &pcie_phy, &pcie0
-#     with its QCN9074 child and the AHB &wifi node.
-#   - the wifi@c000000 node those references point at comes from upstream's
-#     own device-tree-only patch, fetched by URL like the dts itself (it
-#     adds the node with status = "disabled", no driver): see the
-#     wifiNodePatch entry below. Applying it is what lets upstream's board
-#     dts compile here.
-#   - this branch is wired-only *for now* only in the sense that it builds no
-#     wireless drivers or config, so those nodes are declared but nothing
-#     probes them. Adding wireless later means adding the driver patches and
-#     config, not touching the device tree.
-#   - the ax6600 (radio) branch builds the same device tree with those
-#     drivers; its only extra is a small fragment enabling &q6v5_wcss for the
-#     AHB radio, which is what radio bring-up needs beyond declaration.
-#   - the two overrides on this branch are in overrides.dtsi: upstream
-#     enables a Bluetooth port this board does not have (leaving it enabled
-#     is not inert - it binds a second tty and muxes two pins), and upstream
-#     asks for a 600 MHz NSS crypto clock that mainline's nss_crypto_clk_src
-#     cannot produce. Both are overrides rather than patches, so every
-#     upstream file stays byte for byte; the crypto one used to be a LOCAL
-#     CHANGE inside the vendored ipq6018-ess.dtsi, which is now upstream's
-#     copy exactly.
-#
-#
-# If a device tree addition or override is ever needed, the place for it is a
-# fragment handed to hardware.dts.includes, written in plain "&label { ... }"
-# syntax that survives upstream reformatting.
-#
-# Everything else about the board - the DSA port wiring, the PHY package,
-# the QCA8081 node, aliases, sdhc, the LEDs, the gpio-keys, the console
-# pinmux, the GPIO20 reservation - stays upstream's, fetched and used as it
-# is. Tracking upstream means editing one ref (and the two hashes) here,
-# rebuilding, and reading what the compiler says.
-#
-# The ethernet port follows the same rule, and no longer keeps upstream's
-# bytes in this tree at all: the ten driver files and the nineteen patches
-# that used to live in ether/src and ether/patches are now in the `ether`
-# section below, fetched from the same pin. What is left in ether/ is only
-# what the port genuinely owns - fixups.patch, which is upstream 0950's added
-# lines re-anchored for 6.18.49 plus one Kconfig select of ours (see the
-# `fixups` entry) - and its two documents.
-#
-# Identify sources by blob sha, never by file name: the same path exists in
-# several forks with different content, see the VIKINGYFY entries below.
-#
-# All sha256 values below are flat file hashes - what fetchurl wants, and
-# reproducible with
-#   nix-hash --flat --type sha256 --sri <file>
-# plain "nix-hash" prints the NAR hash instead and will not match.
-#
-# Include resolution, for reference: the board .dts includes
-# "ipq6010-re-cs.dtsi", which resolves because default.nix copies both files
-# into one store directory. The dtsi's own includes resolve against the
-# kernel tree:
-#   "ipq6018.dtsi"      -> ${kernel.modulesupport}/arch/arm64/boot/dts/qcom/
-#   "ipq6018-ess.dtsi"  -> the same directory, installed there by the
-#                          `ether.files` list below
-#   <dt-bindings/...>   -> ${kernel.headers}/include, added by
-#                          modules/outputs.nix:102
-# Corollary: never drop an ipq6018.dtsi or ipq6018-ess.dtsi into a
-# directory that ends up on includePaths. A quoted include would silently
-# prefer the local file and the kernel's copy would not be read at all.
+
+
+
 let
-  # One pin for everything this device takes from upstream. It used to be
-  # f5043562 - a 6.12-era tree, which is where the board dts was first taken
-  # from - and moved to the 6.18-era revision the ethernet port was vendored
-  # from, so that the driver and its patches come from the same place as the
-  # board dts. The two board files are byte-identical across both refs (same
-  # blob and sha256 as before, re-verified), so the only thing that changed
-  # with the ref is the wifi-node patch: it now lives in patches-6.18/ and
-  # its hunk header reads @@ -828 instead of @@ -834, body identical.
   immortalwrt = {
     repo = "https://github.com/immortalwrt/immortalwrt";
     ref = "8d9475a99f03784210ff158f9f27c83a9c93a735";
@@ -126,9 +48,6 @@ in
       Adds wifi@c000000 to ipq6018.dtsi with status = "disabled" - device
       tree only, no driver, and nothing in it enables the radio by itself
       (upstream's board dts does that with "&wifi { status = "okay"; }").
-      Applied with --fuzz=3 and without the lenient "|| echo" used for the
-      ether patches, so a failure to apply stops the build rather than being
-      swallowed; a grep for the node follows it.
 
       The same patch content is carried by the ax6600 branch as its vendored
       patches/110-ipq6018-wifi-node.patch, and by the 6.12-era ref this pin
@@ -158,24 +77,7 @@ in
     '';
   };
 
-  # ── The ethernet port ────────────────────────────────────────────────
-  #
-  # The ten driver files, the nineteen upstream patches they need, the one
-  # local fixup patch and the openwrt cross-check are the port's own
-  # manifest, so they live with the port, in ether/SOURCES.nix. That file is
-  # a function of the pin above: there is still exactly one ref to move, and
-  # this file is still the one place that lists every non-local input.
-  ether = import ./ether/SOURCES.nix immortalwrt;
 
-  # The SoC dtsi and the dt-bindings headers, from the kernel the device
-  # builds. default.nix reads url and sha256 from here - this is the only
-  # place the kernel pin lives.
-  #
-  # The hash was wrong here for a while (it ended ...QDQIQ... where the file
-  # the URL serves ends ...hwDQIQ...), i.e. the ledger disagreed with the
-  # URL next to it. Corrected 2026-09-16 against the mirror itself; that is
-  # also what research/port/linux-6.18.49.tar.gz hashes to, and it is the
-  # tree the patch phase was tested against.
   kernelDts = {
     role = "build-input";
     url = "https://mirrors.ustc.edu.cn/kernel.org/linux/kernel/v6.x/linux-6.18.49.tar.gz";
@@ -228,8 +130,6 @@ in
     note = ''
       Pre-PPE generation: ethernet0..4 = &dp1..&dp5 (qca-nss-dp) with
       switch_lan_bmp / qcom,port_phyinfo on &switch (qca-ssdk), and its dtsi
-      pulls in ipq6018-nss.dtsi / ipq6018-common.dtsi. That is the driver
-      stack ether/ deliberately does not use.
     '';
   };
 }
