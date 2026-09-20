@@ -9,12 +9,13 @@
 # ram images for the U-Boot web uploader:
 #
 #   result-lan-ram  - `ax6600-lan-ram.nix -A outputs.uimage`   (wired)
-#   result-wifi     - `ax6600-wifi-ram.nix -A outputs.uimage`  (wired + radio)
+#   result-wifi     - `ax6600-wifi-ram.nix -A outputs.uimage`  (wired + 2.4G)
+#   result-wifi-5g  - `ax6600-wifi-ram-5g.nix -A outputs.uimage` (wired + both)
 #
 # Record the md5 before uploading, and verify it again after boot.
 set -u
 cd "$(dirname "$0")"
-for r in result-lan-ram result-wifi; do
+for r in result-lan-ram result-wifi result-wifi-5g; do
     if [ -e "$r" ]; then
         real=$(readlink -f "$r")
         printf '%-16s -> %s\n' "$r" "$real"

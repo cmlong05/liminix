@@ -44,8 +44,8 @@ pin: {
   #
   # Refreshing: edit the ref in ../SOURCES.nix, rebuild, and take the two hash values out
   # of fetchurl's error message. The blob column is the identity check, and
-  # it is worth re-reading: these same file names exist in the VIKINGYFY
-  # forks with a completely different stack behind them.
+  # it is worth re-reading: these same file names exist elsewhere with a
+  # completely different stack behind them.
   files = [
     { path = "target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-ess.dtsi";
       blob = "0de37caf7da1c68224b8f8a2b63141e8f4fd9919";

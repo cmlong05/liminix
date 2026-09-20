@@ -52,7 +52,8 @@
 # `fixups` entry) - and its two documents.
 #
 # Identify sources by blob sha, never by file name: the same path exists in
-# several forks with different content, see the VIKINGYFY entries below.
+# other trees with different content, so a file name alone does not identify
+# a revision.
 #
 # All sha256 values below are flat file hashes - what fetchurl wants, and
 # reproducible with
@@ -167,6 +168,21 @@ in
   # this file is still the one place that lists every non-local input.
   ether = import ./ether/SOURCES.nix immortalwrt;
 
+  # ── The wifi port ────────────────────────────────────────────────────
+  #
+  # Same rule again, for the radio: the ath11k patches, the remoteproc/wcss
+  # patches, the MHI SBL hook and the firmware list are the port's own
+  # manifest, in wifi/SOURCES.nix. It is a function of the same pin and
+  # declares its own secondary pins (upstream Linux for the cherry-picks,
+  # firmware_qca-wireless, CodeLinaro's ath11k-firmware, linux-firmware).
+  # Only the patches the port itself wrote are files in wifi/.
+  #
+  # The wifi node patch (wifiNodePatch above) is deliberately not repeated
+  # there: the board dts needs it to compile whether or not the radio is
+  # driven, so it belongs to the device tree, and the port applies its kernel
+  # patches immediately after it - the same 0906 < 0907 order as upstream.
+  wifi = import ./wifi/SOURCES.nix immortalwrt;
+
   # The SoC dtsi and the dt-bindings headers, from the kernel the device
   # builds. default.nix reads url and sha256 from here - this is the only
   # place the kernel pin lives.
@@ -189,47 +205,6 @@ in
       That node comes from patches/110-ipq6018-wifi-node.patch on this branch
       as well as on ax6600 - see wifiNodePatch above - and it is what
       upstream's "&wifi" reference needs in order to compile.
-    '';
-  };
-
-  # Reference only. Kept because it is what caught the serial3 pinmux that
-  # an earlier hand-inlined version of this board dts had lost: the fork sets
-  # it in its ipq6018-common.dtsi rather than in the board dtsi, which is how
-  # we learned to check. Its serial/tmp1628/PHY-package choices are not used
-  # here; the revision we fetch already carries all of it.
-  vkOwrt = {
-    role = "reference-only";
-    repo = "https://github.com/VIKINGYFY/immortalwrt";
-    ref = "owrt (cee3055ff54b)";
-    blobs = {
-      "target/linux/qualcommax/dts/ipq6010-re-cs-02.dts" = "0e0804a79ada366067e1903781636a955161df27";
-      "target/linux/qualcommax/dts/ipq6010-re-cs.dtsi" = "c4dc690bf1b3e7e88583b8322f19eff66721e098";
-      "target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-common.dtsi" = "9df78f12d94ab0ba76d403f3e958b704aca3a16c";
-    };
-    note = ''
-      Same PPE lineage as the revision we fetch, but it keeps the fork's own
-      PHY package spelling (ethernet-phy-package@0, reg 0, qca8075_24..27).
-      Do not swap our source for this one: the package node's reg is the
-      base address the driver adds the COMBO/PQSGMII offsets to
-      (base + 4 / base + 5), so reg 0 and reg 24 address different registers.
-    '';
-  };
-
-  # Reference only, and the reason this ledger says "identify by blob sha":
-  # same file names as the entries above, different stack and different bytes.
-  vkMain = {
-    role = "do-not-use";
-    repo = "https://github.com/VIKINGYFY/immortalwrt";
-    ref = "main (90448eeb2b8f)";
-    blobs = {
-      "target/linux/qualcommax/dts/ipq6010-re-cs-02.dts" = "bef591b4ef6c421f28a0f0d3aa67817ac7a14799";
-      "target/linux/qualcommax/dts/ipq6010-re-cs.dtsi" = "47b87bc05bcbc9e718d99b734b2241473745db90";
-    };
-    note = ''
-      Pre-PPE generation: ethernet0..4 = &dp1..&dp5 (qca-nss-dp) with
-      switch_lan_bmp / qcom,port_phyinfo on &switch (qca-ssdk), and its dtsi
-      pulls in ipq6018-nss.dtsi / ipq6018-common.dtsi. That is the driver
-      stack ether/ deliberately does not use.
     '';
   };
 }

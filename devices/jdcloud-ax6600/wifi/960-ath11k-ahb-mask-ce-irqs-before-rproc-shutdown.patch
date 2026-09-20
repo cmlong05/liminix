@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Liminix ax6600 port <liminix@localhost>
+Date: Wed, 9 Sep 2026 00:00:00 +0000
+Subject: [PATCH] ath11k: ahb: mask CE IRQs at the GIC before rproc_shutdown
+
+An AHB radio stop (rproc_shutdown in ath11k_ahb_power_down) powers the
+Q6 down while CE interrupts are only masked at the device's own IE
+registers. Any CE IRQ that fires after power-down makes the handler's
+ath11k_ahb_ce_irq_disable() write to dead MMIO -> synchronous external
+abort -> kernel panic in interrupt context. disable_irq_nosync() every
+CE IRQ before rproc_shutdown() and re-enable in ath11k_ahb_start().
+---
+ drivers/net/wireless/ath/ath11k/ahb.c | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/wireless/ath/ath11k/ahb.c	2026-09-09 11:08:40.152495361 +0800
++++ b/drivers/net/wireless/ath/ath11k/ahb.c	2026-09-09 11:08:40.129766936 +0800
+@@ -370,7 +370,18 @@
+ 
+ static int ath11k_ahb_start(struct ath11k_base *ab)
+ {
++	int i;
++
+ 	ath11k_ahb_ce_irqs_enable(ab);
++	for (i = 0; i < ab->hw_params.ce_count; i++) {
++		int irq_idx;
++
++		if (ath11k_ce_get_attr_flags(ab, i) & CE_ATTR_DIS_INTR)
++			continue;
++
++		irq_idx = ATH11K_IRQ_CE0_OFFSET + i;
++		enable_irq(ab->irq_num[irq_idx]);
++	}
+ 	ath11k_ce_rx_post_buf(ab);
+ 
+ 	return 0;
+@@ -427,6 +438,26 @@
+ static void ath11k_ahb_power_down(struct ath11k_base *ab, bool is_suspend)
+ {
+ 	struct ath11k_ahb *ab_ahb = ath11k_ahb_priv(ab);
++	int i;
++
++	/*
++	 * Mask the CE interrupts at the GIC before stopping the Q6.
++	 * AHB CE interrupts are only ever masked at the device's own
++	 * interrupt-enable registers; once rproc_shutdown() powers the
++	 * device down that register space is gone, and a late CE IRQ
++	 * then makes ath11k_ahb_ce_irq_disable() fault (synchronous
++	 * external abort in ath11k_ahb_clearbit32 -> kernel panic).
++	 * disable_irq_nosync() here, re-enabled in ath11k_ahb_start().
++	 */
++	for (i = 0; i < ab->hw_params.ce_count; i++) {
++		int irq_idx;
++
++		if (ath11k_ce_get_attr_flags(ab, i) & CE_ATTR_DIS_INTR)
++			continue;
++
++		irq_idx = ATH11K_IRQ_CE0_OFFSET + i;
++		disable_irq_nosync(ab->irq_num[irq_idx]);
++	}
+ 
+ 	rproc_shutdown(ab_ahb->tgt_rproc);
+ }

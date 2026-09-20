@@ -21,3 +21,23 @@ nix-build -Q \
 
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
+
+# Deployment
+The network this board is deployed into,  lives in `+./config.nix+`, as
+plain data (`+hostname+`, `+lan.address+`, `+lan.prefixLength+`,
+`+lan.dhcpRange+`). 
+`+ax6600-lan.nix+` imports it and reads the 
+address and the DHCP pool from it.
+
+A different network means a different values file, selected with the
+same `-I` idiom used for the configuration itself:
+
+```console
+$ nix-build --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-lan-ram.nix \
+    -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix \
+    -A outputs.uimage
+```
+
+Without `+-I liminix-deployment+` the build falls back to
+`+config.nix+`, so the common case needs no extra argument.

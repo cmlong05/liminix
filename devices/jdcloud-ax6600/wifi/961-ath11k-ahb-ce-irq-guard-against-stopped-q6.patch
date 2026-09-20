@@ -1,0 +1,54 @@
+From: Liminix AX6600 bring-up
+Subject: ath11k: ahb: guard CE IRQ handler against a stopped Q6
+
+The Q6/wcss remoteproc can be stopped by paths other than
+ath11k_ahb_power_down() (remoteproc-core recovery, failed-boot
+teardown), leaving the AHB CE interrupts enabled at the GIC.  Once the
+Q6 is down the wifi MMIO block is unclocked, and the handler's
+ath11k_ahb_ce_irq_disable() register write aborts (synchronous external
+abort in ath11k_ahb_clearbit32 -> kernel panic in interrupt context).
+Observed on JDCloud AX6600 (IPQ6018, built-in QCN5022/QCN5052 radios) at
+~47s into a boot where the Q6 failed to start: the 960 patch only masks
+CE IRQs inside ath11k_ahb_power_down(), so a stop that bypasses it (or
+an IRQ already in flight when disable_irq_nosync() runs) still crashes.
+
+Only service the CE while the rproc is running: check the rproc state
+before touching device MMIO and return IRQ_NONE otherwise.  A stale IRQ
+disappears once the block is powered down, and CE IRQs are re-armed by
+ath11k_ahb_start() on the next run.
+
+Signed-off-by: Liminix AX6600 bring-up <liminix@invalid>
+---
+diff --git a/drivers/net/wireless/ath/ath11k/ahb.c b/drivers/net/wireless/ath/ath11k/ahb.c
+--- a/drivers/net/wireless/ath/ath11k/ahb.c
++++ b/drivers/net/wireless/ath/ath11k/ahb.c
+@@ -518,11 +518,28 @@
+ static irqreturn_t ath11k_ahb_ce_interrupt_handler(int irq, void *arg)
+ {
+ 	struct ath11k_ce_pipe *ce_pipe = arg;
++	struct ath11k_base *ab = ce_pipe->ab;
++	struct ath11k_ahb *ab_ahb = ath11k_ahb_priv(ab);
++
++	/* Liminix: the Q6/wcss remoteproc can be stopped by paths other
++	 * than ath11k_ahb_power_down() (e.g. remoteproc-core recovery or
++	 * a failed-boot teardown), leaving the CE interrupts enabled at
++	 * the GIC.  Once the Q6 is down the wifi MMIO block is unclocked
++	 * and the register write below aborts (synchronous external
++	 * abort in ath11k_ahb_clearbit32 -> kernel panic in interrupt
++	 * context, seen at ~47s on JDCloud AX6600 when the Q6 failed to
++	 * boot).  Only service the CE while the rproc is running; a stale
++	 * IRQ disappears with the powered-down block, and CE IRQs are
++	 * re-armed by ath11k_ahb_start() on the next run.
++	 */
++	if (!ab_ahb->tgt_rproc ||
++	    READ_ONCE(ab_ahb->tgt_rproc->state) != RPROC_RUNNING)
++		return IRQ_NONE;
+ 
+ 	/* last interrupt received for this CE */
+ 	ce_pipe->timestamp = jiffies;
+ 
+-	ath11k_ahb_ce_irq_disable(ce_pipe->ab, ce_pipe->pipe_num);
++	ath11k_ahb_ce_irq_disable(ab, ce_pipe->pipe_num);
+ 
+ 	tasklet_schedule(&ce_pipe->intr_tq);
+ 

@@ -1,0 +1,71 @@
+From: Liminix AX6600 bring-up
+Subject: ath11k: pci: keep ASPM disabled for the QCN9074
+
+This board's QCN9074 (IPQ6018 host, RE-CS-02) goes to RDDM during its
+QMI handshake whenever the PCIe link has ASPM enabled: the firmware
+download completes, the MHI READY transition happens, and then the
+device raises MHI_CB_EE_RDDM before it ever reaches mission mode. The
+ax6600 branch recorded the same failure and added pcie_aspm=off to the
+kernel command line - but that workaround never actually applied here,
+because this board's U-Boot web uploader replaces the FIT command line
+(/chosen/bootargs is in the image, cat /proc/cmdline shows only
+console=). It cannot be fixed from the command line at all.
+
+ath11k already has the right hook: ath11k_pci_power_up() calls
+ath11k_pci_aspm_disable() before starting MHI, deliberately, because the
+switch to AMSS state is known to be ASPM-sensitive. The link state is
+only put back in two places, and for the QCN9074 neither is wanted:
+
+  - ath11k_pci_start() restores it after the firmware download, i.e.
+    exactly in time for the QMI handshake. Keep it disabled there.
+  - ath11k_pci_power_down() restores it "in case firmware bootup fails",
+    which re-enables ASPM on the way out of a failed probe. Leave it
+    alone too, so a failed probe does not hand ASPM back before the
+    next one.
+
+Everything else keeps the upstream behaviour, including the existing
+single-MSI guard.
+
+Signed-off-by: Liminix AX6600 bring-up <liminix@invalid>
+---
+diff --git a/drivers/net/wireless/ath/ath11k/pci.c b/drivers/net/wireless/ath/ath11k/pci.c
+--- a/drivers/net/wireless/ath/ath11k/pci.c
++++ b/drivers/net/wireless/ath/ath11k/pci.c
+@@ -855,8 +855,17 @@
+ {
+ 	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
+ 
+-	/* restore aspm in case firmware bootup fails */
+-	ath11k_pci_aspm_restore(ab_pci);
++	/* restore aspm in case firmware bootup fails
++	 *
++	 * Liminix: not for the QCN9074. ath11k_pci_power_up() disables ASPM
++	 * before the firmware download, and this is the only thing that puts
++	 * it back; the card RDDMs during its QMI handshake whenever ASPM is
++	 * enabled, and the usual workaround (pcie_aspm=off) is not available
++	 * because this board's U-Boot replaces the FIT command line. Leaving
++	 * ASPM off is what that option would have done.
++	 */
++	if (ab->hw_rev != ATH11K_HW_QCN9074_HW10)
++		ath11k_pci_aspm_restore(ab_pci);
+ 
+ 	ath11k_pci_force_wake(ab_pci->ab);
+ 
+@@ -897,8 +906,16 @@
+ 
+ 	/* TODO: for now don't restore ASPM in case of single MSI
+ 	 * vector as MHI register reading in M2 causes system hang.
++	 *
++	 * Liminix: keep ASPM disabled for the QCN9074 even with multiple MSI
++	 * vectors. ath11k_pci_power_up() has already disabled it for the
++	 * firmware download; restoring it here re-enables it just in time
++	 * for the QMI handshake, which is where this board's QCN9074 RDDMs.
++	 * See ath11k_pci_power_down() for why pcie_aspm=off cannot be used.
+ 	 */
+-	if (test_bit(ATH11K_FLAG_MULTI_MSI_VECTORS, &ab->dev_flags))
++	if (ab->hw_rev == ATH11K_HW_QCN9074_HW10)
++		ath11k_info(ab, "leaving PCI ASPM disabled for QCN9074\n");
++	else if (test_bit(ATH11K_FLAG_MULTI_MSI_VECTORS, &ab->dev_flags))
+ 		ath11k_pci_aspm_restore(ab_pci);
+ 	else
+ 		ath11k_info(ab, "leaving PCI ASPM disabled to avoid MHI M2 problems\n");

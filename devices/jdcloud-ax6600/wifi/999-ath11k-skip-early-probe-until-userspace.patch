@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Liminix AX6600 bringup
+Date: Thu, 17 Sep 2026 00:00:00 +0800
+Subject: [PATCH] wifi: ath11k: skip early probe until userspace is running
+
+This device builds ath11k into the kernel, because a full-system ram
+image cannot load modules (the kmodloader would have to load them from
+the very derivation the image is embedded in). A built-in ath11k probes
+its devices during early boot, which is the wrong time twice over:
+
+  - the firmware is not there yet. The wifi service stages it (and reads
+    this board's pre-calibration out of the eMMC ART partition) from
+    userspace, the way ImmortalWrt's caldata hotplug hook does;
+  - the QCN9074 does not survive being probed that early anyway: its MHI
+    firmware boot fails, and the failure can leave the device stuck bound
+    with a half-initialised SRNG, so a later unbind oopses in
+    ath11k_ce_cleanup_pipes -> ath11k_hal_srng_access_begin.
+
+Return -ENODEV from both probes while the kernel is still booting, which
+leaves the devices unbound and available for a later probe. The
+ath11k-probe service then writes the PCI address to
+/sys/bus/pci/drivers_probe and the platform device name to
+/sys/bus/platform/drivers_probe once the firmware service has run - the
+same ordering a modular ath11k gets from being loaded at ~28s.
+
+Signed-off-by: Liminix AX6600 bringup
+---
+ drivers/net/wireless/ath/ath11k/ahb.c | 14 ++++++++++++++
+ drivers/net/wireless/ath/ath11k/pci.c | 10 ++++++++++
+ 2 files changed, 24 insertions(+)
+
+--- a/drivers/net/wireless/ath/ath11k/ahb.c
++++ b/drivers/net/wireless/ath/ath11k/ahb.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <linux/module.h>
++#include <linux/kernel.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
+ #include <linux/of_device.h>
+@@ -1163,6 +1164,19 @@
+ 
+ static int ath11k_ahb_probe(struct platform_device *pdev)
+ {
++	/* Liminix: with the driver built into the kernel this would probe
++	 * during early boot, before the wifi service has staged the Q6
++	 * firmware and read the board's calibration out of the eMMC ART
++	 * partition. Leave the device unbound instead; the ath11k-probe
++	 * service binds it once the system is up, which is the timing a
++	 * modular ath11k gets from being loaded late.
++	 */
++	if (system_state != SYSTEM_RUNNING) {
++		dev_info(&pdev->dev, "ath11k_ahb: skip early probe (system_state=%d)\n",
++			 system_state);
++		return -ENODEV;
++	}
++
+ 	struct ath11k_base *ab;
+ 	const struct ath11k_hif_ops *hif_ops;
+ 	const struct ath11k_pci_ops *pci_ops;
+--- a/drivers/net/wireless/ath/ath11k/pci.c
++++ b/drivers/net/wireless/ath/ath11k/pci.c
+@@ -6,6 +6,7 @@
+ 
+ #include <linux/module.h>
+ #include <linux/msi.h>
++#include <linux/kernel.h>
+ #include <linux/pci.h>
+ #include <linux/of.h>
+ #include <linux/time.h>
+@@ -956,6 +957,15 @@
+ static int ath11k_pci_probe(struct pci_dev *pdev,
+ 			    const struct pci_device_id *pci_dev)
+ {
++	/* Liminix: skip the automatic early probe; the QCN9074 RDDMs and
++	 * sticks bound, so bind it explicitly from userspace instead.
++	 */
++	if (system_state != SYSTEM_RUNNING) {
++		dev_info(&pdev->dev, "ath11k_pci: skip early probe (system_state=%d)\n",
++			 system_state);
++		return -ENODEV;
++	}
++
+ 	struct ath11k_base *ab;
+ 	struct ath11k_pci *ab_pci;
+ 	u32 soc_hw_version_major, soc_hw_version_minor;

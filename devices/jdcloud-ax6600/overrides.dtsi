@@ -23,9 +23,9 @@
  * on hardware the rate settles at 300 MHz anyway (debugfs:
  * nss_crypto_clk_src clk_rate = 300000000, clk_parent = nss_crypto_pll,
  * clk_enable_count = 1), i.e. 600 MHz was never achievable here and asking
- * for it bought nothing but the warning. VIKINGYFY's immortalwrt "owrt"
- * branch carries the same 300 MHz value, so this is not a number we
- * invented.
+ * for it bought nothing but the warning. The pinned ImmortalWrt asks for
+ * 600 MHz here as well, so this override is the port's one deviation on this
+ * node; the freq_tbl above and the measured rate are why.
  *
  * This used to be a LOCAL CHANGE inside the vendored copy of that dtsi;
  * expressing it as an override leaves that file identical to upstream's and
