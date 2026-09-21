@@ -1,5 +1,17 @@
 { callPackage, lib, nixpkgs }:
 let
+  # Bind the arguments the package set can supply and hand back a function
+  # of the rest. The called file must give its caller-supplied arguments
+  # defaults: Nix errors out on applying a function with a missing required
+  # argument rather than returning a partial application.
+  buildWithArgs =
+    path: p:
+    let
+      f = import path;
+      resolved = builtins.intersectAttrs (builtins.functionArgs f) p;
+    in
+    args: f (resolved // args);
+
   typeChecked =
     caller: type: value:
     let
@@ -23,6 +35,15 @@ in
       dtb = callPackage ./kernel/dtb.nix { };
       uimage = callPackage ./kernel/uimage.nix { };
       kernel = callPackage ./kernel { };
+    };
+    # one place that assembles a loadable module tree, shared by
+    # pkgs/kmodloader and a fullSystem initramfs. Called as
+    # `modules.build pkgs { roots = ...; targets = ...; }`; the first
+    # argument is the package set, because roots/targets are the caller's
+    # and callPackage would otherwise apply them to defaults and hand back
+    # a derivation.
+    modules = {
+      build = buildWithArgs ./liminix-tools/modules;
     };
     writeSysctls =
       let
@@ -111,6 +132,20 @@ in
   logshippers = callPackage ./logshippers { };
   json-to-fstree = callPackage ./json-to-fstree { };
   kernel-backport = callPackage ./kernel-backport { };
+  # Not a callPackage package: it needs the device's kernel, which lives in
+  # the module system rather than in the package set. Call it as
+  # `pkgs.kernel-module pkgs <kernel>` to get the builder that the device's
+  # module packages then call with name/src/patches/...
+  #
+  # No callPackage in here on purpose: callPackage applies everything it
+  # can, which would turn this into a derivation instead of a builder.
+  # intersectAttrs is enough to pick the two nixpkgs arguments out.
+  kernel-module =
+    p: kernel:
+    let
+      f = import ./kernel-module;
+    in
+    args: (f (builtins.intersectAttrs (builtins.functionArgs f) p)) (args // { inherit kernel; });
   kmodloader = callPackage ./kmodloader { };
   levitate = callPackage ./levitate { };
   libubootenv = callPackage ./libubootenv { };

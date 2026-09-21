@@ -10,6 +10,13 @@
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
   rawConfigFile ? null,
+  # What to embed as the initramfs, as a raw .config value (usually a
+  # quoted path). It is an argument rather than a `config` entry because
+  # `kernel.config` is `attrsOf nonEmptyStr` and the option type checks
+  # every value: an entry naming an image that is itself built from this
+  # kernel's modulesupport would be forced at type-check time, which is a
+  # cycle. Null means embed nothing.
+  initramfsSource ? null,
 }:
 let
   stdenv = gcc13Stdenv;
@@ -27,6 +34,11 @@ let
   arch = stdenv.hostPlatform.linuxArch;
   targetNames = map baseNameOf targets;
   inherit lib;
+  # appended after olddefconfig so it cannot be lost, and outside the config
+  # attrset so the option type never sees it (see the argument's comment)
+  injectInitramfsSource = lib.optionalString (initramfsSource != null) ''
+    echo "CONFIG_INITRAMFS_SOURCE=${initramfsSource}" >> .config
+  '';
 in
 stdenv.mkDerivation rec {
   name = "kernel";
@@ -119,7 +131,10 @@ stdenv.mkDerivation rec {
     cp ${kconfigFile} .config
     cp ${kconfigFile} .config.orig
     make V=1 olddefconfig
+    ${injectInitramfsSource}
+    make V=1 olddefconfig
   '';
+
 
   checkConfigurationPhase = ''
     echo Checking required config items:
