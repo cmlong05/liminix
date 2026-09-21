@@ -31,6 +31,24 @@ in
       # is enabled: preinit treats a missing root device as "we are
       # already running the whole system".
       fullSystem = mkEnableOption "embed the whole system in the initramfs";
+      # Loadable modules to put in the image, as a `pkgs/liminix-tools/modules`
+      # tree. preinit loads every entry of its load-order through
+      # finit_module before it hands over to s6, so a fullSystem image can
+      # carry modules even though a kmodloader *service* cannot: that
+      # service needs kernel.modulesupport, and fullSystem embeds the
+      # whole rootdir into that same kernel derivation.
+      #
+      # Only meaningful together with fullSystem: the non-fullSystem
+      # initramfs is preinit alone and has no module tree to load from.
+      preloadModules = mkOption {
+        type = types.nullOr types.package;
+        default = null;
+        description = ''
+          A module tree (see `liminix.modules.build`) whose modules
+          preinit loads before starting s6. Requires
+          `boot.initramfs.fullSystem`.
+        '';
+      };
     };
     system.outputs = {
       initramfs = mkOption {
@@ -55,15 +73,24 @@ in
   config = mkIf cfg.enable {
     kernel.config = {
       BLK_DEV_INITRD = "y";
-      INITRAMFS_SOURCE =
-        builtins.toJSON (
-          if cfg.fullSystem then
-            "${o.fullinitramfs}"
-          else
-            "${o.initramfs}"
-        );
-      #      INITRAMFS_COMPRESSION_LZO = "y";
+      # A constant, not the image itself: `kernel.config` is
+      # `attrsOf nonEmptyStr` and the option type checks every value, so an
+      # entry naming an image built from this same kernel's modulesupport
+      # would be forced at type-check time - a cycle. The image goes in
+      # through `kernel.initramfsSource` below instead.
+      INITRAMFS_SOURCE = "\"\"";
     };
+
+    # The image to embed. It is a plain string option, deliberately not a
+    # `kernel.config` entry, and `pkgs/kernel` appends it after
+    # olddefconfig (see initramfsSource there).
+    kernel.initramfsSource = mkIf cfg.enable (
+      if cfg.fullSystem then "${o.fullinitramfs}" else "${o.initramfs}"
+    );
+
+    # The flag, not the path: modules-kernel.nix must be able to ask
+    # whether an image is embedded without forcing it.
+    kernel.embedsInitramfs = mkIf cfg.enable true;
 
     system.outputs = {
       initramfs =
@@ -114,6 +141,26 @@ in
               echo "dir /proc 0755 0 0"
               echo "dir /dev 0755 0 0"
               echo "nod /dev/console 0600 0 0 c 5 1"
+              ${
+                if cfg.preloadModules == null then
+                  ""
+                else
+                  ''
+                    # preinit's load-order names paths below /lib/modules,
+                    # so the image must keep that layout. Only .ko and the
+                    # modules.* metadata are needed: load.sh/unload.sh want
+                    # a shell and insmod, which do not exist this early.
+                    echo "dir /lib 0755 0 0"
+                    echo "dir /lib/modules 0755 0 0"
+                    echo "file /lib/modules/load-order ${cfg.preloadModules}/load-order 0644 0 0"
+                    (cd ${cfg.preloadModules} && find lib/modules -type f) | while read -r f; do
+                      case "$f" in
+                        *.ko|*/modules.*)
+                          echo "file /$f ${cfg.preloadModules}/$f 0644 0 0" ;;
+                      esac
+                    done
+                  ''
+              }
             ) | ${pkgs.pkgsBuildBuild.gen_init_cpio}/bin/gen_init_cpio /dev/stdin | gzip -9 > $out
           ''
       );
