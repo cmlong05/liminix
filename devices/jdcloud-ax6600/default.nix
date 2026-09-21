@@ -64,14 +64,52 @@
                 url = "${sources.upstream.rawBase}/${path}";
               };
             wifiNodePatch = upstreamFile sources.wifiNodePatch.path sources.wifiNodePatch.sha256;
+
+            kernelPatch =
+              p:
+              pkgs.pkgsBuildBuild.fetchurl {
+                name = baseNameOf p.path;
+                inherit (p) sha256;
+                url = "${sources.upstream.rawBase}/${p.path}";
+              };
+            kernelPatches = map kernelPatch sources.kernelPatches;
+
+            # The NSS-generation dtsi and the ESS constants header, at the
+            # paths OpenWrt keeps them in, so the board dtsi's includes
+            # resolve as they do upstream.
+            deviceTreeInputs = pkgs.pkgsBuildBuild.runCommand "ipq6010-nss-devicetree" { } ''
+              mkdir -p $out/arch/arm64/boot/dts/qcom $out/include/dt-bindings/net
+              cp ${upstreamFile sources.essDtsi.path sources.essDtsi.sha256} \
+                 $out/arch/arm64/boot/dts/qcom/ipq6018-ess.dtsi
+              cp ${upstreamFile sources.nssDtsi.path sources.nssDtsi.sha256} \
+                 $out/arch/arm64/boot/dts/qcom/ipq6018-nss.dtsi
+              cp ${upstreamFile sources.commonDtsi.path sources.commonDtsi.sha256} \
+                 $out/arch/arm64/boot/dts/qcom/ipq6018-common.dtsi
+              cp ${upstreamFile sources.essHeader.path sources.essHeader.sha256} \
+                 $out/include/dt-bindings/net/qcom-ipq-ess.h
+            '';
           in
           ''
-          # The board dts is upstream's radio variant, so the node its &wifi
-          # reference needs must exist. Device tree only, no driver; applied
-          # strictly (no "|| echo") so a failure to apply stops the build.
+          # Needs fuzz: its hunk header claims more context than it gives.
+          # Every later patch applies exactly, and is applied that way, so
+          # context drift fails the build instead of shifting a hunk.
           patch -p1 --fuzz=3 < ${wifiNodePatch}
           grep -q "wifi: wifi@c000000" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
             || { echo "wifi node missing after patch"; exit 1; }
+
+          # SOURCES.nix order. 0103 is the one that matters here: it defines
+          # nss_region, the label ipq6018-nss.dtsi needs.
+          for p in ${lib.concatStringsSep " " kernelPatches}; do
+            patch -p1 --fuzz=0 < $p || { echo "failed to apply $p"; exit 1; }
+          done
+          grep -q "nss_region: nss@" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
+            || { echo "nss_region missing after 0103"; exit 1; }
+
+          cp -a ${deviceTreeInputs}/. .
+          grep -q "ess-switch@3a000000" arch/arm64/boot/dts/qcom/ipq6018-ess.dtsi \
+            || { echo "ESS dtsi not installed correctly"; exit 1; }
+          test -f include/dt-bindings/net/qcom-ipq-ess.h \
+            || { echo "ESS constants header not installed"; exit 1; }
         '';
         config = {
           # pstore/ramoops: persistent kernel log at 0x60000000 so it
@@ -94,6 +132,11 @@
           PHYLIB = "y";
           QCA807X_PHY = "y";
           QCA808X_PHY = "y";
+          # QCA8081 is matched by its PHY ID (ethernet-phy-id004d.d101):
+          # in-kernel that is QCA808X_PHY above, and on the NSS path
+          # qca-ssdk runs CPPE with IN_AQUANTIA_PHY=TRUE, which is the
+          # driver upstream's ipq60xx config covers with this entry.
+          AQUANTIA_PHY = "y";
 
           # MDIO bus driver for the qcom,ipq6018-mdio/ipq4019-mdio
           # node that carries the QCA8075 package and QCA8081 (the
@@ -141,13 +184,17 @@
             in
             {
               src = "${upstreamTree}/ipq6010-re-cs-02.dts";
+              # upstreamTree: the board dts and the dtsi it includes. The
+              # kernel tree: ipq6018.dtsi plus the NSS-generation dtsi the
+              # kernel phase installs there, so the board dtsi's
+              # same-directory includes resolve. dt-bindings come from
+              # `${kernel.headers}/include`, appended by outputs.nix.
               includePaths = [
                 upstreamTree
                 "${config.system.outputs.kernel.modulesupport}/arch/arm64/boot/dts/qcom/"
               ];
-              # The complete list of our overrides on upstream's device tree,
-              # two of them, both overrides rather than patches so that every
-              # upstream file stays byte for byte: see ./overrides.dtsi.
+              # Our complete delta from upstream's tree, as overrides rather
+              # than patches so every upstream file stays byte for byte.
               includes = [ ./overrides.dtsi ];
             };
 
