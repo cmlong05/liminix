@@ -49,10 +49,10 @@
             kernelSource = (import ./SOURCES.nix).kernelDts;
           in
           pkgs.pkgsBuildBuild.fetchurl {
-            name = "linux-6.18.49.tar.gz";
+            name = "linux-6.18.52.tar.gz";
             inherit (kernelSource) url sha256;
           };
-        version = "6.18.49";
+        version = "6.18.52";
         extraPatchPhase =
           let
             sources = import ./SOURCES.nix;
