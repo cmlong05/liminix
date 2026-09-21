@@ -128,50 +128,6 @@
 每步统一给：**目标 / 改动 / 验证 / 回滚 / 风险**。任何一步失败都可回退到 `re-cs-02`
 的 PPE 有线镜像（已硬件验证）。
 
-### N0 修复分支，使其可评估
-
-* **目标**：`nix-instantiate --parse` 通过，设备能被 import。
-* **改动**：
-  `SOURCES.nix` 只保留当前真正需要的段；
-* **验证**：`nix-instantiate --parse devices/jdcloud-ax6600/default.nix` 无错误；
-  随后可构建一个最小 fullSystem 镜像启动到 shell（此时无网口是预期）。
-* **回滚**：`git checkout -- devices/jdcloud-ax6600/`。
-* **风险**：修 `extraPatchPhase` 时容易把“本分支要不要保留 PPE 驱动”一并答死 ——
-  NSS 与 PPE 互斥，本分支的结论是**不保留 PPE 驱动**（回退用 `re-cs-02`）。
-
-### N1 DTS 换代 + 时钟 + 内核 config（用户点名的“先解决 DTS”）
-
-* **目标**：内核能编译出 NSS 代的 dtb，启动无 panic，`/proc/device-tree` 里出现
-  `ess-switch` / `nss@40000000` / `dp1..dp5`；此时还没有网口是预期的。
-* **改动**：
-  1. 新增 `devices/jdcloud-ax6600/nss/SOURCES.nix`（2.2 的 DTS + 补丁 + 时钟补丁清单）；
-  2. `default.nix` 的 `hardware.dts`：换成 NSS 代 board dts/dtsi，`includePaths` 保持
-     `${kernel.modulesupport}/arch/arm64/boot/dts/qcom/`，`includes = [ ./overrides.dtsi ]`；
-     安装 NSS 版 `ipq6018-ess.dtsi` + `ipq6018-nss.dtsi` + `ipq6018-common.dtsi` 进内核树，
-     应用 `0103` 与时钟补丁；
-  3. `overrides.dtsi` 重推：保留关 Bluetooth（本板无 BT）；PPE 代的
-     `&switch assigned-clock-rates` 删掉（NSS 的 ess-switch 无此属性，crypto 频率在
-     `nss_crypto/eip197_node` 的 `clock-frequency` 里）；**必须覆盖 fork DTS 的
-     `qcom,ath11k-fw-memory-mode = <1>`** → mode 2（`ax6600` 的实测：mode 1 会让载波在
-     5180↔5500 MHz 振荡）；
-  4. `kernel.config`：关 `QCOM_EDMA` / `QCOM_80211AX_PPE` / `NET_DSA` / `NET_DSA_TAG_OOB` /
-     `PCS_QCA_UNIPHY`；按 VIKINGYFY `ipq60xx/config-default` 补
-     `IPQ_CMN_PLL=y`、`AQUANTIA_PHY=y`、`IPQ_GCC_6018=y`、`REGULATOR_CPR3=y`、
-     `# REGULATOR_CPR3_NPU is not set` 等；PHYLIB/MDIO/QCA807X_PHY 保留。
-* **先做的可编译性审计**（写进实施记录）：mainline 6.18 的 `ipq6018.dtsi` 里
-  `mdio@90000` 存在，但**没有** CMN PLL 与 ESS 节点；NSS 代 dtsi 只引用
-  `GCC_CMN_12GPLL_*`（mainline gcc 里有），不定义 `clock-controller@9b000`。
-  VIKINGYFY 的 config 里有 `IPQ_CMN_PLL=y`，所以落地时要确认 SSDK 是否需要
-  `qcom,ipq6018-cmn-pll` 节点：需要就补节点/补丁，不需要就不带 `IPQ_CMN_PLL`。
-  同理逐项核对 dtsi 引用的 label（`&prng`、`&usb3`、`&qusb_phy_0`、`&sdhc`、`&mdio` 的
-  `mdio_pins` pinctrl 等）在 mainline `ipq6018.dtsi` 是否都有，缺的写进 `overrides.dtsi`。
-* **验证**：`nix-build … -A outputs.dtb -o result-nss-dtb` 通过，且
-  `dtc -I dtb -O dts result-nss-dtb | grep -E 'ess-switch|nss@40000000|nss-dp'` 有命中；
-  真机启动无 panic、无 `rcg didn't update` 类时钟 WARNING。
-* **回滚**：还原 `hardware.dts`/`overrides.dtsi`/`config` 三处。
-* **风险**：保留内存布局与 AHB 无线的 q6/m3 区相互牵制（`0103` 动了 `q6_region` 尺寸）；
-  dtsi 引用的 SoC label 缺失；fork DTS 与本板实际硬件差异（BT/显示屏/PHY 拼写）。
-
 ### N2 最小内核外模块路径 + `qca-ssdk` + `qca-nss-dp`（有线网口）
 
 * **目标**：`lan1..lan4`、`wan` netdev 出现，PHY 链路 up，LAN 桥 DHCP/ssh 可用。
@@ -221,7 +177,8 @@
 * **风险**：ECM 与 bridge/vlan/PPPoE 组合的补丁依赖链最长，建议在 N3 稳定后再动。
 
 ### N5 无线：ath11k 双 radio（AHB 2.4G + QCN9074 5G）
-
+* 无线分成两组（2.5g+5.8g）（5.2g QCN9024)
+* 注意 qcom,ath11k-fw-memory-mode 0,1,2的可选值
 * **目标**：把 `re-cs-02` 已整理好的无线移植搬回本分支，与 NSS 有线共存。
 * **改动**：`git checkout re-cs-02 -- devices/jdcloud-ax6600/wifi`（5 个本地补丁 + README +
   `SOURCES.nix`）；把 `SOURCES.nix` 的 wifi 段与 `extraPatchPhase` 的 wifi 循环接回
@@ -287,13 +244,23 @@ $ sh md5_result.sh
 5. **DTS/保留内存**：`0103` 改了 `q6_region` 并新增 `m3_dump`，与 AHB 无线的区域重叠
    必须在 N1 定稿。
 6. **时钟**：CMN PLL 节点是否必须、NSS crypto rcg 警告的来源在换代后要重新确认。
-7. **止损**：任何阶段失败都能回到 `re-cs-02` 的 PPE 有线镜像（已硬件验证）。
+   *N1 实测*：NSS 代的 `ipq6018-ess.dtsi` 把 `bias_pll_cc_clk`/`bias_pll_nss_noc_clk`
+   定义成 `fixed-clock`，且**不引用** `qcom,ipq6018-cmn-pll` 节点 —— 所以 CMN PLL 的
+   0080/0082/0191 对 DTS 非必需（mainline `gcc-ipq6018.c` 靠 `fixed-clock` 满足父时钟）。
+   crypto rcg 警告源于 PPE 代 dtsi 的 `assigned-clock-rates = 600 MHz`，NSS 代已改为
+   `eip197_node` 的 `clock-frequency = 300 MHz`，该覆盖因此删除。
+7. **ath11k fw-memory-mode 故意偏离上游**：`overrides.dtsi` 把两个 radio 都设成 mode 0
+   （17 vdevs / 512 peers），而上游与 OpenWrt/ImmortalWrt 都不设该属性（= 主线默认 mode 2）。
+   1 GiB 内存下多出的固件表可忽略，但 **mode 0 本机未实测**；mode 1 已知有害
+   （QCN9074 载波 5180↔5500 MHz 振荡，见 ax6600 分支 `DEVELOPMENT_LOG` 4.7/4.8）。
+   N5 无线落地时必须实测，异常则回退 mode 2（改两个数字即可）。
+8. **止损**：任何阶段失败都能回到 `re-cs-02` 的 PPE 有线镜像（已硬件验证）。
 
 ---
 
 ## 7. 待确认决策（已按推荐值写在上面，可改）
 
-1. 基线：**6.18.49 + VIKINGYFY main 的 NSS 代**（备选：6.12 + LibWrt）。
+1. 基线：**6.18.52 + VIKINGYFY main 的 NSS 代**（备选：6.12 + LibWrt）。
 2. 形态：**kmod + `pkgs/kmodloader` + tftpboot 镜像**（备选：fullSystem + `=y` graft）。
 3. fork 派生补丁：**以独立补丁 + sha256 收录并标注来源**（备选：只作参考、自行重写）。
 4. 文档语言与粒度：中文正文、每阶段单独确认后实施。
@@ -331,7 +298,9 @@ aliases { ethernet0 = &dp1; ... ethernet4 = &dp5; label-mac-device = &dp1; };
           qcom,port_phyinfo { port@5 { port_id = <5>; phy_address = <12>; port_mac_sel = "QGMAC_PORT"; } }; };
 &dp1 { status = "okay"; phy-handle = <&qca8075_24>; label = "lan1"; }; ...
 &dp5 { status = "okay"; phy-mode = "sgmii"; phy-handle = <&qca8081>; label = "wan"; };
-&wifi { status = "okay"; qcom,ath11k-fw-memory-mode = <1>;  /* 我们要覆盖成 2 */
+// 板级还有一处同样的属性，在 &pcie0 / pcie@0 / wifi@0,0（PCIe QCN9074）里；
+// ath11k 从各自的 of_node 读，所以两处都要覆盖。
+&wifi { status = "okay"; qcom,ath11k-fw-memory-mode = <1>;  /* 上游值；我们覆盖成 0 */
         qcom,ath11k-calibration-variant = "JDC-RE-CS-02"; };
 ```
 
