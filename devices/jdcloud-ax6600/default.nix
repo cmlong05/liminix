@@ -63,13 +63,9 @@
                 inherit hash;
                 url = "${sources.upstream.rawBase}/${path}";
               };
-            kernelPath = f: lib.removePrefix "target/linux/qualcommax/files/" f.path;
             wifiNodePatch = upstreamFile sources.wifiNodePatch.path sources.wifiNodePatch.sha256;
           in
           ''
-          ${lib.concatMapStrings (f: ''
-            install -D -m644 ${upstreamFile f.path f.sha256} ${kernelPath f}
-          ${lib.concatMapStrings (p: ''
           # The board dts is upstream's radio variant, so the node its &wifi
           # reference needs must exist. Device tree only, no driver; applied
           # strictly (no "|| echo") so a failure to apply stops the build.
