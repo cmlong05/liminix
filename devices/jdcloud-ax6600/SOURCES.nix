@@ -145,7 +145,7 @@ in
   kernelDts = {
     role = "build-input";
     url = "https://mirrors.ustc.edu.cn/kernel.org/linux/kernel/v6.x/linux-6.18.52.tar.gz";
-    sha256 = "sha256-TDBEYWCf0nFJhwDQIQ6fQc3xYoSmBplCLaS610x9GfU=";
+    sha256 = "sha256-MEZUEBTOu0xnd/HP0DY0ozsOmHreg3tKcYujaAKt72w=";
     provides = [
       "arch/arm64/boot/dts/qcom/ipq6018.dtsi"
       "include/dt-bindings/gpio/gpio.h"
