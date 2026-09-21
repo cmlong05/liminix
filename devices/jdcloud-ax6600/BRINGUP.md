@@ -44,6 +44,12 @@
    把整个 rootdir 嵌进内核，而 rootdir 里的 kmodloader 服务依赖 `kernel.modulesupport`
    —— 同一个 kernel derivation 的另一个输出 → `INITRAMFS_SOURCE` 递归。
    （`re-cs-02` 的 `wifi/README` 已记录同一个坑，那里的做法是把 ath11k 全部 `=y`。）
+
+   *N2 实测补正*：这个环比上面写的更深一层，**换掉 insmod 的执行者也绕不开**——
+   环不在"谁载入模块"，而在 `.ko` 必须针对 `kernel.modulesupport` 编译，而
+   `modulesupport` 是 kernel derivation 的输出。所以 `=y` graft 之所以能成立，正是
+   因为它不需要 `modulesupport`（源码编进内核树）。落地解法是让模块针对**同一个内核
+   去掉 initramfs 的孪生体**编译，实现在 `modules/kernel/modules-kernel.nix`，见 N2。
 5. **固件**：`FW_LOADER_USER_HELPER=n`，没有 firmware 服务；blob 必须在 `/lib/firmware`
    就位（`filesystem = dir {...}` 软链），或者用 `EXTRA_FIRMWARE` 内嵌进内核镜像。
 6. **内核 config 一致性检查**（`pkgs/kernel/default.nix:124-134`）会把 olddefconfig 丢弃的
@@ -150,6 +156,37 @@
 * **风险（已知的具体坑）**：PHY package `reg` 24–27 与 `qcom,port_phyinfo` 的
   `phy_address` 必须一致；`edma` 节点是 nss-dp 按名字找的（不是 bind）；模块名/depmod 名
   与 kmodloader `targets` 对齐（用 `modprobe --show-depends` 校对）。
+
+#### N2 落地实况（与上面计划的差异）
+
+计划里的第 1、3 条按"kmod + tftpboot"写，实际落地改成 **kmod + preinit 在 fullSystem
+镜像里载入**，因为 tftpboot 需要串口 + 主机 TFTP，而本板 bring-up 想保持 web-upload
+单文件镜像。为此把 fullSystem 的那个环解掉了：
+
+* `pkgs/kernel-module` + `pkgs/liminix-tools/modules`：通用内核外模块路径与模块树
+  （`lib/modules/0.0/*.ko` + `load-order` + `load.sh`/`unload.sh`，由
+  `modprobe --show-depends` 定序）。`pkgs/kmodloader` 改为共用它。
+* `devices/jdcloud-ax6600/nss/`：`qca-nss-phy`（头文件）、`qca-ssdk`、`qca-nss-dp`
+  三个设备私有包；pin 在 `nss/SOURCES.nix`，19 个 fork 派生补丁按你的要求**构建期**
+  从 pin 抓取（`nss/PATCHES.nix` 记 `blob` + `sha256`，本地不留字节）。
+* `modules/outputs/initramfs.nix` 新增 `boot.initramfs.preloadModules`，
+  `pkgs/preinit` 在 `execve("/init.s6")` 之前用 `finit_module` 逐条载入。
+  **kmodloader 服务在这个形态下依然不可用**（它就是那个环），preinit 不是服务、不引用
+  内核，所以可用。
+* **环的根因**（计划里没有写全）：不只是"kmodloader 依赖 modulesupport"，而是
+  **`.ko` 必须针对 `modulesupport` 编译**，任何引用都会强制求值整个 kernel derivation。
+  换 insmod 的执行者绕不开。且 `kernel.config` 的类型是 `attrsOf nonEmptyStr`，
+  **选项类型检查会强制每一个值**，所以"事后从 config 里去掉/覆盖 INITRAMFS_SOURCE"
+  一律失败（`merged // {...}` 也会先强制原值）。
+* **解法**：镜像不把 initramfs 放进 `kernel.config`，而是放进
+  `kernel.initramfsSource`（`nullOr str`，由 `pkgs/kernel` 在 `olddefconfig` 之后追加进
+  `.config`，绕开类型检查）；`modules/kernel/modules-kernel.nix` 再给出一份
+  `kernel.modulesKernel`——同源、同补丁、同 config、同 make targets，**只少那一行**。
+  NSS 模块针对它编译。两个内核只差 `INITRAMFS_SOURCE`，而没有任何导出符号依赖它，
+  所以模块能载入真内核。代价是内核构建两次。
+* `embedsInitramfs` 布尔开关是必需的：`modulesKernel` 若去问
+  `initramfsSource == null`，那个问句本身就会强制出路径 → 又是环。
+
 
 ### N3 `nss-firmware` + `qca-nss-drv`（NSS 核启动）
 

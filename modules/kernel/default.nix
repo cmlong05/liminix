@@ -23,6 +23,7 @@ let
     ) conf conditions;
 in
 {
+  imports = [ ./modules-kernel.nix ];
   options = {
     kernel = {
       src = mkOption {
@@ -86,6 +87,37 @@ in
       makeTargets = mkOption {
         type = types.listOf types.str;
       };
+      # What to embed as the initramfs, as a raw string for the kernel's
+      # .config (so usually a quoted path, e.g. "\"/nix/store/...\"").
+      #
+      # Deliberately not a `kernel.config` entry: that attrset is
+      # `attrsOf nonEmptyStr`, whose option type checks every value, so an
+      # entry naming an image that is itself built from this kernel's
+      # modulesupport gets forced at type-check time - a cycle.
+      initramfsSource = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        internal = true;
+        description = "CONFIG_INITRAMFS_SOURCE for the .config, injected after olddefconfig";
+      };
+      # Whether anything is embedding an initramfs. A plain bool so that
+      # asking cannot force the image path, which would recurse through
+      # the modules the image carries.
+      embedsInitramfs = mkOption {
+        type = types.bool;
+        default = false;
+        internal = true;
+        description = "true when kernel.initramfsSource names an image";
+      };
+      # The same kernel with no embedded initramfs, for building modules
+      # that a fullSystem image carries. Defined in ./modules-kernel.nix;
+      # null unless an initramfs is actually embedded.
+      modulesKernel = mkOption {
+        type = types.nullOr types.package;
+        default = null;
+        internal = true;
+        description = "the same kernel, built without an embedded initramfs";
+      };
     };
   };
   config = {
@@ -95,7 +127,7 @@ in
       in
       liminix.builders.kernel.override {
         config = mergedConfig;
-        inherit (config.kernel) version src extraPatchPhase;
+        inherit (config.kernel) version src extraPatchPhase initramfsSource;
         rawConfigFile = config.kernel.rawConfig;
         targets = config.kernel.makeTargets;
       };

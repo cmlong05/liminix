@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mount.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <string.h>
 #include <stdint.h>
@@ -16,6 +17,68 @@
 #define AVER(c) do { if(c < 0) { ERR("failed: "  #c ": error=0x" ); pr_u32(errno); ERR("\n"); } } while(0)
 
 char * pr_u32(int32_t input);
+
+#define LOAD_ORDER "/lib/modules/load-order"
+#define MODULE_PATH "/lib/modules/"
+
+/* Load the modules the image was built with, in the order the build
+ * computed for them (pkgs/liminix-tools/modules writes load-order with
+ * dependencies first). This is what lets a fullSystem image carry
+ * loadable modules at all: a kmodloader *service* cannot, because it
+ * depends on kernel.modulesupport and the fullSystem rootdir is embedded
+ * in that very kernel derivation - a cycle. preinit is built before the
+ * kernel and embeds nothing, so it can carry the same module tree.
+ *
+ * Absent load-order means a kernel with no such modules, which is the
+ * common case, so this prints nothing then. */
+static void load_modules(void)
+{
+    int orders = open(LOAD_ORDER, O_RDONLY);
+    if(orders<0) return;
+
+    write(1, "loading modules\n", 16);
+    char path[256];
+    char name[192];
+    int n = 0;
+    char c;
+    ssize_t got;
+
+    while((got = read(orders, &c, 1)) > 0) {
+	if(c != '\n') {
+	    if(n < (int)sizeof(name) - 1) name[n++] = c;
+	    continue;
+	}
+	name[n] = '\0';
+	n = 0;
+	if(name[0] == '\0') continue;
+
+	if(strlen(name) + sizeof(MODULE_PATH) > sizeof(path)) {
+	    ERR("module path too long: ");
+	    ERR(name);
+	    ERR("\n");
+	    continue;
+	}
+	strcpy(path, MODULE_PATH);
+	strcat(path, name);
+
+	int fd = open(path, O_RDONLY);
+	if(fd<0) {
+	    ERR("failed: open(");
+	    ERR(path);
+	    ERR(")\n");
+	    continue;
+	}
+	if(syscall(SYS_finit_module, fd, "", 0) < 0) {
+	    ERR("failed: finit_module(");
+	    ERR(path);
+	    ERR("): error=0x");
+	    pr_u32(errno);
+	    ERR("\n");
+	}
+	close(fd);
+    }
+    close(orders);
+}
 
 static void die() {
     /* if init exits, it causes a kernel panic. On the Turris
@@ -80,6 +143,8 @@ int main(int argc, char *argv[], char *envp[])
 	die();
     }
     parseopts(buf, &opts);
+
+    load_modules();
 
     if(opts.device) {
 	if(!opts.fstype) opts.fstype = "jffs2"; /* backward compatibility */
