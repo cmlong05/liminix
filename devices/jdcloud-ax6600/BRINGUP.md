@@ -116,10 +116,13 @@
   `qca-ssdk`(30) → `qca-nss-dp`(31) → `qca-nss-drv`(32) → `ecm`；由 `pkgs/kmodloader`
   用显式 `targets` 加载（`targets` 用 depmod 名字，落地时用
   `modprobe --show-depends` 校对，必要时回落文件名）。
-* **固件**：NSS blob 放 `filesystem.lib.firmware`；注意 OpenWrt 在运行时用
-  `/etc/hotplug.d/firmware/10-qca-nss-fw` 把 `qca-nss*-retail.bin` 改名/链接成驱动请求的
-  名字，**Liminix 没有 hotplug fallback**，所以要把驱动实际请求的名字（`qca-nss0.bin`
-  等）在镜像里直接放好（N3 用 `dmesg` 的 `Direct firmware load for … failed` 校准）。
+* **固件**：NSS blob 由驱动按名字请求：`nss_hal.c` 要的是 `qca-nss0.bin`
+  （**不是** `qca-nss0-retail.bin`）。OpenWrt 装 retail 名再用
+  `/etc/hotplug.d/firmware/10-qca-nss-fw` 改名/链接，**Liminix 没有 hotplug fallback**
+  （`FW_LOADER_USER_HELPER=n`），所以镜像里必须直接就叫 `qca-nss0.bin`。
+  放哪儿另有一层约束，见 N3：fullSystem 镜像里 `filesystem.lib.firmware` 到模块加载时
+  还不存在（`activate` 在 `preinit` 的 `load_modules()` 之后才跑），要用
+  `boot.initramfs.preloadFirmware` 嵌进镜像。
 
 ### 3.2 备选 B：若「WiFi NSS offload」是最高优先
 
@@ -137,16 +140,50 @@
 ### N3 `nss-firmware` + `qca-nss-drv`（NSS 核启动）
 
 * **目标**：NSS 核（uBI32）起来并进入可用状态，datapath 由 NSS 接管。
-* **改动**：固件进 `filesystem.lib.firmware`（按驱动请求名放好，见 3.1）；新增
-  `qca-nss-drv` 模块与加载服务；处理 mem profile：
-  ipq60xx 在 QSDK Kconfig 里默认 `NSS_MEM_PROFILE_MEDIUM`，而 `HIGH`(1G) 被硬限制在
-  `TARGET_qualcommax_ipq807x` —— 本板 1 GiB（本机改装到更大），要**显式选择 profile**
-  （需要时以独立补丁放宽依赖），并记录选择理由。
-* **验证**：`dmesg | grep -i nss` 出现 core/frequency、`nss_stats` 之类接口可读；
-  转发路径上 NSS 计数增长。
-* **回滚**：卸掉 `qca-nss-drv`，退回 N2 的纯 SSDK/nss-dp 路径。
-* **风险**：闭源固件版本（11.4 / 12.1 / 12.2 / 12.5 的差异；MESH 只在 11.4）、
-  固件许可、NSS 与 SMP/中断亲和性的调优。
+* **改动**（review 后定稿，见附录 C）：
+  * `nss/SOURCES.nix` 加两个 pin：CLO `nss-drv` `6aa14c78…`（QSDK 13.1，2026-01-12）、
+    qosmio `qca-sdk-nss-fw` v2025.05.01（12.5 CP retail）。
+  * `nss/PATCHES.nix` 加 20 条 fork 补丁（`001` 构建系统 + `002` 的 6.18 版本窗口是硬性
+    必需：不改就是 `#error`）。
+  * `nss/qca-nss-drv/`：`SoC=ipq60xx_64`（不是 nss-dp 的 `ipq60xx`）、
+    `-DNSS_FIRMWARE_VERSION_12_5`、`NSS_DRV_EXTRA_INCLUDES` 指向 nss-dp/ssdk。
+  * `nss/qca-nss-dp/`：导出 `exports/*.h`（nss-drv `#include <nss_dp_api_if.h>`）。
+  * `nss/nss-firmware/`：解外层 `.tar.zst` + 内层（**名为 `.tar.bz2` 实为 xz**），
+    产出 flat output 的 `qca-nss0.bin`。
+  * `modules/outputs/initramfs.nix` 加 `boot.initramfs.preloadFirmware`，与
+    `preloadModules` 对称地把固件嵌进 fullSystem 的 cpio：
+    `preinit` 的 `load_modules()` 早于 `activate`，那时 `/lib/firmware` 还不存在，
+    而驱动在 probe 里同步 `request_firmware`，缺失即 `finit_module` 失败。
+* **mem profile**：**不需要处理**。`NSS_MEM_PROFILE_*` 只是驱动里的 C 宏，没有 Kconfig
+  也没有默认 `#define`；VIKINGYFY 的包和驱动 Makefile 都不传它 → 走
+  `nss_hlos_if.h` 的 `#else` 分支 = 最大档（IPv4/IPv6 各 4096、合计 8192、empty buffer
+  1984），正是 1 GiB 该用的。原文说的「ipq60xx 默认 MEDIUM、HIGH 被限制在 ipq807x」是
+  qosmio `nss-packages` feed 的规则，不适用于本 pin。ipq60xx 恒为 `num_nss=1`。
+* **特性集**：照 fork「无 client 包」的默认，显式关掉
+  C2C/CAPWAP/CLMAP/DTLS/IPSEC/PVXLAN/QVPN/TLS、GRE*/IPV4_REASM/IPV6_REASM/LSO_RX/QRFS/
+  RMNET/SJACK/TRUSTSEC*/UDP_ST/WIFI_EXT_VDEV、BRIDGE/CRYPTO/GRE/IGS/L2TP/LAG/MAPT/
+  MATCH/MIRROR/PPPOE/PPTP/SHAPER/TUN6RD/TUNIPIP6/VIRT_IF/VLAN/VXLAN/WIFI_MESH/WIFIOFFLOAD；
+  留着的是 IPV4、**IPV6**、ETH_RX、SoC 选中的 PPE/EDMA，以及频率缩放。
+  *构建实测*：IPV6 **不能关**——`nss_rps.c` 的 `nss_rps_hash_bitmap_cfg_handler()` 是
+  `#if !defined(NSS_DRV_IPV4_ENABLE) || !defined(NSS_DRV_IPV6_ENABLE)` 整段返回
+  「not supported」，两者关任意一个，`nss_rps_ipv4_hash_bitmap_cfg()` 就成了无调用者的
+  static 函数，驱动自带的 `-Wall -Werror` 直接失败。fork 的包选型总是同时打开
+  IPV4/IPV6，所以这个坑它自己碰不到。N4/N5 再逐个放开 PPPOE/BRIDGE/VLAN/VIRT_IF。
+* **内核 config**：**不新增**。N2 的 config 已有 MODULES/MODULE_UNLOAD/DEBUG_FS/PROC_FS/
+  PROC_SYSCTL/FW_LOADER/SMP/IPQ_GCC_6018/QCOM_SMEM/RESET_CONTROLLER/PPP/BRIDGE；
+  `NET_CLS_ACT`/`BRIDGE_NETFILTER`/`NF_CONNTRACK`/`SKB_EXTENSIONS`/`PAGE_POOL` 在驱动的
+  源码里全是 `#ifdef` 可选路径，参考 fork 的 qualcommax config 里同样基本没有。
+* **验证**：`dmesg` 出现 `NSS fw version: NSS.FW.12.5-210-CP.R`
+  （驱动打印的是 blob 里的版本串，归档名/成员名才带 `BIN-` 前缀）与
+  `NSS core 0 DDR from 40000000 to 41000000`、`NSS core 0 booted successfully`；
+  `/proc/sys/dev/nss/` 可读；`/sys/kernel/debug/qca-nss-drv/` 要先
+  `mount -t debugfs none /sys/kernel/debug`（Liminix 的 init 只挂 /proc /sys /dev /run，
+  不挂 debugfs，而驱动是把目录建在 debugfs 根上的）；转发路径上 NSS 计数增长。
+* **回滚**：`ax6600-nss-ram.nix` 的 `targets` 去掉 `qca-nss-drv`（`preloadFirmware` 可留，
+  无害），退回 N2 的纯 SSDK/nss-dp 路径。
+* **风险**：驱动自带 `-Wall -Werror`，6.18 的告警是**最可能的第一个构建失败点**；
+  闭源固件版本（11.4 / 12.1 / 12.2 / 12.5 的差异；MESH 只在 11.4）、固件许可
+  （QuIC 二进制，仅限 QTI 芯片）；N2 的 `nr_cpus=1` 只让 NSS RPS 退化，不阻塞 N3。
 
 ### N4 `qca-nss-ecm`（硬件 NAT/PPPoE offload = 「满血」）
 
@@ -199,7 +236,7 @@
 | N0 | `nix-instantiate --parse` 通过 |
 | N1 | dtb 含 `ess-switch` / `nss@40000000` / `dp1..dp5`；真机无 panic |
 | N2 | `lan1..lan4` + `wan` 存在、链路 up、DHCP/ssh 可用、`wan` 2500 Mbps |
-| N3 | NSS 核启动日志 + 加速计数增长 |
+| N3 | ✅ 真机：`NSS fw version: NSS.FW.12.5-210-CP.R` + `NSS core 0 booted successfully`；`/proc/sys/dev/nss/` 可读（debugfs 需手工 mount）；计数增长待验 |
 | N4 | ECM offload 命中 + 转发热路径 A53 占用显著下降 + 吞吐基准 |
 | N5 | 2.4G/5G AP 可关联 |
 
@@ -223,7 +260,9 @@ $ sh md5_result.sh
 2. **镜像形态**：不接受 tftpboot/串口就必须走备选 B（内建），风险显著上升。
 3. **闭源固件**：许可与版本差异（11.4/12.5；MESH 需 11.4）；NSS 固件文件名在无 hotplug
    fallback 的 Liminix 下要手工对准。
-4. **内存 profile**：ipq60xx 的 `NSS_MEM_PROFILE_HIGH` 被限制在 ipq807x，需显式处理。
+4. **内存 profile**（*N3 review 更正*）：不再是风险。`NSS_MEM_PROFILE_*` 只是驱动里的 C
+   宏，没有 Kconfig/默认定义，VIKINGYFY 的包与 Makefile 都不传 → 默认即最大档，适合 1 GiB。
+   「`NSS_MEM_PROFILE_HIGH` 被限制在 ipq807x」是 qosmio feed 的规则，与本 pin 无关。
 5. **DTS/保留内存**：`0103` 改了 `q6_region` 并新增 `m3_dump`，与 AHB 无线的区域重叠
    必须在 N1 定稿。
 6. **时钟**：CMN PLL 节点是否必须、NSS crypto rcg 警告的来源在换代后要重新确认。
@@ -297,9 +336,9 @@ nix-instantiate --parse devices/jdcloud-ax6600/default.nix
 nix-build -Q --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
 
-# 构建（tftpboot：N2 起要新增的“可加载模块”配置，文件名在 N2 定）
+# 构建（N2/N3：同一个 fullSystem 形态 + 可加载模块与 NSS 固件）
 nix-build -Q --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-nss-ram.nix -A outputs.tftpboot -o result-tftp
+    -I liminix-config=./ax6600-nss-ram.nix -A outputs.uimage -o result-nss-lan-ram
 
 # 串口
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
@@ -307,4 +346,68 @@ sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
 # 真机核对
 dmesg | grep -iE 'ssdk|ess-switch|nss-dp|nss|qca8075|qca8081|ubi32'
 ip link; cat /sys/class/net/wan/speed
+
+# N3：NSS 核
+dmesg | grep -iE 'nss fw version|nss core|frequency'
+ls /sys/kernel/debug/qca-nss-drv/stats/
+cat /proc/sys/dev/nss/stats/non_zero_stats
 ```
+
+## 附录 C：N3 review 记录
+
+实施前对 N3 做过一次核对，结论（依据见各处注释）：
+
+* **固件投递**（原计划错）：blob 不能只放 `filesystem.lib.firmware`。fullSystem 的 cpio
+  只有 `rootdir`（activate/init/nix-store/secrets/boot）加 `preloadModules`；
+  `filesystem.contents` 是 `preinit` 里 `/activate` 跑出来的，而 `preinit.c` 的调用序是
+  `mount /proc` → `parseopts` → **`load_modules()`** → `activate`。驱动在 probe 里同步
+  `request_firmware`，那时 `/lib/firmware` 还不存在，`finit_module` 必然失败。
+  定稿方案：新增 `boot.initramfs.preloadFirmware`，与 `preloadModules` 对称地把固件写进
+  cpio（备选：`CONFIG_EXTRA_FIRMWARE` 内嵌内核）。
+* **驱动 pin**：CLO `nss-drv` `6aa14c78e097b29c493ff2fef87e4d35906b2b5a`（QSDK 13.1），
+  nar hash `sha256-OqbVrRhnp6z9QJ38vkjEPTgLg5tfdnRu0gp2LU/p85M=`；该 hash 的算法
+  （shallow fetch → `git archive` 解出 → `nix hash path --sri`）先用 nss-dp 的已知 pin
+  反证一致。
+* **20 条 fork 补丁**：`patch -p1 --fuzz=0` 按序累积 20/20 通过；blob sha 与 sha256 全部
+  记在 `nss/PATCHES.nix`。`002` 把 `nss_core.c` 的 `LINUX_VERSION_CODE` 白名单改成 6.18
+  窗口（驱动硬编码 `NSS_SKB_REUSE_SUPPORT=1`，否则 `#error`）。
+* **固件字节**：外层 `nss-firmware-2025.05.01.tar.zst` sha256 `10a4b1e6…d7abb0`；
+  内层 `QCA_Networking_2024.SPF_12.5/ED1/IPQ6018.ATH.12.5/BIN-NSS.FW.12.5-210-CP.R.tar.bz2`
+  （**实为 xz**）sha256 `56d9cd4e…a1f2`；成员 `BIN-NSS.FW.12.5-210-CP.R/retail_router0.bin`
+  862,184 B sha256 `3c770896…1ccee` → 作为 flat output 的 `qca-nss0.bin`。
+* **内核 config**：N2 的 config 已够（`MODULES`/`MODULE_UNLOAD`/`DEBUG_FS`/`PROC_FS`/
+  `PROC_SYSCTL`/`FW_LOADER`/`SMP`/`IPQ_GCC_6018`/`QCOM_SMEM`/`RESET_CONTROLLER`）；
+  参考 fork 的 qualcommax config 也没有 `NET_CLS_ACT`/`BRIDGE_NETFILTER`/`NF_CONNTRACK`/
+  `SKB_EXTENSIONS`，`PAGE_POOL` 在 nss-drv 里根本没引用。`REGULATOR=n` 也无碍（ipq60xx
+  HAL 只声明 `npu_reg` 不使用）。
+* **DTS 前提**：N2 镜像的 dtb 已含 `nss@40000000` / `nss-common` / `qcom,load-addr`。
+* **review 时唯一没把握的点**：驱动 Makefile 自带 `-Wall -Werror`，6.18 告警会不会炸。
+  实测确实炸了，见下一条。
+* *构建实测（2026-09-22）*：
+  * 首次构建在 `nss_rps.c:287` 失败：`nss_rps_ipv4_hash_bitmap_cfg` defined but not
+    used `[-Werror=unused-function]`。原因是 `NSS_DRV_IPV4_ENABLE`/`NSS_DRV_IPV6_ENABLE`
+    必须**同时**打开（见 N3 特性集）。改掉后 20 条补丁 + 编译全部通过，
+    `qca-nss-drv.ko` 452 KB、vermagic `6.18.52`，只余 `nss_dp_*` 这组由 nss-dp 提供的
+    未定义符号（modpost 由 `KBUILD_EXTRA_SYMBOLS` 解决）。
+  * 固件 FOD 命中：`qca-nss0.bin` 862,184 B、sha256 `3c770896…1ccee`，与 pin 一致。
+  * `load-order` = `qca-ssdk.ko` → `qca-nss-dp.ko` → `qca-nss-drv.ko`（depmod 推导，符合
+    预期）。
+  * `fullinitramfs` 里 `/lib` → `/lib/firmware` → `qca-nss0.bin`、`/lib/modules` →
+    `/lib/modules/0.0` → ko 的顺序正确（父目录都先于子项，gen_init_cpio 不会静默丢弃）。
+  * 环境提示：Nix 的 fetcher 缓存在 `~/.cache/nix`，被 DSH 文件沙箱挡下（SQLite
+    readonly）。用 `XDG_CACHE_HOME=<可写目录>` 重定向即可，不需要放宽沙箱。
+  * *产物*：`result-nss-lan-ram` → `4fzyjqhwkj6yf7h49xq52136pcbcnypb-kernel.image-…`，
+    35,245,600 B，md5 `28ef5b437d069dc2a5d4b0119b6455bc`（N2 是 34,778,828 B，多出的是
+    固件 + 驱动）。最终内核的 `CONFIG_INITRAMFS_SOURCE` 指向上面那个 fullinitramfs。
+* *真机实测（刷入 `result-nss-lan-ram`）*：
+  ```
+  qca-nss 39000000.nss: NSS fw version: NSS.FW.12.5-210-CP.R
+  ffffffc07aa43a78: NSS core 0 DDR from 40000000 to 41000000
+  qca-nss 39000000.nss: NSS core 0 booted successfully
+  ```
+  `/proc/sys/dev/nss/` = clock/general/ipv4cfg/ipv6cfg/n2hcfg/ppe_vp/project/rps/
+  skb_reuse/stats。`/sys/kernel/debug/qca-nss-drv/` 需要手工
+  `mount -t debugfs none /sys/kernel/debug`——Liminix 的 init 不挂 debugfs，
+  驱动把目录建在 debugfs 根上（`nss_stats.c` 的 `debugfs_create_dir("qca-nss-drv", NULL)`），
+  内核侧 `CONFIG_DEBUG_FS=y`、`DEBUG_FS_ALLOW_ALL=y` 都在。**尚未验证**：offload/转发
+  计数增长、NSS 数据面是否真的接管了转发。
