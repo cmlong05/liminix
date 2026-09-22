@@ -146,6 +146,15 @@
           MDIO_IPQ4019 = "y";
           OF_MDIO = "y";
 
+          # Three kernel facilities qca-ssdk needs and nothing else on this
+          # board asks for: I2C, because it compiles its SFP EEPROM bridge
+          # unconditionally; SMEM, because ssdk_plat.c reads the SoC id
+          # through qcom_smem_get_soc_id; and HWSPINLOCK, which SMEM's
+          # Kconfig depends on.
+          I2C = "y";
+          HWSPINLOCK = "y";
+          QCOM_SMEM = "y";
+
         };
         # NB: the wifi conditionalConfig block (WLAN -> ATH11K /
         # QCOM_Q6V5_WCSS / PHY_QCOM_QMP_PCIE ...) is intentionally
