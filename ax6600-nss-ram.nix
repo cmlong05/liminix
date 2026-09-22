@@ -46,28 +46,58 @@ let
     inherit (config.kernel) version;
   };
 
-  # The NSS stack, in the order it must load: SSDK drives the switch and
-  # its PCS instances, nss-dp provides the netdevs on the EDMA rings, and
-  # nss-drv brings the NSS core up underneath them. The kernel's own
-  # modulesupport is deliberately not a root here: these are self-contained
-  # (each one's only unresolved symbols are the previous one's), so the
-  # initramfs carries 3 modules instead of the whole kernel module set.
-  nssTree = pkgs.liminix.modules.build pkgs {
+  # cfg80211 is built into this kernel and the signed-regdb check defaults
+  # on, so it asks for "regulatory.db" *and* the detached "regulatory.db.p7s"
+  # (signed by wens, whose cert the kernel carries in net/wireless/certs).
+  # The request comes from cfg80211's own late_initcall, before activate
+  # creates /lib/firmware, so both files ride in the image. Plain, not .zst:
+  # this kernel has FW_LOADER_COMPRESS_XZ but not _ZSTD.
+  regdb = name: pkgs.pkgsBuildBuild.runCommand name { } ''
+    install -m 0644 ${pkgs.pkgsBuildBuild.wireless-regdb}/lib/firmware/${name} $out
+  '';
+
+  # The one module tree the image carries: conntrack (from the kernel's own
+  # modulesupport) first, then SSDK, nss-dp, nss-drv, qca-nss-pppoe and ecm.
+  # One tree because `pkgs/liminix-tools/modules` derives the load order
+  # from `depmod` across all the roots at once; splitting it would mean
+  # guessing an order by hand.
+  #
+  # `load-order` comes from `targets` (closed over their dependencies) and
+  # is what preinit loads. The roots only decide what is available and what
+  # gets shipped, and the initramfs carries more than the load-order - see
+  # BRINGUP D.11.
+  moduleTree = pkgs.liminix.modules.build pkgs {
     roots = [
+      config.kernel.modulesKernel.modulesupport
       nss.qca-ssdk
       nss.qca-nss-dp
       nss.qca-nss-drv
+      nss.nss-clients
+      nss.qca-nss-ecm
     ];
     targets = [
+      "nf_conntrack"
+      "nf_defrag_ipv4"
+      "nf_defrag_ipv6"
+      "nf_nat"
+      # ECM's classifier reads the conntrack DSCPREMARK extension, the
+      # kernel's xt_DSCP target writes it. Without these two targets they
+      # ship but never load, so the extension stays zero and those
+      # connections are never offloaded.
+      "xt_DSCP"
+      "xt_dscp"
       "qca-ssdk"
       "qca-nss-dp"
       "qca-nss-drv"
+      "qca-nss-pppoe"
+      "ecm"
     ];
   };
 in
 {
   imports = [
     ./ax6600-lan.nix
+    ./modules/early
     ./modules/outputs/initramfs.nix
   ];
 
@@ -75,24 +105,42 @@ in
     initramfs = {
       enable = true;
       fullSystem = true;
-      preloadModules = nssTree;
+      preloadModules = moduleTree;
       # nss-drv asks the kernel for "qca-nss0.bin" while preinit is still
       # loading modules, which is before activate creates /lib/firmware,
       # so the blob is embedded in the image rather than put in the
       # filesystem (see boot.initramfs.preloadFirmware).
       preloadFirmware = {
         "qca-nss0.bin" = nss.nss-firmware;
+        "regulatory.db" = regdb "regulatory.db";
+        "regulatory.db.p7s" = regdb "regulatory.db.p7s";
       };
     };
     commandLine = lib.mkForce [
       "panic=10 oops=panic loglevel=8"
       "console=ttyMSM0,115200n8"
       "fw_devlink=off"
-      "nr_cpus=1"
+      # nr_cpus=1 was a bring-up workaround and has been stale since N2. It
+      # also has to go for N4 to be measurable: on one core the software
+      # path is core-bound, and NSS IRQ affinity needs the CPUs. If the
+      # board stops reaching userspace, putting it back is the first thing
+      # to try.
       "nokaslr"
+      # nokaslr stays: second line of defence behind RANDOMIZE_BASE=n, and
+      # free at runtime.
     ];
     imageFormat = "fit";
   };
 
   hardware.defaultOutput = "uimage";
+
+  # (N4) ECM's sysctls: modules/early writes them into /etc/sysctl.sh, which
+  # rc.init runs once /proc is mounted. nf_conntrack_tcp_no_window_check is
+  # added by 0600-1, ECM assumes it, and its default is 0; the other two are
+  # OpenWrt's tuning.
+  early.sysctl.net.netfilter = {
+    nf_conntrack_tcp_no_window_check = 1;
+    nf_conntrack_max = 65535;
+    nf_conntrack_events = 1;
+  };
 }
