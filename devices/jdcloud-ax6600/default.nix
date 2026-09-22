@@ -146,13 +146,17 @@
           MDIO_IPQ4019 = "y";
           OF_MDIO = "y";
 
-          # Three kernel facilities qca-ssdk needs and nothing else on this
-          # board asks for: I2C, because it compiles its SFP EEPROM bridge
-          # unconditionally; SMEM, because ssdk_plat.c reads the SoC id
-          # through qcom_smem_get_soc_id; and HWSPINLOCK, which SMEM's
-          # Kconfig depends on.
+          # Kernel facilities qca-ssdk needs and nothing else on this board
+          # asks for: I2C, because it compiles its SFP EEPROM bridge
+          # unconditionally, and SMEM, because ssdk_plat.c reads the SoC id
+          # through qcom_smem_get_soc_id. SMEM needs the HWSPINLOCK framework
+          # to build and the tcsr-mutex provider (HWSPINLOCK_QCOM) to probe
+          # at all: without the provider, qcom-smem stays deferred and every
+          # socid read fails, which makes ssdk_uniphy_valid_check() report
+          # the UNIPHYs as absent.
           I2C = "y";
           HWSPINLOCK = "y";
+          HWSPINLOCK_QCOM = "y";
           QCOM_SMEM = "y";
 
         };
