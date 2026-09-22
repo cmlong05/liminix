@@ -1,10 +1,10 @@
-# The QSDK NSS datapath packages for this device (BRINGUP.md N2).
+# The QSDK NSS packages for this device (BRINGUP.md N2 and N3).
 #
 # Device-private rather than in the pkgs registry: they are pinned to
 # specific commits of specific CLO repos and built with one SoC's
-# configuration (CHIP_TYPE=CPPE, SoC=ipq60xx). Only `pkgs/kernel-module`
-# and `pkgs/liminix-tools/modules` - the parts that are genuinely general -
-# live in pkgs/.
+# configuration (CHIP_TYPE=CPPE, SoC=ipq60xx/ipq60xx_64). Only
+# `pkgs/kernel-module` and `pkgs/liminix-tools/modules` - the parts that
+# are genuinely general - live in pkgs/.
 #
 # Takes the kernel explicitly because it is `config.system.outputs.kernel`
 # (a module-system output), not something the package set has an attribute
@@ -42,6 +42,13 @@ let
     inherit sources kernel kernel-module qca-ssdk;
     patches = map (patch "qca-nss-dp") recorded.nssDp;
   };
+  qca-nss-drv = pkgs.callPackage ./qca-nss-drv {
+    inherit sources kernel kernel-module qca-ssdk qca-nss-dp;
+    patches = map (patch "qca-nss-drv") recorded.nssDrv;
+  };
+  # The blob the driver above asks the kernel for. Not a module, so it is
+  # not in `dependencies` anywhere: it has to be in the image instead.
+  nss-firmware = pkgs.callPackage ./nss-firmware { inherit sources; };
 in
 {
   inherit
@@ -50,5 +57,7 @@ in
     qca-nss-phy
     qca-ssdk
     qca-nss-dp
+    qca-nss-drv
+    nss-firmware
     ;
 }
