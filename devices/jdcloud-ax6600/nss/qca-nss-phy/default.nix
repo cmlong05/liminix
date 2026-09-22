@@ -3,12 +3,12 @@
 # "qca-nss-phy/nss_phy_ptp.h" (fal_ptp.h:32).
 #
 # Upstream ships this as an OpenWrt BUILDONLY package installed into
-# STAGING_DIR/usr/include; here the archive is an include path. SSDK only
+# STAGING_DIR/usr/include; here the checkout is an include path. SSDK only
 # needs the headers, not the .c files - the PHY that ends up behind these
 # phylib devices is the mainline qca807x/qca808x driver.
 {
   stdenv,
-  fetchzip,
+  fetchgit,
   sources,
 }:
 let
@@ -18,9 +18,8 @@ stdenv.mkDerivation {
   pname = "qca-nss-phy-headers";
   version = nssPhy.date;
 
-  src = fetchzip {
-    inherit (nssPhy) url sha256 name;
-    stripRoot = true;
+  src = fetchgit {
+    inherit (nssPhy) url rev hash name;
   };
 
   dontBuild = true;
