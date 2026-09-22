@@ -105,7 +105,10 @@
           grep -q "nss_region: nss@" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
             || { echo "nss_region missing after 0103"; exit 1; }
 
-          cp -a ${deviceTreeInputs}/. .
+          # Preserve the files, not the store's read-only directory modes:
+          # -a alone would leave the source root unwritable for the .config
+          # write the kernel builder does in its configure phase.
+          cp -a --no-preserve=mode ${deviceTreeInputs}/. .
           grep -q "ess-switch@3a000000" arch/arm64/boot/dts/qcom/ipq6018-ess.dtsi \
             || { echo "ESS dtsi not installed correctly"; exit 1; }
           test -f include/dt-bindings/net/qcom-ipq-ess.h \
