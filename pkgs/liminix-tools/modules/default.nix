@@ -38,7 +38,6 @@ runCommand "kernel-modules"
   {
     nativeBuildInputs = with pkgsBuildBuild; [
       kmod
-      cpio
       gawk
     ];
     # Passed as files so that neither the roots nor the target names have
@@ -52,45 +51,50 @@ runCommand "kernel-modules"
   }
   ''
     set -eu
-    mkdir -p lib/modules/0.0
+    mkdir -p $out/lib/modules/0.0
 
-    while read -r root; do
+    # `|| test -n` on both loops: the lists have no trailing newline, and
+    # plain `while read` would read the last entry but never visit it.
+    while read -r root || test -n "$root"; do
       test -n "$root" || continue
-      (cd "$root" && find . -name '*.ko' | cpio --quiet --make-directories -p $NIX_BUILD_TOP/lib/modules/0.0)
+      # a kernel tree keeps its .ko files beside the sources and a module
+      # package keeps them under lib/modules, so they are collected flat:
+      # 0.0/ is the layout modprobe and preinit look for.
+      find "$root" -name '*.ko' -exec cp -t $out/lib/modules/0.0 {} +
       # a kernel tree carries modules.* metadata, a module package only
       # its .ko files; Module.symvers is deliberately not copied here
       for meta in "$root"/modules.*; do
-        test -e "$meta" && cp "$meta" lib/modules/0.0/ || true
+        test -e "$meta" && cp "$meta" $out/lib/modules/0.0/ || true
       done < /dev/null
     done < "$moduleRootsPath"
 
     # the devname map needs a /dev we do not have
-    rm -f lib/modules/0.0/modules.devname
-    depmod -b . 0.0
+    rm -f $out/lib/modules/0.0/modules.devname
+    depmod -b $out 0.0
 
     # `modprobe --show-depends` prints "insmod /<top>/lib/modules/0.0/x.ko
-    # [args]". Keep the part below lib/modules, so the list stays valid
-    # for any tree with the same layout.
-    while read -r target; do
+    # [args]". Keep the part below lib/modules: that is how the tree is
+    # found once it is mounted or embedded at /lib/modules.
+    while read -r target || test -n "$target"; do
       test -n "$target" || continue
-      modprobe -S 0.0 -d "$NIX_BUILD_TOP" --show-depends "$target" \
+      modprobe -S 0.0 -d "$out" --show-depends "$target" \
         | awk '$1 == "insmod" {
                  i = index($2, "/lib/modules/")
                  if (i) print substr($2, i + length("/lib/modules/"))
                }'
-    done < "$moduleTargetsPath" | awk '!seen[$0]++' > load-order
+    done < "$moduleTargetsPath" | awk '!seen[$0]++' > $out/load-order
 
-    test -s load-order || { echo "no modules selected by: ${concatStringsSep " " targets}"; exit 1; }
+    test -s $out/load-order || { echo "no modules selected by: ${concatStringsSep " " targets}"; exit 1; }
 
     {
       echo '#!/bin/sh'
-      echo 'O=''${O:-$out/lib/modules}'
-      sed 's,^,insmod $O/,g' load-order
-    } > load.sh
+      echo 'O=''${O:-'$out'/lib/modules}'
+      sed 's,^,insmod $O/,g' $out/load-order
+    } > $out/load.sh
     {
       echo '#!/bin/sh'
-      echo 'O=''${O:-$out/lib/modules}'
-      tac load-order | sed 's,^,rmmod $O/,g'
-    } > unload.sh
-    chmod 0755 load.sh unload.sh
+      echo 'O=''${O:-'$out'/lib/modules}'
+      tac $out/load-order | sed 's,^,rmmod $O/,g'
+    } > $out/unload.sh
+    chmod 0755 $out/load.sh $out/unload.sh
   ''

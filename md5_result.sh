@@ -5,19 +5,20 @@
 #
 # Ported from the `ax6600` branch's result-md5.sh (commit f1e65ed), with
 # the artifact list adjusted: this branch has no TFTP/boot.scr path
-# (result / result-lan). Both images it covers are single full-system FIT
+# (result / result-lan). The images it covers are single full-system FIT
 # ram images for the U-Boot web uploader:
 #
-#   result-lan-ram  - `ax6600-lan-ram.nix -A outputs.uimage`   (wired)
-#   result-wifi     - `ax6600-wifi-ram.nix -A outputs.uimage`  (wired + radio)
+#   result-lan-ram     - `ax6600-lan-ram.nix -A outputs.uimage`      (wired)
+#   result-nss-lan-ram - `ax6600-nss-ram.nix -A outputs.uimage`      (wired, NSS)
+#   result-wifi        - `ax6600-wifi-ram.nix -A outputs.uimage`     (wired + radio)
 #
 # Record the md5 before uploading, and verify it again after boot.
 set -u
 cd "$(dirname "$0")"
-for r in result-lan-ram result-wifi; do
+for r in result-lan-ram result-nss-lan-ram result-wifi; do
     if [ -e "$r" ]; then
         real=$(readlink -f "$r")
-        printf '%-16s -> %s\n' "$r" "$real"
+        printf '%-18s -> %s\n' "$r" "$real"
         if [ -f "$real" ]; then
             printf '  size %s bytes\n' "$(stat -c%s "$real")"
             printf '  md5 %s\n' "$(md5sum < "$real" | cut -d' ' -f1)"
@@ -29,6 +30,6 @@ for r in result-lan-ram result-wifi; do
             done
         fi
     else
-        printf '%-16s (not built)\n' "$r"
+        printf '%-18s (not built)\n' "$r"
     fi
 done
