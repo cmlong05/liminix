@@ -17,7 +17,7 @@
   kernel-module,
   kernel,
   stdenv,
-  fetchzip,
+  fetchgit,
   bash,
   gnumake,
   sources,
@@ -56,9 +56,8 @@ kernel-module {
   name = "qca-ssdk";
   version = ssdk.date;
 
-  src = fetchzip {
-    inherit (ssdk) url sha256 name;
-    stripRoot = true;
+  src = fetchgit {
+    inherit (ssdk) url rev hash name;
   };
 
   # already fetched from the pinned fork (see ../PATCHES.nix), in
