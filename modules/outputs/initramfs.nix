@@ -49,6 +49,25 @@ in
           `boot.initramfs.fullSystem`.
         '';
       };
+      # Firmware for the modules above. It cannot come from
+      # `filesystem.lib.firmware` in this image shape, even though that is
+      # where the kernel looks: preinit runs load_modules() *before* it
+      # runs activate, and activate is what creates /lib/firmware, so a
+      # request_firmware() during finit_module finds nothing. Files named
+      # here are embedded in the image at /lib/firmware/<name> instead.
+      preloadFirmware = mkOption {
+        type = types.attrsOf types.package;
+        default = { };
+        description = ''
+          Firmware files to embed at /lib/firmware/<name>, as an attrset
+          of file name to file. Requires `boot.initramfs.fullSystem`.
+
+          The kernel has no user-space firmware helper
+          (FW_LOADER_USER_HELPER is off), so a driver's
+          request_firmware() succeeds only if the exact name it asks for
+          is present: there is no hotplug/udev step to rename anything.
+        '';
+      };
     };
     system.outputs = {
       initramfs = mkOption {
@@ -142,28 +161,41 @@ in
               echo "dir /dev 0755 0 0"
               echo "nod /dev/console 0600 0 0 c 5 1"
               ${
-                if cfg.preloadModules == null then
+                if cfg.preloadModules == null && cfg.preloadFirmware == { } then
                   ""
                 else
                   ''
-                    # preinit's load-order names paths below /lib/modules,
-                    # so the image must keep that layout. Only .ko and the
-                    # modules.* metadata are needed: load.sh/unload.sh want
-                    # a shell and insmod, which do not exist this early.
                     # Every directory has to be listed before the files in
                     # it: gen_init_cpio does not imply parents, and the
                     # kernel silently skips an entry whose parent is absent.
                     echo "dir /lib 0755 0 0"
-                    (cd ${cfg.preloadModules} && find lib/modules -type d) | while read -r d; do
-                      echo "dir /$d 0755 0 0"
-                    done
-                    echo "file /lib/modules/load-order ${cfg.preloadModules}/load-order 0644 0 0"
-                    (cd ${cfg.preloadModules} && find lib/modules -type f) | while read -r f; do
-                      case "$f" in
-                        *.ko|*/modules.*)
-                          echo "file /$f ${cfg.preloadModules}/$f 0644 0 0" ;;
-                      esac
-                    done
+                    ${lib.optionalString (cfg.preloadFirmware != { }) ''
+                      # Firmware for the modules loaded below, which ask for
+                      # it during their own init - before activate has run,
+                      # so it cannot come from filesystem.lib.firmware.
+                      echo "dir /lib/firmware 0755 0 0"
+                      ${lib.concatStringsSep "\n" (
+                        lib.mapAttrsToList (
+                          name: file: ''echo "file /lib/firmware/${name} ${file} 0644 0 0"''
+                        ) cfg.preloadFirmware
+                      )}
+                    ''}
+                    ${lib.optionalString (cfg.preloadModules != null) ''
+                      # preinit's load-order names paths below /lib/modules,
+                      # so the image must keep that layout. Only .ko and the
+                      # modules.* metadata are needed: load.sh/unload.sh want
+                      # a shell and insmod, which do not exist this early.
+                      (cd ${cfg.preloadModules} && find lib/modules -type d) | while read -r d; do
+                        echo "dir /$d 0755 0 0"
+                      done
+                      echo "file /lib/modules/load-order ${cfg.preloadModules}/load-order 0644 0 0"
+                      (cd ${cfg.preloadModules} && find lib/modules -type f) | while read -r f; do
+                        case "$f" in
+                          *.ko|*/modules.*)
+                            echo "file /$f ${cfg.preloadModules}/$f 0644 0 0" ;;
+                        esac
+                      done
+                    ''}
                   ''
               }
             ) | ${pkgs.pkgsBuildBuild.gen_init_cpio}/bin/gen_init_cpio /dev/stdin | gzip -9 > $out

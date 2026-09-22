@@ -63,5 +63,14 @@ kernel-module {
       modules
   '';
 
+  # nss-drv includes this package's exports/ as <nss_dp_api_if.h>
+  # (nss_data_plane/hal/include/nss_data_plane_hal.h:18) and calls the
+  # nss_dp_* symbols it declares, so the headers have to leave the build.
+  # This is the fork's Build/InstallDev, minus the staging directory.
+  postInstall = ''
+    mkdir -p $out/include/qca-nss-dp
+    cp -a exports/. $out/include/qca-nss-dp/
+  '';
+
   meta.description = "Qualcomm NSS dataplane ethernet driver";
 }
