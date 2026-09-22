@@ -79,6 +79,11 @@ stdenv.mkDerivation {
 
   KBUILD_BUILD_HOST = "liminix.builder";
   ARCH = arch;
+  # Without these kbuild falls back to a bare `gcc`, which does not exist in
+  # the cross stdenv. Environment rather than make flags so that a module's
+  # own build system (qca-ssdk's mk/Makefile) inherits them too.
+  CC = "${stdenv.cc.bintools.targetPrefix}gcc";
+  CROSS_COMPILE = stdenv.cc.bintools.targetPrefix;
 
   buildPhase = ''
     runHook preBuild

@@ -37,7 +37,7 @@ let
   # appended after olddefconfig so it cannot be lost, and outside the config
   # attrset so the option type never sees it (see the argument's comment)
   injectInitramfsSource = lib.optionalString (initramfsSource != null) ''
-    echo "CONFIG_INITRAMFS_SOURCE=${initramfsSource}" >> .config
+    echo 'CONFIG_INITRAMFS_SOURCE="${initramfsSource}"' >> .config
   '';
 in
 stdenv.mkDerivation rec {
@@ -141,9 +141,13 @@ stdenv.mkDerivation rec {
     # Only check the attrset-supplied items: a rawConfigFile (e.g. a
     # full OpenWrt .config) contains items for a possibly different
     # kernel version that olddefconfig legitimately drops.
-    if comm -2 -3 <(grep 'CONFIG' ${attrConfig} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
+    # INITRAMFS_SOURCE is not one of them: the value in the attrset is a
+    # placeholder that initramfsSource replaces on purpose.
+    if comm -2 -3 \
+        <(grep 'CONFIG' ${attrConfig} | grep -v '^CONFIG_INITRAMFS_SOURCE=' |sort) \
+        <(grep 'CONFIG' .config|sort) |grep '.'    ; then
       echo -e "^^^ Some configuration lost :-(\nPerhaps you have mutually incompatible settings, or have disabled options on which these depend.\n"
-      exit 0
+      exit 1
     fi
     echo "OK"
   '';
