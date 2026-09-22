@@ -15,7 +15,7 @@
   kernel-module,
   kernel,
   stdenv,
-  fetchzip,
+  fetchgit,
   sources,
   patches,
   qca-ssdk,
@@ -37,9 +37,8 @@ kernel-module {
   name = "qca-nss-dp";
   version = nssDp.date;
 
-  src = fetchzip {
-    inherit (nssDp) url sha256 name;
-    stripRoot = true;
+  src = fetchgit {
+    inherit (nssDp) url rev hash name;
   };
 
   # already fetched from the pinned fork (see ../PATCHES.nix), in
