@@ -103,8 +103,7 @@ in
 
   # Applied in this order by the patch phase. The six clock patches are
   # upstream's - identical blob shas in both trees - not the fork's.
-  kernelPatches = [
-    {
+  kernelPatches = [    {
       path = "target/linux/qualcommax/patches-6.18/0080-v7.1-dt-bindings-clock-qcom-Add-CMN-PLL-support-for-IPQ6018.patch";
       blob = "0ab8bec21e253e012bd65beaf543d6ee3e68f69b";
       sha256 = "sha256-4bbD0zcxFfJwixaX1hMbrZgBKkLZJ+C8wqC39FFVy/k=";
@@ -139,6 +138,200 @@ in
       path = "target/linux/qualcommax/patches-6.18/0920-clk-add-clk_hw_recalc_rate-to-trigger-HW-clk-rate-re.patch";
       blob = "c9d58702830041757a55069af8c67ab2ff6f2e2c";
       sha256 = "sha256-+C+6CDlwvxnThL0xTJ/WWP7KjOjptBWTyEOhYq1axug=";
+    }
+  ];
+
+  # N4: the NSS kernel side - the fork's patches-6.18/06xx series, in the
+  # order it applies. Target patches (they edit mainline net/ and
+  # include/linux/), applied after kernelPatches, which is why they are not
+  # in nss/PATCHES.nix.
+  #
+  # 0600-1, 0600-2, 0600-6, 0600-7 and 0603-2 are what ECM itself needs,
+  # and 0603-2 must follow 0600-2; the rest serve client managers, qdisc or
+  # ECM features this build has off, and are kept so the series stays
+  # whole. 0606-1 is the only one with a side effect outside ECM.
+  #
+  # 0600-8 and 0607-1 are deliberately absent - neither applies to a
+  # mainline 6.18.52 tree (0600-8 reverts a qualcommax hack this tree never
+  # applies; all six hunks of 0607-1 fail).
+  nssEcmPatches = [
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-1-qca-nss-ecm-support-CORE.patch";
+      blob = "9482d548fa909cc480bfce5d44d921f919cbb7d7";
+      sha256 = "sha256-9IekTlCpSYL8gbaxNUwcVESvNgN98FEQgE7vk63aotQ=";
+      note = "priv_flags_ext/IFF_EXT_*, NETDEV_BR_JOIN, the fdb/neigh/route notifier exports, nf_conntrack 6.18 adaptation, nf_conntrack_tcp_no_window_check";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-2-qca-nss-ecm-support-PPPOE-offload.patch";
+      blob = "360f9ef375d5078d52ea899349584b255ce1c421";
+      sha256 = "sha256-xKJtbLO72qX9kGTw2L3LI6TMSAcziDF9V5CJc3wS30E=";
+      note = "ppp_generic/pppoe: the channel-connection notifier, ppp_update_stats, pppoe_channel_addressing_get";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-3-qca-nss-ecm-support-net-bonding.patch";
+      blob = "70fd45c44ddc2156e6597f7bb4207a4bc3b3f119";
+      sha256 = "sha256-qZi5w6uEnpOJr9qU6SBQmcQq/5IE73IA6H+BXT/lAIw=";
+      note = "bond_main: the link-state notifier ECM's BOND interface would want; compiled out (ECM_INTERFACE_BOND_ENABLE unset)";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch";
+      blob = "70378e5b1cbe59cb449e9ad6eb85295ca319d13e";
+      sha256 = "sha256-GHEzTnYSi5BsLxzE1Mf/oifK9rdvkoWE/9jzlJbwrYU=";
+      note = "needs 0600-3; same, for a LAG bond";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-5-qca-nss-ecm-support-macvlan.patch";
+      blob = "b8bcdd734373678f34a40a102ea4e7eea843d628";
+      sha256 = "sha256-AxFB5REAwp9jFf1mchaA2/pX5tuliIo5Hl/lZUS2Fg0=";
+      note = "macvlan receive-path hook; compiled out with ECM_INTERFACE_MACVLAN_ENABLE";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-6-qca-nss-ecm-support-netfilter-DSCPREMARK.patch";
+      blob = "04a511093a11f6c0a62cb80143b0062da4ba757d";
+      sha256 = "sha256-AAlkSKpBdvcWx/8A4WBNdMJi5CGqXDfye2FL6tbHvKc=";
+      note = "adds CONFIG_NF_CONNTRACK_DSCPREMARK_EXT, its Makefile entry and the includes; the .c/.h themselves are target files/ entries, see nss/SOURCES.nix";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0600-7-qca-nss-ecm-fix-IPv6-user-route-change-event-calls.patch";
+      blob = "14384963733b6d656e8be7ce9ebd87b5d882116a";
+      sha256 = "sha256-Gmdktj/p4ejwofmxTDulsYmAUko0xVolGRArAWpy3vo=";
+      note = "needs 0600-1: only call the rt6 notifier for user changes";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0602-1-qca-nss-drv-add-qdisc-support.patch";
+      blob = "3a0514fbfa76c4d9e24029b895024b9e9257717f";
+      sha256 = "sha256-nsxNwqo7ZA3V7PB7xvvMRpqg6QlETgZo5Ep/UJI8jFk=";
+      note = "qdisc-visible netdev hooks for nss-drv's shaper; that manager is not built";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-1-qca-nss-clients-add-qdisc-support.patch";
+      blob = "ccd67cbf5d10177a39af7ff492c8961b6f17f44b";
+      sha256 = "sha256-P0vBLM8eXdXAGQQt0RPsdvEe3LQFOqz0oAxrpDB+jYg=";
+      note = "the client half of 0602-1 (ifb, sch_generic); no qdisc client manager is built";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-2-qca-nss-clients-add-l2tp-support.patch";
+      blob = "de762226253a367f4ccfcbb806a885fea559891c";
+      sha256 = "sha256-ohUIK/dFmogEUeVgIAhlphNwB0esTQIWqKtBf3XDWgo=";
+      note = ''
+        The one that is not optional: ppp_generic.c gains the exported
+        lock-free __ppp_is_multilink()/__ppp_hold_channels(), which the
+        fork's ECM patch 002 makes the generic PPP path call. The l2tp
+        half is dead here (those modules are not built).
+      '';
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-3-qca-nss-clients-add-PPTP-support.patch";
+      blob = "34590412583e365c0bfc17ad4f8fa7f3080019d0";
+      sha256 = "sha256-qfDuUyFU3/1JXVR40Fbh9taBBQMlj47tOJ7V6TE1p40=";
+      note = "needs 0603-2 (it extends __ppp_is_multilink's users) and 0600-1 (IFF_EXT_PPP_PPTP); the pptp client manager is not built";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-4-qca-nss-clients-add-iptunnel-support.patch";
+      blob = "b2b5a0ca940059bb94b8b6342356551e91908be2";
+      sha256 = "sha256-voPQcCRb/+SMVxgE0FszzDX+g2xYyzd4PmIPoD1M6RY=";
+      note = "ip6_tunnel/sit hooks for the iptunnel manager; no such manager is built";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-5-qca-nss-clients-add-vxlan-support.patch";
+      blob = "b71023efba4b76091a9e4205fd71e27d5ba14691";
+      sha256 = "sha256-2QT6+5o4Roo/qL8+z9xmDrv2Vu6nGHpWXwksL15fTac=";
+      note = "needs 0603-4; same, for the vxlan manager";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-6-qca-nss-clients-add-bridge-mgr-support.patch";
+      blob = "d7335d16ad6636402667bd19a360c0408d494af6";
+      sha256 = "sha256-UMr70TV8YrTmWTlltClcSynXOggqn4J/0iWYvkpS5Jo=";
+      note = "sends NETDEV_BR_JOIN/LEAVE, the enum 0600-1 adds; the bridge manager is not built, so nothing emits them";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0603-7-qca-nss-clients-iptunnel-lock-this-cpu.patch";
+      blob = "37a742bc315bd6672a76c3d5a9c26deeb2f7f276";
+      sha256 = "sha256-HWOZXlTtxOIikxbYbnBuDe/eGmW9BSw55Ljm2Nj75II=";
+      note = "fixes 0603-4's per-cpu accounting";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0604-1-qca-add-mcs-support.patch";
+      blob = "96f3406df08f407809e9760c7ce7410d0dbe8922";
+      sha256 = "sha256-zLFxDOY4853lIenywHpNpLmbJ8gRJ/bKc3nhXqTQXHs=";
+      note = "multicast-to-unicast: ECM_MULTICAST_ENABLE is unset (no qca-mcs client)";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0604-2-qca-mcs-use-rcu-protected-ipmr-table-lookup.patch";
+      blob = "a0a1b14bd61d3cd8d8d1dab164ad5c3bd828a98d";
+      sha256 = "sha256-eQx1IWL3KkXHbGnY/KsM2680CYHtwh2Av19BNrRIXXc=";
+      note = "needs 0604-1";
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0606-1-qca-nss-ecm-bridge-Fixes-for-Bridge-VLAN-Filtering.patch";
+      blob = "bbad95568e7cd97ac7ad577d139fff77912544c3";
+      sha256 = "sha256-5K0tKOcENTT9gvSqHHq4oJwOzp8eq482LGhwU+6MBy0=";
+      note = ''
+        Not dead code: it also disables the default PVID for every bridge
+        under CONFIG_BRIDGE_VLAN_FILTERING, which is off here, so the hunks
+        are inert. Remember it if bridge VLAN filtering is ever turned on.
+      '';
+    }
+    {
+      path = "target/linux/qualcommax/patches-6.18/0981-1-qca-skb_recycler-support.patch";
+      blob = "55b472095abae19c55db5eff3d8c7734583ecf15";
+      sha256 = "sha256-7onK/EWXJOxky0B2MGXVhqC0Ez+OnxQjz9QrskiBzao=";
+      note = ''
+        QCA's skb recycler: the SKB_RECYCLER Kconfig (default y, so it is on
+        as soon as the patch applies), the struct sk_buff bitfields - int_pri
+        is the one ECM reads - and the net/core hooks. Needs the six
+        skbRecyclerFiles below, or net/core/Makefile's new
+        skbuff_recycle.o breaks the build.
+      '';
+    }
+  ];
+
+  # The skb recycler's implementation, at the paths 0981-1 compiles them
+  # from. Fork files/ entries, not patches, so they are fetched by
+  # blob-pinned URL and installed by the device's extraPatchPhase.
+  skbRecyclerFiles = [
+    {
+      path = "net/core/skbuff_recycle.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_recycle.c";
+      blob = "6312abee73a829719591ea464df7427fd6a10648";
+      sha256 = "sha256-VN6B4YI3PXjaPnJLVE1h7VqpynCJiHQQXFEFbS5MzPM=";
+      license = "GPL-2.0-only";
+      note = "the recycler itself; this is where int_pri is set on RX";
+    }
+    {
+      path = "net/core/skbuff_recycle.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_recycle.h";
+      blob = "9a4bb877a47538b3840935b3017e4d25653afed2";
+      sha256 = "sha256-mQqoi0fORtmtzHNBl68oqbRXpICVF71VM+9vl9gWSMc=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_notifier.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_notifier.c";
+      blob = "8c59476db7fe38d641055109d91f59edbf42c0ab";
+      sha256 = "sha256-aAdYk3lFLlL6yReDgl35wWuw+xyAVL8CIf53EshZm3Y=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_notifier.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_notifier.h";
+      blob = "3d8bfa586fc94b8760fa261742d79a7b1357e8ac";
+      sha256 = "sha256-bi8qKA/17P06bEHeA3ROD5VdOKPN1VRb60yYKL/AlwY=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_debug.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_debug.c";
+      blob = "50d067592109953ed2504808a152261bcd63e631";
+      sha256 = "sha256-jd3Zpo8RExBuiSNQhWF4Ibg90VckGxFW2IcvIagBJyk=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_debug.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_debug.h";
+      blob = "43e37ba43b645e191a527b7a0a337213b98665c6";
+      sha256 = "sha256-2/d5Iek9Sen9BfK1GM+DcO39DN0Hq5UKv2QbeE4XTeE=";
+      license = "GPL-2.0-only";
     }
   ];
 
