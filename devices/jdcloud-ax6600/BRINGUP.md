@@ -134,60 +134,6 @@
 每步统一给：**目标 / 改动 / 验证 / 回滚 / 风险**。任何一步失败都可回退到 `re-cs-02`
 的 PPE 有线镜像（已硬件验证）。
 
-### N2 最小内核外模块路径 + `qca-ssdk` + `qca-nss-dp`（有线网口）
-
-* **目标**：`lan1..lan4`、`wan` netdev 出现，PHY 链路 up，LAN 桥 DHCP/ssh 可用。
-* **改动**：
-  1. 新增最小 out-of-tree kmod 构建路径（参照 `pkgs/mac80211` 的形态）：
-     `make -C ${kernel.modulesupport} M=<src> modules` +
-     `KBUILD_EXTRA_SYMBOLS`（ssdk 的 `Module.symvers` 给 nss-dp 用）+
-     各包需要的 `SoC=ipq60xx` / `NSS_DP_INCLUDE` / `EXTRA_CFLAGS` 变量；
-     产出 `*.ko` 后合并出一个“含 NSS .ko 的 modulesupport 树”，交给
-     `pkgs/kmodloader.override { kernel = { modulesupport = merged; }; targets = [...]; }`；
-  2. `qca-ssdk`（`CHIP_TYPE=CPPE`、`PTP_FEATURE=disable`、`SWCONFIG_FEATURE=disable`、
-     `IN_AQUANTIA_PHY=TRUE`、`IN_QCA808X_PHY=FALSE`）与 `qca-nss-dp` 两个包；
-  3. 镜像切到 `outputs.tftpboot`（或等价的可加载模块形态）：新增顶层
-     `ax6600-nss-ram.nix`（基于 `ax6600-lan.nix`，import `modules/outputs/tftpboot.nix`），
-     加载服务依赖顺序：ssdk → nss-dp。
-* **验证**：`dmesg | grep -iE 'ssdk|ess|qca8075|qca8081|nss-dp'`；`ip link` 有 4+1 端口；
-  `cat /sys/class/net/wan/speed` = 2500（SGMII+，`switch_mac_mode1 = MAC_MODE_SGMII_PLUS`）；
-  PC 插 lan1 拿到 DHCP 租约、能 ssh `int` 桥。
-* **回滚**：停用 kmodloader 服务与 targets，回到 N1 的 dtb。
-* **风险（已知的具体坑）**：PHY package `reg` 24–27 与 `qcom,port_phyinfo` 的
-  `phy_address` 必须一致；`edma` 节点是 nss-dp 按名字找的（不是 bind）；模块名/depmod 名
-  与 kmodloader `targets` 对齐（用 `modprobe --show-depends` 校对）。
-
-#### N2 落地实况（与上面计划的差异）
-
-计划里的第 1、3 条按"kmod + tftpboot"写，实际落地改成 **kmod + preinit 在 fullSystem
-镜像里载入**，因为 tftpboot 需要串口 + 主机 TFTP，而本板 bring-up 想保持 web-upload
-单文件镜像。为此把 fullSystem 的那个环解掉了：
-
-* `pkgs/kernel-module` + `pkgs/liminix-tools/modules`：通用内核外模块路径与模块树
-  （`lib/modules/0.0/*.ko` + `load-order` + `load.sh`/`unload.sh`，由
-  `modprobe --show-depends` 定序）。`pkgs/kmodloader` 改为共用它。
-* `devices/jdcloud-ax6600/nss/`：`qca-nss-phy`（头文件）、`qca-ssdk`、`qca-nss-dp`
-  三个设备私有包；pin 在 `nss/SOURCES.nix`，19 个 fork 派生补丁按你的要求**构建期**
-  从 pin 抓取（`nss/PATCHES.nix` 记 `blob` + `sha256`，本地不留字节）。
-* `modules/outputs/initramfs.nix` 新增 `boot.initramfs.preloadModules`，
-  `pkgs/preinit` 在 `execve("/init.s6")` 之前用 `finit_module` 逐条载入。
-  **kmodloader 服务在这个形态下依然不可用**（它就是那个环），preinit 不是服务、不引用
-  内核，所以可用。
-* **环的根因**（计划里没有写全）：不只是"kmodloader 依赖 modulesupport"，而是
-  **`.ko` 必须针对 `modulesupport` 编译**，任何引用都会强制求值整个 kernel derivation。
-  换 insmod 的执行者绕不开。且 `kernel.config` 的类型是 `attrsOf nonEmptyStr`，
-  **选项类型检查会强制每一个值**，所以"事后从 config 里去掉/覆盖 INITRAMFS_SOURCE"
-  一律失败（`merged // {...}` 也会先强制原值）。
-* **解法**：镜像不把 initramfs 放进 `kernel.config`，而是放进
-  `kernel.initramfsSource`（`nullOr str`，由 `pkgs/kernel` 在 `olddefconfig` 之后追加进
-  `.config`，绕开类型检查）；`modules/kernel/modules-kernel.nix` 再给出一份
-  `kernel.modulesKernel`——同源、同补丁、同 config、同 make targets，**只少那一行**。
-  NSS 模块针对它编译。两个内核只差 `INITRAMFS_SOURCE`，而没有任何导出符号依赖它，
-  所以模块能载入真内核。代价是内核构建两次。
-* `embedsInitramfs` 布尔开关是必需的：`modulesKernel` 若去问
-  `initramfsSource == null`，那个问句本身就会强制出路径 → 又是环。
-
-
 ### N3 `nss-firmware` + `qca-nss-drv`（NSS 核启动）
 
 * **目标**：NSS 核（uBI32）起来并进入可用状态，datapath 由 NSS 接管。
