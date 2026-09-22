@@ -46,6 +46,18 @@ let
     inherit sources kernel kernel-module qca-ssdk qca-nss-dp;
     patches = map (patch "qca-nss-drv") recorded.nssDrv;
   };
+  # (N4) The connection manager (what makes the NSS core carry forwarded
+  # traffic) and the one client this board's WAN needs. Fork patches only:
+  # the local patch that used to rename ECM's __ppp_is_multilink()
+  # reference is gone, because the kernel exports it now (0603-2).
+  qca-nss-ecm = pkgs.callPackage ./qca-nss-ecm {
+    inherit sources kernel kernel-module qca-ssdk qca-nss-dp qca-nss-drv;
+    patches = map (patch "qca-nss-ecm") recorded.ecm;
+  };
+  nss-clients = pkgs.callPackage ./nss-clients {
+    inherit sources kernel kernel-module qca-nss-drv;
+    patches = map (patch "qca-nss-clients") recorded.nssClients;
+  };
   # The blob the driver above asks the kernel for. Not a module, so it is
   # not in `dependencies` anywhere: it has to be in the image instead.
   nss-firmware = pkgs.callPackage ./nss-firmware { inherit sources; };
@@ -58,6 +70,8 @@ in
     qca-ssdk
     qca-nss-dp
     qca-nss-drv
+    qca-nss-ecm
+    nss-clients
     nss-firmware
     ;
 }
