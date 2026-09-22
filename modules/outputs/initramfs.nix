@@ -150,8 +150,13 @@ in
                     # so the image must keep that layout. Only .ko and the
                     # modules.* metadata are needed: load.sh/unload.sh want
                     # a shell and insmod, which do not exist this early.
+                    # Every directory has to be listed before the files in
+                    # it: gen_init_cpio does not imply parents, and the
+                    # kernel silently skips an entry whose parent is absent.
                     echo "dir /lib 0755 0 0"
-                    echo "dir /lib/modules 0755 0 0"
+                    (cd ${cfg.preloadModules} && find lib/modules -type d) | while read -r d; do
+                      echo "dir /$d 0755 0 0"
+                    done
                     echo "file /lib/modules/load-order ${cfg.preloadModules}/load-order 0644 0 0"
                     (cd ${cfg.preloadModules} && find lib/modules -type f) | while read -r f; do
                       case "$f" in
