@@ -74,6 +74,19 @@
               };
             kernelPatches = map kernelPatch sources.kernelPatches;
 
+            # N4: the NSS kernel side - the fork's patches-6.18/06xx series,
+            # one entry per patch in SOURCES.nix, where each has its own
+            # note. 0600-1, 0600-2, 0600-6, 0600-7 and 0603-2 are what ECM
+            # needs; the rest is kept so the series stays whole. 0600-8 and
+            # 0607-1 are deliberately absent (see SOURCES.nix).
+            nssEcmPatches = map kernelPatch sources.nssEcmPatches;
+
+            # The N4 kernel-tree files (see nss/SOURCES.nix), installed
+            # below before the dtsi tree.
+            nssKernelFiles = pkgs.pkgsBuildBuild.callPackage ./nss/kernel-files {
+              sources = import ./nss/SOURCES.nix;
+            };
+
             # The NSS-generation dtsi and the ESS constants header, at the
             # paths OpenWrt keeps them in, so the board dtsi's includes
             # resolve as they do upstream.
@@ -99,11 +112,17 @@
 
           # SOURCES.nix order. 0103 is the one that matters here: it defines
           # nss_region, the label ipq6018-nss.dtsi needs.
-          for p in ${lib.concatStringsSep " " kernelPatches}; do
+          for p in ${lib.concatStringsSep " " kernelPatches} ${lib.concatStringsSep " " nssEcmPatches}; do
             patch -p1 --fuzz=0 < $p || { echo "failed to apply $p"; exit 1; }
           done
           grep -q "nss_region: nss@" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
             || { echo "nss_region missing after 0103"; exit 1; }
+
+          # N4: the files 0600-6 refers to but does not create (fork files/
+          # entries, not patches). Same list, see nss/SOURCES.nix.
+          cp -a --no-preserve=mode ${nssKernelFiles}/. .
+          test -f include/net/netfilter/nf_conntrack_dscpremark_ext.h \
+            || { echo "dscpremark header not installed"; exit 1; }
 
           # Preserve the files, not the store's read-only directory modes:
           # -a alone would leave the source root unwritable for the .config
@@ -158,6 +177,76 @@
           HWSPINLOCK = "y";
           HWSPINLOCK_QCOM = "y";
           QCOM_SMEM = "y";
+
+          # --- netfilter (N4) ---
+          # ECM is built on conntrack (notifiers on it, the connections it
+          # tracks), and N2/N3 had no netfilter at all. PPPOE is the other
+          # half: modules/ppp turns on PPP but not PPPOE, and the offload
+          # client calls pppoe_channel_addressing_get() from 0600-2.
+          PPPOE = "y";
+
+          # ECM's VLAN support includes net/8021q/vlan.h, so the 8021q core
+          # has to be in the kernel. Unset, vlan.h does not compile; `=m`,
+          # ecm.ko links against vlan_dev_* which then live in vlan.ko, so
+          # `=y` puts them in vmlinux. No tagged ports today, but the
+          # bridge ECM offloads has to be VLAN-aware for N5/N7.
+          VLAN_8021Q = "y";
+
+          # NETFILTER has no default, so without that line the whole menu is
+          # invisible and olddefconfig drops every option under it. The
+          # conntrack modules stay `=m`, loaded by preloadModules.
+          # DSCPREMARK_EXT is what 0600-6 adds; the two xt_DSCP symbols are
+          # what a DSCP rule needs to reach ECM.
+          NETFILTER = "y";
+          NETFILTER_ADVANCED = "y";
+          NF_CONNTRACK = "m";
+          NF_CONNTRACK_EVENTS = "y";
+          # ECM reads nf_conn->mark, which exists only under this; OpenWrt
+          # gets it through kmod-nf-conntrack, here it has to be named.
+          NF_CONNTRACK_MARK = "y";
+          NF_CONNTRACK_DSCPREMARK_EXT = "y";
+          NF_DEFRAG_IPV4 = "m";
+          NF_DEFRAG_IPV6 = "m";
+          NF_NAT = "m";
+          # The xt_DSCP target needs an xtables path
+          # (`IP_NF_MANGLE || IP6_NF_MANGLE || NFT_COMPAT`); the nftables one
+          # is taken, so no iptables-legacy core is added. Without these,
+          # olddefconfig drops both symbols.
+          NETFILTER_XTABLES = "y";
+          NF_TABLES = "y";
+          NFT_COMPAT = "y";
+          # ECM registers a NFPROTO_BRIDGE/NF_BR_POST_ROUTING hook of its
+          # own; 6.18 gates that whole family behind NETFILTER_FAMILY_BRIDGE,
+          # which only BRIDGE_NETFILTER, NF_TABLES_BRIDGE and ebtables
+          # select. Left unset, the registration WARNs in
+          # nf_hook_entry_head() and returns -EINVAL, which aborts ECM's
+          # init. The hook is called by the bridge core (br_forward_finish),
+          # not by br_netfilter, and the fork's generic config gets the
+          # symbol from NF_TABLES_BRIDGE=y with BRIDGE_NETFILTER off.
+          NF_TABLES_BRIDGE = "y";
+          # `=m`, not `=y`, and forced: 0600-6 makes these call
+          # nf_conntrack_dscpremark_ext_set_dscp_rule_valid(), defined in an
+          # object of nf_conntrack's own, and nf_conntrack is `=m` here. A
+          # built-in caller cannot reference a module's symbol.
+          NETFILTER_XT_TARGET_DSCP = "m";
+          NETFILTER_XT_MATCH_DSCP = "m";
+
+          # --- cfg80211 (N4) ---
+          # Not for the radio (wireless is N5): ECM's VAP test reads
+          # net_device->ieee80211_ptr, which struct net_device carries only
+          # under `#if IS_ENABLED(CONFIG_CFG80211)`. Preferred over a local
+          # patch to ECM, and it becomes live again in N5 anyway.
+          CFG80211 = "y";
+
+          # --- skb recycler (N4) ---
+          # 0981-1 brings QCA's skb recycler in (Kconfig defaults it to y),
+          # which is where struct sk_buff gets int_pri, the tag ECM reads;
+          # the alternative was a local patch substituting 0 for the field.
+          # MULTI_CPU is not optional: the fork's skbuff_recycle.c guards
+          # skb_recycler_max_spare_skbs_core with it at the top but uses it
+          # unguarded further down, so the kernel does not compile without
+          # it.
+          SKB_RECYCLER_MULTI_CPU = "y";
 
         };
         # NB: the wifi conditionalConfig block (WLAN -> ATH11K /
