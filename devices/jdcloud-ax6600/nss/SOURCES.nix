@@ -96,6 +96,111 @@ in
     '';
   };
 
+  # The Enhanced Connection Manager (N4): QSDK 13.1, the same generation as
+  # nssDrv above. `subtarget` is the fork's `SoC=` and must match the
+  # driver's for the two to be one stack.
+  ecm = clo "qca-nss-ecm" "8c7355bf80db40c0a52e1620518d521423dfd7a4" // {
+    date = "2026-04-03";
+    qsdk = "13.1";
+    subtarget = "ipq60xx_64";
+    hash = "sha256-IZBsI6ItQ8CzQabxh+DJFgX0orqu8WO2Sm0JtGPbvLA=";
+    license = "Dual BSD/GPL";
+    note = ''
+      The hardware-NAT half: it accelerates connections the kernel has
+      already tracked, so it needs CONFIG_NF_CONNTRACK and a front end.
+      ECM_FRONT_END_NSS_ENABLE picks the NSS one; the PPE front end needs
+      qca-nss-ppe headers this device has no package for.
+    '';
+  };
+
+  # The client managers (N4 uses only pppoe/, the WAN offload half).
+  # 12.5.5, i.e. the same NSS firmware generation as nssDrv/ecm.
+  nssClients = clo "nss-clients" "51be82d43ef85079f78aa163d014223b05baa6a2" // {
+    date = "2024-09-12";
+    qsdk = "12.5.5";
+    subtarget = "ipq60xx_64";
+    hash = "sha256-bHiGFNu9rxoZEu6vQ7gfxmiAZMtQ0CyWxn4x56IWoYo=";
+    license = "Dual BSD/GPL";
+    note = ''
+      One .ko per manager; the package below builds only pppoe/ - the
+      qca-nss-pppoe manager, which watches PPPoE sessions and asks ECM to
+      offload them. Every other manager in the tree is left unbuilt.
+    '';
+  };
+
+  # The conntrack extension ECM's DSCP classifier is compiled against.
+  # Not patches: the fork keeps them as plain files/ entries, which 0600-6
+  # refers to but does not create. `path` is where each lands in the
+  # kernel tree, `sha256` the flat hash, `blob` the fork file.
+  kernelNetfilterFiles = [
+    {
+      path = "net/netfilter/nf_conntrack_dscpremark_ext.c";
+      forkPath = "target/linux/qualcommax/files/net/netfilter/nf_conntrack_dscpremark_ext.c";
+      blob = "678d27ac9df9c20d441a20730bb75c6b88d1b1fd";
+      sha256 = "sha256-Ybk6uYpjpNSzWrQRSPHS6pe4ntRXU3oKf+gBgRYMl1c=";
+      license = "ISC";
+      note = "EXPORT_SYMBOLs the two accessors ECM calls; linked into nf_conntrack.ko by 0600-6's Makefile hunk";
+    }
+    {
+      path = "include/net/netfilter/nf_conntrack_dscpremark_ext.h";
+      forkPath = "target/linux/qualcommax/files/include/net/netfilter/nf_conntrack_dscpremark_ext.h";
+      blob = "a0fe7a8654a69633c24d3cf71a173ce97d6724b5";
+      sha256 = "sha256-Dv+VqwY8EzUoIkafct9DtlS3ooM4E68A3TSfimkpZAE=";
+      license = "ISC";
+      note = "ecm_classifier_dscp.c includes it unconditionally, so it cannot be left out even though the feature is behind CONFIG_NF_CONNTRACK_DSCPREMARK_EXT";
+    }
+  ];
+
+  # The skb recycler's implementation, at the paths 0981-1 compiles them
+  # from - the fork's files/ entries, not patches. The same six are listed
+  # in the device's ../SOURCES.nix, since that is the copy the kernel build
+  # reads; this one is what the module packages see.
+  skbRecyclerFiles = [
+    {
+      path = "net/core/skbuff_recycle.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_recycle.c";
+      blob = "6312abee73a829719591ea464df7427fd6a10648";
+      sha256 = "sha256-VN6B4YI3PXjaPnJLVE1h7VqpynCJiHQQXFEFbS5MzPM=";
+      license = "GPL-2.0-only";
+      note = "the recycler itself; this is where int_pri is set on RX";
+    }
+    {
+      path = "net/core/skbuff_recycle.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_recycle.h";
+      blob = "9a4bb877a47538b3840935b3017e4d25653afed2";
+      sha256 = "sha256-mQqoi0fORtmtzHNBl68oqbRXpICVF71VM+9vl9gWSMc=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_notifier.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_notifier.c";
+      blob = "8c59476db7fe38d641055109d91f59edbf42c0ab";
+      sha256 = "sha256-aAdYk3lFLlL6yReDgl35wWuw+xyAVL8CIf53EshZm3Y=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_notifier.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_notifier.h";
+      blob = "3d8bfa586fc94b8760fa261742d79a7b1357e8ac";
+      sha256 = "sha256-bi8qKA/17P06bEHeA3ROD5VdOKPN1VRb60yYKL/AlwY=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_debug.c";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_debug.c";
+      blob = "50d067592109953ed2504808a152261bcd63e631";
+      sha256 = "sha256-jd3Zpo8RExBuiSNQhWF4Ibg90VckGxFW2IcvIagBJyk=";
+      license = "GPL-2.0-only";
+    }
+    {
+      path = "net/core/skbuff_debug.h";
+      forkPath = "target/linux/qualcommax/files/net/core/skbuff_debug.h";
+      blob = "43e37ba43b645e191a527b7a0a337213b98665c6";
+      sha256 = "sha256-2/d5Iek9Sen9BfK1GM+DcO39DN0Hq5UKv2QbeE4XTeE=";
+      license = "GPL-2.0-only";
+    }
+  ];
+
   # SSDK includes "qca-nss-phy/nss_phy.h" and "qca-nss-phy/nss_phy_ptp.h"
   # (hsl_phy.h:18, fal_ptp.h:32). Upstream supplies them as an OpenWrt
   # build-only package installed into STAGING_DIR/usr/include; for us the
