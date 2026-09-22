@@ -61,9 +61,12 @@ let
   # on here to match what the fork actually builds.
   #
   # What remains on is IPV4, IPV6, ETH_RX and the SoC-selected PPE/EDMA
-  # path, plus frequency scaling. N4/N5 will turn individual entries back
-  # on (PPPOE, BRIDGE, VLAN, VIRT_IF ...) as their client modules are
-  # added.
+  # path, plus frequency scaling. N4 turned BRIDGE, PPPOE and VLAN back on:
+  # the board dts declares all three, and nss_hal registers a handler for a
+  # declared feature only when its NSS_DRV_*_ENABLE is compiled in, so
+  # leaving them off would silently drop LAN bridging, the PPPoE WAN and
+  # tagged traffic from the offload path. Further entries come back only
+  # with the client packages that use them.
   disabledFeatures = [
     "C2C"
     "CAPWAP"
@@ -86,7 +89,6 @@ let
     "TRUSTSEC_RX"
     "UDP_ST"
     "WIFI_EXT_VDEV"
-    "BRIDGE"
     "CRYPTO"
     "GRE"
     "IGS"
@@ -95,13 +97,11 @@ let
     "MAPT"
     "MATCH"
     "MIRROR"
-    "PPPOE"
     "PPTP"
     "SHAPER"
     "TUN6RD"
     "TUNIPIP6"
     "VIRT_IF"
-    "VLAN"
     "VXLAN"
     "WIFI_MESH"
     "WIFIOFFLOAD"
@@ -152,6 +152,16 @@ kernel-module {
       EXTRA_CFLAGS="${extraCflags}" \
       ${lib.concatMapStringsSep " " (f: "NSS_DRV_${f}_ENABLE=n") disabledFeatures} \
       modules
+  '';
+
+  # The fork's Build/InstallDev: ECM (N4) and the client managers include
+  # these as <nss_api_if.h>, whose "nss_arch.h" is one of the per-arch
+  # files behind a relative symlink, so the whole exports/ tree is copied.
+  # nss_ipsecmgr.h is dropped as upstream drops it for this SoC.
+  postInstall = ''
+    mkdir -p $out/include/qca-nss-drv
+    cp -a exports/. $out/include/qca-nss-drv/
+    rm -f $out/include/qca-nss-drv/nss_ipsecmgr.h
   '';
 
   meta.description = "Qualcomm NSS core driver (ipq60xx)";
