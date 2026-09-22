@@ -1,0 +1,29 @@
+From: 梦龙 <chen.menglong@outlook.com>
+Subject: [PATCH] qca-ssdk: declare ssdk_switch_set_standby_status outside the DSA guard
+
+ssdk_switch_set_standby_status() is defined unconditionally in
+src/init/ssdk_plat.c: the IS_ENABLED(CONFIG_NET_DSA) in that function
+guards only the DSA notification inside its body. Its declaration in
+include/init/ssdk_plat.h nevertheless sits inside the CONFIG_NET_DSA
+block that holds the genuinely DSA-only ssdk_switch_enable_dsa().
+
+src/hsl/mht/mht_port_ctrl.c calls it unconditionally, so with
+CONFIG_NET_DSA disabled the call compiles without a prototype and is an
+implicit declaration, which GCC 15 (C23) rejects. Move the declaration
+out of the guard, next to ssdk_netdev_switch_init(), so that it is
+visible wherever the definition is compiled.
+
+---
+# Not from the pinned fork. Delete this patch once the pinned revision
+# declares ssdk_switch_set_standby_status outside its CONFIG_NET_DSA guard.
+
+--- a/include/init/ssdk_plat.h
++++ b/include/init/ssdk_plat.h
+@@ -506,5 +506,5 @@
+ sw_error_t ssdk_netdev_switch_init(struct net_device *dev);
++void ssdk_switch_set_standby_status(a_uint32_t dev_id, bool enable);
+ #if IS_ENABLED(CONFIG_NET_DSA)
+-void ssdk_switch_set_standby_status(a_uint32_t dev_id, bool enable);
+ a_bool_t ssdk_switch_enable_dsa(a_uint32_t dev_id);
+ #endif
+ #endif
