@@ -14,6 +14,27 @@ let
   inherit (pkgs) runCommand;
   cfg = config.boot.initramfs;
   o = config.system.outputs;
+
+  # The directories a set of firmware names needs below /lib/firmware,
+  # sorted so that every ancestor precedes its children. A firmware name
+  # is whatever the driver requests, so it may be a path; the kernel
+  # creates no implicit parents while unpacking, which means each one has
+  # to be in the archive first. A plain name ("qca-nss0.bin") needs
+  # nothing: /lib/firmware itself is emitted separately.
+  firmwareDirs =
+    names:
+    let
+      ancestors =
+        name:
+        let
+          parts = lib.splitString "/" name;
+        in
+        # every prefix except the last, which is the file itself
+        lib.imap0 (i: _: lib.concatStringsSep "/" (lib.take (i + 1) parts)) (
+          lib.take (lib.length parts - 1) parts
+        );
+    in
+    lib.sort (a: b: a < b) (lib.unique (lib.concatMap ancestors names));
 in
 {
   imports = [ ./system-configuration.nix ];
@@ -173,7 +194,22 @@ in
                       # Firmware for the modules loaded below, which ask for
                       # it during their own init - before activate has run,
                       # so it cannot come from filesystem.lib.firmware.
+                      #
+                      # A name may be a path ("IPQ6018/q6_fw.mdt"), and the
+                      # kernel does not create parents: do_name() opens a
+                      # regular file by its full path, so an entry whose
+                      # directory is missing is silently dropped. Hence
+                      # /lib/firmware itself first - a plain name
+                      # ("qca-nss0.bin") needs nothing more - then each
+                      # name's own parents, sorted so that each one precedes
+                      # its children (gen_init_cpio writes in the order
+                      # given, the kernel unpacks in that order).
                       echo "dir /lib/firmware 0755 0 0"
+                      ${lib.concatStringsSep "\n" (
+                        map (d: ''echo "dir /lib/firmware/${d} 0755 0 0"'') (
+                          firmwareDirs (lib.attrNames cfg.preloadFirmware)
+                        )
+                      )}
                       ${lib.concatStringsSep "\n" (
                         lib.mapAttrsToList (
                           name: file: ''echo "file /lib/firmware/${name} ${file} 0644 0 0"''
