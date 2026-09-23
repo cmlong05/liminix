@@ -41,16 +41,6 @@ in
       enable = true;
       fullSystem = true;
     };
-    # no root= / init=: preinit detects the missing root device and
-    # runs the embedded system. nr_cpus=1/nokaslr same as the serial
-    # bring-up baseline.
-    commandLine = lib.mkForce [
-      "panic=10 oops=panic loglevel=8"
-      "console=ttyMSM0,115200n8"
-      "fw_devlink=off"
-      "nr_cpus=1"
-      "nokaslr"
-    ];
     imageFormat = "fit";
   };
 

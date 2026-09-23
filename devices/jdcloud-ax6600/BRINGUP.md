@@ -70,23 +70,131 @@
   （**不是** `qca-nss0-retail.bin`）。OpenWrt 装 retail 名再用
   `/etc/hotplug.d/firmware/10-qca-nss-fw` 改名/链接，**Liminix 没有 hotplug fallback**
   （`FW_LOADER_USER_HELPER=n`），所以镜像里必须直接就叫 `qca-nss0.bin`。
-  放哪儿另有一层约束，见 N3：fullSystem 镜像里 `filesystem.lib.firmware` 到模块加载时
-  还不存在（`activate` 在 `preinit` 的 `load_modules()` 之后才跑），要用
-  `boot.initramfs.preloadFirmware` 嵌进镜像。
 
 ---
 
 ## 4. 分阶段计划
 
 ### N5 无线：ath11k 三频 * 无线分成两组（2.4g+5.8g）和（5.2g QCN9024)，共三频
-* 注意 qcom,ath11k-fw-memory-mode 0,1,2的可选值，先设置为0，本机器有足够多的内存。
-* 2.4g wifi ssid 设置为'CHEN', 5.8g ssid 设置成'CHEN_5g' 单独外挂的QCN9024是5.2g, ssid设置成 'CH'
-# 阶段一，先起IPQ6010核心支持的双频2.4g和5.8g
-* 不要设置开机启动，由我手动开启
-* **验证**：`CHEN`（AHB 2.4G）与 `CHEN_5g`（AHB 5.8G）出现，hostapd AP 可关联；
+
+#### N5 review（2026-09-22）——落地前对本文的更正
+
+1. **`qcom,ath11k-fw-memory-mode` 不是惰性数据**（2026-09-23 真机更正本文旧说法）。
+   `wireless/SOURCES.nix` 里 **903 是打上的**（`default.nix` 的建构期断言专门查
+   `core.c` 里存在这个属性名），board dts 给 `&wifi`（AHB）和 PCI 节点写的 `<1>` 因此
+   真的生效：AHB 跑 `fw_mem_mode 1 / num_vdevs 8 / num_peers 128`，dmesg 打
+   `FW memory mode: 1`。这正是参考实现（fork 的 board dts + 903）自己的组合，真机两个
+   pdev 都正常，所以**不做任何 DT 覆盖**；本文原先"驱动内建 mode 0 / 17 vdevs / 512 peers"
+   的说法作废（`overrides.dtsi` 里从来没有 mode 覆盖）。mode 1 在 5180↔5500 振荡是旧分支
+   QCN9074 的历史包袱，与 AHB 无关，阶段二再定。
+2. **wcss 侧走 fork 的独立驱动，不改主线**。本节曾按官方 OpenWrt 的路线做（把 ipq6018 加进
+   主线 `qcom_q6v5_wcss.c`）：主线**没有** ipq6018 driver data（6.18.y/6.19.y/master 都查过），
+   于是兼容性、firmware 名、安全 PIL、PRNG/QDSS_AT 时钟、BCR reset 可选、auto_boot 关闭
+   全要自己补——8 个 OpenWrt 补丁，而且那套**自相矛盾**：`0905` 的 commit message 明说
+   ipq6018 的 SSR 名不能是 `"q6wcss"`，却只改了 ipq8074 项，随后 `0136` 新建的 ipq6018 项又把
+   `"q6wcss"` 写回去，纠正它需要第 9 个本地补丁。
+   **VIKINGYFY 的做法不同**：它**新增一个驱动** `drivers/remoteproc/qcom_q6v5_wcss_sec.c`
+   （`0186`+`0188`+`0808`–`0812`），DTS 指到 `qcom,ipq6018-wcss-sec-pil`，firmware 名走 DT 的
+   `firmware-name`（`0905`）。ipq6018 只是其中一个 descriptor：`pasid = 6`、`ss_name = "wcnss"`
+   （`0812`）——那个纠正在人家那里本来就是对的。主线不动，**全部 15 个补丁都是上游字节、构建期
+   fetch，零本地补丁**。清单与理由在 `wireless/SOURCES.nix`。
+   连带：内核 config 用 `QCOM_Q6V5_WCSS_SEC=m`（不是 `QCOM_Q6V5_WCSS`），preload 目标
+   `qcom_q6v5_wcss_sec`。
+3. **`wifi: wifi@c000000` 不在 6.18.52 里，fork 的 `0906` 必须打**（对上文的更正）：
+   `qcom,ipq6018-wcss-pil` remoteproc 节点是主线的，但 wifi 节点不是——
+   `arch/arm64/boot/dts/qcom/` 下三个 ipq6018 dts 文件连 `wifi` 字符串都没有（解包实测）。
+   board dts 的 `&wifi { status = "okay"; ... }` 要这个 label，ath11k 也按
+   `qcom,ipq6018-wifi` 匹配（`ath11k/ahb.c` 的 of_match）。已并入 `wireless/SOURCES.nix`
+   的 wcss 组、排在 `0905` 之后：`0906` 的尾上下文正是 `0905` 写进去的 `-sec-pil` 兼容串，
+   这样它 fuzz 0 干净应用。建构期仍断言该节点唯一。
+4. **fork 的 multipd 一串（0801/0804–0807/0813–0815）不需要**：实测最小集
+   `0186/0188/0808/0809/0810/0811/0812` 即可，驱动自包含（只用到 `MPD_WCSS_PAS_ID` 常量）。
+5. **`preloadFirmware` 支持子目录需要先补建构器**（首版改错，已更正）：`gen_init_cpio`
+   不会隐式建父目录；内核 `init/initramfs.c` 的 `do_name()` 对文件走
+   `filp_open(..., O_CREAT)`、对目录走 `init_mkdir`→`ksys_mkdir`，**都不建父目录**，
+   失败即 `return 0` 静默跳过。首版把原来那句 `dir /lib/firmware` 换成了「按 firmware 名
+   生成父目录」的 `firmwareDirs`，而它只算名字自身的各级前缀（纯文件名得空列表），
+   于是 `/lib/firmware` 本身没人发——整棵子树连同 `qca-nss0.bin`、`regulatory.db` 一起被丢，
+   真机 dmesg 表现为 `qca-nss0.bin` / `regulatory.db` / `IPQ6018/q6_fw.mdt` 全 `-2`
+   （NSS 核与 Q6 都起不来；`/lib/modules` 因 `find` 含自身而幸免）。已补回
+   `echo "dir /lib/firmware 0755 0 0"`，再发各名字的父目录。
+6. **接口名不稳定**：AHB 两个 pdev 的 `wlanN` 取决于注册顺序，所以不给固定名，
+   由脚本按频段查找（见下）。
+7. **建构期检查的窗口要按块给**：`in_entry` 现在收一个可选的 window（默认 25）——
+   两个块比 25 行长：dtsi 的 `q6v5_wcss` 节点里 QDSS_AT 时钟在第 28 行，ipq6018
+   hw params 里 `coldboot_cal_mm` 在第 46 行；`951` 原来的整文件 `need` 检查
+   （`ath11k_hif_ce_irq_disable(ab)`）在**未打补丁**的树上也成立，已改为锚在
+   `ath11k_core_reconfigure_on_crash` 上的 `in_entry`。
+
+#### 阶段一，先起 IPQ6010 核心支持的双频 2.4g 和 5.8g
+
+状态：真机已通（2026-09-23：`CHEN`de hostapd 都 `state=ENABLED`；把 pin 的
+Q6 固件与 `CRYPTO_MICHAEL_MIC=y` 一起打进镜像后，2.4G `CHEN` 再次 `state=ENABLED` 且已有
+客户端关联，见下）。
+
+* 形态：并入 `ax6600-nss-ram.nix`（`devices/jdcloud-ax6600/wireless`），
+  `ath11k_ahb` + `qcom_q6v5_wcss_sec` 进 `preloadModules`；Q6/m3/board-2/ART 校准按
+  `preloadFirmware` 嵌进 initramfs（fullSystem 镜像里 `/lib/firmware` 到模块加载时还不存在）。
+  节点使能走 `overrides.dtsi`（`&q6v5_wcss { status = "okay"; }`）。
+* `qcom,ath11k-fw-memory-mode` = **mode 1**（903 + board dts 的 `<1>`，见 review 1），无覆盖。
+* **AHB 的 Q6 固件必须 pin 参考那一版**（2026-09-23 真机定位，本轮唯一的致命项）：
+  linux-firmware 的 `ath11k/IPQ6018/hw1.0`（`WLAN.HK.2.7.0.1-02409`，变体
+  `6018.wlanfw.evalQ`）在 **5.8G AP 的 BSS peer 建立时直接固件断言**——
+  即 phy0 第一次 interface up，还没到 channel/beacon 配置：
+  `qcom-wcss-secure-pil: fatal error received ... BADVA = 0x00dcd87c`（正是接口 MAC
+  `dc:d8:7c:...`，固件把 peer 地址当指针解引用），hostapd 只看到
+  `Could not set interface wlan0 flags (UP): No such file or directory`（`-ENOENT`）。
+  2.4G phy1 在同一版固件下一直正常，所以现象是"2.4G 能起、5.8G 一起就崩"。
+  改用 `VIKINGYFY/ath11k-firmware-ddwrt@0c817c46` 的 `IPQ6018/hw1.0`
+  （q6 + m3 + board-2，`fw_version.txt` = **`WLAN.HK.2.12-01460`**，即本机参考实现跑的
+  那一版）后，**热替换 `/lib/firmware` 让 Q6 重新加载即可复现修复**：dmesg 报
+  2.12-01460，两个 AP 全部起来、dmesg 零报错。台账在 `wireless/SOURCES.nix` 的
+  `q6Firmware` / `boardData`（13 个 q6/m3 文件 + board-2，逐文件 sha256）。
+* **关联需要 `CRYPTO_MICHAEL_MIC`**（2026-09-23 真机，客户端第一次尝试时暴露）：
+  `ath11k_peer_rx_frag_setup()`（`dp_rx.c`）对**每个 peer 无条件**
+  `crypto_alloc_shash("michael_mic")`，主线把该符号留成 `=m`，而 fullSystem 镜像没有
+  kmodloader——preinit 只加载模块树的 `load-order`，`request_module()` 又没有
+  `/sbin/modprobe` 兜底，于是 `.ko` 虽在镜像里却永不加载，站加入直接失败：
+  `failed to allocate michael_mic shash: -2` → `failed to setup dp for peer` →
+  `Failed to add station`（AP 自己起得来，客户端连不上）。已在 `wireless/default.nix`
+  的 `kernel.config` 里设 `CRYPTO_MICHAEL_MIC = "y"`；当次开机可 `insmod
+  /lib/modules/0.0/michael_mic.ko` 现场验证。其余所需 crypto（AES/CCM/CMAC/GCM/ARC4）
+  本来就是 `=y`。**内建进镜像后实测**：`hostapd_cli -p /run/hostapd-2g status` 报
+  `num_sta[0]=1`，客户端确实关联上了。
+* **`wlan-<band> start` 现在按 pidfile 挡住重复起**（2026-09-23 加固）：AP 已在跑时再
+  `start`，第二个 hostapd 会在 `NL80211_CMD_SET_INTERFACE` 上拿到 `-EALREADY`
+  （extack `Match already configured`），记 `Could not configure driver mode` 后走错误路径
+  deinit 并 SIGSEGV。脚本现在先 `kill -0` 查 `/run/hostapd-<name>.pid`：活着就打印 pid 直接
+  返回 0（顺带让 `start` 幂等），pidfile 陈旧（进程已死）则照常起。判据仍是
+  `hostapd_cli -p /run/hostapd-<2g|5g> status`。
+* **串口上"停在 COUNTRY_UPDATE"是正常样子**（2026-09-23 澄清，别再当故障查）：
+  conf 有 `country_code=CN`，冷启动时驱动报的当前 regd 是 `00`，于是
+  `hostapd_setup_interface()`（`hostapd.c:2047`）`set_country()` 成功后设
+  `wait_channel_update` 并注册 5 秒超时即返回；`main()` 接着进
+  `hostapd_global_run()` 的 `os_daemonize()`（`-B` 的 `daemon(0,0)`），
+  stdout/stderr 全进 `/dev/null`。这份 hostapd 只有 stdout 一个日志出口
+  （overlay.nix 的 defconfig 没有 `CONFIG_DEBUG_SYSLOG`/`CONFIG_DEBUG_FILE`，
+  所以 `-f` 也是空转；conf 里的 `logger_syslog` 只管 hostapd_logger 的模块位），
+  fork 之后的 `DISABLED`/`ENABLED` 或失败退出**在串口上完全看不见**：成功与失败同形。
+  串口上只会出现两行——`rfkill: Cannot open RFKILL control device`（`MSG_INFO`；内核
+  `# CONFIG_RFKILL is not set`，没有 `/dev/rfkill`，不影响 AP）与
+  `wlanN: interface state UNINITIALIZED->COUNTRY_UPDATE`。
+  判据一律用 `hostapd_cli -p /run/hostapd-<2g|5g> status`（`state=ENABLED`）；
+  要看全过程则先 `wlan-<band> stop`，再前台跑
+  `hostapd -d -i <dev> /nix/store/<hash>-hostapd-<2g|5g>.conf`。
+  `wlan-<band> start` 现在起完会轮询控制接口把最终 state 打出来，不是 ENABLED 就返回非 0。
+* SSID 与频段：`CHEN`（AHB 2.4G，ch6）、`CHEN_5g`（AHB 5.8G，ch149）。
+* **不开机启动**：`wlan-2g` / `wlan-5g [start|stop|status]` 手动起（hostapd `-B` 守护）；
+  两个 radio 不加入 `int` 网桥，本阶段只验关联，不做转发。
+  这两个脚本以前打成 `writeShellScript`（单个裸文件，`defaultProfile.packages` 的 PATH
+  指向不存在的 `<store>/bin`，于是 `wlan-2g: not found`），已改为 `writeShellScriptBin`。
+* **验证**：`iw dev` 两个 pdev、`dmesg | grep -iE 'wcss|ath11k'` 出现 `FW memory mode: 1`
+  与 `WLAN.HK.2.12-01460`；`hostapd_cli -p /run/hostapd-<2g|5g> status` 为 `state=ENABLED`。
+* 未纳入的第一方补丁：旧分支的 `960`/`961`（AHB CE IRQ 在 Q6 停止后的守卫）本轮**不进**，
+  先只跑上游补丁；若真机出现 CE IRQ 的 synchronous external abort 再补。
 
 * **风险**：AHB 无线与 NSS 的 QRTR/固件加载时序、保留内存冲突；QCN9074 的
-  `fw_mem_mode`/MHI-790 等历史坑（见 `ax6600:DEVELOPMENT_LOG.md` §4.13–4.18）（任需要验证）
+  `fw_mem_mode`/MHI-790 等历史坑（阶段二）。
 
 # 阶段二，再起QCN9024外挂的5.2g
 * 不要设置开机启动，由我手动开启
@@ -103,13 +211,19 @@
 * 若要做：先在 6.12+LibWrt 上复现，再评估移植到 6.18 的成本，不要一开始就动 6.18。
 
 ### N7 产品化
-
+* 内核和用户态软件是自动分区，还是分地方配置的？
+  比如，iperf3在最终产品里，不应该rootfs/HLOS里，而应该在用户态里
 * eMMC 可写 rootfs + `outputs.updater`（参考 `turris-omnia` 的 `/dev/mmcblk0p1` 形态，
   本板 GPT：`0:HLOS` / `rootfs` / `0:ART`）；
-* 从 `0:ART` 读 MAC（`label-mac-device = &dp1` 已由 DTS 声明，仍需把 per-unit MAC
-  落到 `local-mac-address`）；
+* **per-unit 数据统一从 `0:ART` 取**：MAC（0x0）落到 `local-mac-address`
+  （`label-mac-device = &dp1` 已由 DTS 声明）、AHB/PCI 校准（0x1000 起 0x20000），
+  由启动早期（preinit 或足够早的服务，必须先于驱动 probe）取出写进 `/lib/firmware`；
+  镜像只带通用固件（q6/m3、board-2、regdb、NSS 固件）。
+* **删除建构期嵌入**：`wireless/default.nix` 的 `firmwarePkg` 现在把
+  `art/mmc_0-ART.bin`（`.gitignore` 忽略、未进版本库，新克隆会缺件）的 0x1000 切片
+  烧进 initramfs。那是 RAM 单文件镜像的临时手段（preinit 早于 activate 建出
+  `/lib/firmware`），且只对本机成立，产品化时按上一条改掉。
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G；
-* 长期 soak 与回退策略（保留 `re-cs-02` PPE 镜像作为救砖路径）。
 
 ---
 
@@ -122,7 +236,7 @@
 | N2 | `lan1..lan4` + `wan` 存在、链路 up、DHCP/ssh 可用、`wan` 2500 Mbps |
 | N3 | ✅ 真机：`NSS fw version: NSS.FW.12.5-210-CP.R` + `NSS core 0 booted successfully`；`/proc/sys/dev/nss/` 可读（debugfs 需手工 mount）；计数增长待验 |
 | N4 | 首启：ECM init `-22`，缺 `NETFILTER_FAMILY_BRIDGE`（见 D.20）；修好后待验 ECM offload 命中（`ecm_db` 计数增长）+ 转发热路径 A53 占用显著下降 + PPPoE/2.5G 吞吐基准 |
-| N5 | 2.4G/5G AP 可关联 |
+| N5 | ✅ 真机：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；固件与 `CRYPTO_MICHAEL_MIC=y` 都进镜像这一版，2.4G `CHEN` `state=ENABLED` 且客户端已关联（`num_sta[0]=1`），5.8G 待起。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
 
 **明确不承诺**：满血 ≠ WiFi offload（6.18 栈没有）；满血 ≠ 保证 2.5G 线速（社区反馈
 有 2.5G 口只协商到 1G 的案例，链路速率要单独实测）。
@@ -155,12 +269,16 @@ $ sh md5_result.sh
    0080/0082/0191 对 DTS 非必需（mainline `gcc-ipq6018.c` 靠 `fixed-clock` 满足父时钟）。
    crypto rcg 警告源于 PPE 代 dtsi 的 `assigned-clock-rates = 600 MHz`，NSS 代已改为
    `eip197_node` 的 `clock-frequency = 300 MHz`，该覆盖因此删除。
-7. **ath11k fw-memory-mode 故意偏离上游**：`overrides.dtsi` 把两个 radio 都设成 mode 0
-   （17 vdevs / 512 peers），而上游与 OpenWrt/ImmortalWrt 都不设该属性（= 主线默认 mode 2）。
-   1 GiB 内存下多出的固件表可忽略，但 **mode 0 本机未实测**；mode 1 已知有害
-   （QCN9074 载波 5180↔5500 MHz 振荡，见 ax6600 分支 `DEVELOPMENT_LOG` 4.7/4.8）。
-   N5 无线落地时必须实测，异常则回退 mode 2（改两个数字即可）。
-8. **止损**：任何阶段失败都能回到 `re-cs-02` 的 PPE 有线镜像（已硬件验证）。
+7. **ath11k fw-memory-mode**（*N5 真机更正*）：没有 DT 覆盖，903 生效，AHB 实际跑 mode 1
+   （8 vdevs / 128 peers）——正是参考实现 fork board dts + 903 的组合，两个 pdev 实测正常。
+   旧文"`overrides.dtsi` 设成 mode 0"是错的，未实测的 mode 0 也不再是目标。
+   QCN9074（阶段二）节点同样是 `<1>`，而旧分支实测那里要 mode 2 才不振荡
+   （见 ax6600 分支 `DEVELOPMENT_LOG` 4.7/4.8），阶段二定稿时再改 PCI 节点。
+8. **AHB 固件版本**（*N5 真机*）：`linux-firmware` 的 `IPQ6018/hw1.0` 2.7.0.1-02409 在 5.8G
+   AP 的 peer create 上必断言；`ath11k-firmware-ddwrt@0c817c46` 的 2.12-01460 正常。
+   台账在 `wireless/SOURCES.nix`。注意 `/lib/firmware` 是 RAM 镜像里的，热替换只在当次
+   开机有效，必须落进构建。
+9. **止损**：任何阶段失败都能回到 `re-cs-02` 的 PPE 有线镜像（已硬件验证）。
 
 ---
 
