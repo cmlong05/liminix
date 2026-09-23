@@ -106,18 +106,11 @@ in
     dependencies = [ config.services.wan ];
   };
 
-  # SSH (dropbear), so the board is reachable without a serial console:
-  # Listens on all interfaces (address = null) - the only interfaces on
-  # this wired-only build are the "int" LAN bridge and the 2.5G WAN.
-  # All allow* options default to true in modules/ssh, so root may log
-  # in with a password; the password hash lives in ax6600-dev.nix next
-  # to the serial-console login, so both logins share one credential.
+
   services.sshd = svc.ssh.build { };
 
   # NB: the ax6600 branch pulls in `iw` here for radio diagnostics.
   # This is a wired-only build with no wireless stack at all, so no
-  # wifi tooling is installed. (pkgs is still needed by the argument
-  # set below; keep the `with pkgs;` list empty rather than dropping
-  # the binding, so a later wired-only tool can be added in place.)
-  defaultProfile.packages = with pkgs; [ ];
+  # wifi tooling is installed.
+  defaultProfile.packages = with pkgs; [ iperf3 ];
 }
