@@ -34,8 +34,10 @@ in
     license = "GPL-2.0-or-later OR MIT";
     note = ''
       ethernet0..4 = &dp1..&dp5 (qca-nss-dp), with switch_lan_bmp/switch_wan_bmp
-      and qcom,port_phyinfo for qca-ssdk. Radio variant: overrides.dtsi changes
-      its qcom,ath11k-fw-memory-mode from 1 to 2.
+      and qcom,port_phyinfo for qca-ssdk. Its wifi@0,0 and the dtsi's &wifi
+      both carry qcom,ath11k-fw-memory-mode = <1>, which patch 903 in
+      wireless/SOURCES.nix makes live; overrides.dtsi does not touch it
+      (phase 2 may set the PCI node to 2, see BRINGUP N5 phase 2).
     '';
   };
 
@@ -90,16 +92,12 @@ in
     note = "ESS_PORT*/MAC_MODE_* constants used by essDtsi and the board dtsi.";
   };
 
-  # Adds wifi@c000000 to ipq6018.dtsi (status disabled, no driver), which the
-  # board dts' &wifi reference needs in order to compile.
-  wifiNodePatch = {
-    role = "fetched";
-    path = "target/linux/qualcommax/patches-6.18/0906-arm64-dts-qcom-ipq6018-add-wifi-node.patch";
-    blob = "0b24a3b74755ab5498bbfabba6bfc4304c1d40a2";
-    sha256 = "sha256-J8PmbmQQjAQgBXOEL1l1dLqDb1g///j2iuNR30Jy70M=";
-    lines = 120;
-    author = "Mantas Pucka <mantas@8devices.com>, 2024-01-16, \"[PATCH 19/19] arm64: dts: qcom: ipq6018: add wifi node\"";
-  };
+  # NB: 6.18.52's ipq6018.dtsi carries the qcom,ipq6018-wcss-pil remoteproc
+  # node but not the AHB radio's wifi@c000000 node - no ipq6018 dts file in
+  # the tarball contains the string "wifi" at all. The board dts' &wifi
+  # override needs that label and ath11k matches on its compatible, so the
+  # fork's 0906 (wireless/SOURCES.nix, applied after 0905, whose sec-pil
+  # compatible is 0906's trailing context) is still required.
 
   # Applied in this order by the patch phase. The six clock patches are
   # upstream's - identical blob shas in both trees - not the fork's.
@@ -343,7 +341,7 @@ in
       "arch/arm64/boot/dts/qcom/ipq6018.dtsi"
       "include/dt-bindings/gpio/gpio.h"
     ];
-    note = "Mainline: no wifi@c000000 and no nss_region - hence wifiNodePatch and 0103.";
+    note = "Mainline: no wifi@c000000 (the fork's 0906 adds it) and no nss_region - hence 0103. It does carry the qcom,ipq6018-wcss-pil node.";
   };
 
   ppeGeneration = {
