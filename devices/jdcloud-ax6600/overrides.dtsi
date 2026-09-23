@@ -27,8 +27,13 @@
 };
 
 /*
- * AHB radio's remoteproc. enable it in the N5 step
+ * The AHB radio's remoteproc. Upstream's ipq6018.dtsi leaves the node
+ * disabled; ath11k's wifi@c000000 node points its qcom,rproc here, so
+ * without this there is no remote processor for ath11k_ahb to boot and
+ * the 2.4/5.8 GHz pdevs never appear. Everything else about the node -
+ * its compatible, firmware names and clocks - comes from the kernel
+ * patches in wireless/SOURCES.nix.
  */
 &q6v5_wcss {
-	status = "disabled";
+	status = "okay";
 };

@@ -1,5 +1,5 @@
 # Web-uploadable single-file image for the JDCloud AX6600 with the NSS
-# wired path (BRINGUP.md N2, N3).
+# wired path (BRINGUP.md).
 #
 # The ethernet driver stack is QSDK's, not the kernel's: qca-ssdk drives
 # the ESS switch and its UNIPHY/PCS instances, qca-nss-dp provides the
@@ -11,22 +11,7 @@
 # travels in the same image, for the same reason: see
 # boot.initramfs.preloadFirmware.
 #
-# Build with:
-#   nix-build --arg device "import ./devices/jdcloud-ax6600" \
-#     -I liminix-config=./ax6600-nss-ram.nix -A outputs.uimage -o result-nss-lan-ram
-# then upload result-nss-lan-ram via http://192.168.1.1/uimage.html
-# (the name md5_result.sh expects; `result-nss-ram` in the BRINGUP plan
-# was never the one used, so the plan text was corrected to match).
-#
-# Success indicators, in the order they should appear:
-#   dmesg | grep -iE 'ssdk|ess-switch|nss-dp|nss|qca8075|qca8081'
-#   ip link                 -> lan1..lan4 and wan
-#   cat /sys/class/net/wan/speed   -> 2500
-#   a PC on lan1 gets a DHCP lease on the deployment's LAN subnet
-# For N3 also: "NSS fw version: NSS.FW.12.5-210-CP.R" and "NSS core 0
-# booted successfully" in dmesg, /proc/sys/dev/nss/ populated, and
-# /sys/kernel/debug/qca-nss-drv/ after `mount -t debugfs none
-# /sys/kernel/debug` (Liminix does not mount debugfs).
+
 {
   config,
   lib,
@@ -46,12 +31,6 @@ let
     inherit (config.kernel) version;
   };
 
-  # cfg80211 is built into this kernel and the signed-regdb check defaults
-  # on, so it asks for "regulatory.db" *and* the detached "regulatory.db.p7s"
-  # (signed by wens, whose cert the kernel carries in net/wireless/certs).
-  # The request comes from cfg80211's own late_initcall, before activate
-  # creates /lib/firmware, so both files ride in the image. Plain, not .zst:
-  # this kernel has FW_LOADER_COMPRESS_XZ but not _ZSTD.
   regdb = name: pkgs.pkgsBuildBuild.runCommand name { } ''
     install -m 0644 ${pkgs.pkgsBuildBuild.wireless-regdb}/lib/firmware/${name} $out
   '';
@@ -91,6 +70,12 @@ let
       "qca-nss-drv"
       "qca-nss-pppoe"
       "ecm"
+      # N5: the AHB radio. The WCSS remoteproc must be registered before
+      # ath11k_ahb probes (the wifi node's qcom,rproc phandle resolves
+      # then); depmod sorts that out from the order of these two. The
+      # driver is the secure-PIL one, not mainline's qcom_q6v5_wcss.
+      "qcom_q6v5_wcss_sec"
+      "ath11k_ahb"
     ];
   };
 in
@@ -99,6 +84,11 @@ in
     ./ax6600-lan.nix
     ./modules/early
     ./modules/outputs/initramfs.nix
+    # N5: the IPQ6010's own radio. Inside the image, not a service: this
+    # builds a fullSystem image, and its modules are loaded by preinit
+    # (boot.initramfs.preloadModules), which is also why the firmware the
+    # Q6 asks for is embedded rather than left in /lib/firmware.
+    ./devices/jdcloud-ax6600/wireless
   ];
 
   boot = {
