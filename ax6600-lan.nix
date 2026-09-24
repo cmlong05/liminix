@@ -84,16 +84,17 @@ in
     inherit (deployment.lan) address prefixLength;
   };
 
-  # LAN clients' resolver. dnsmasq gets explicit --server= values and no
-  # --resolv-file: 2.93 exits at start-up ("directory ... for resolv-file
-  # is missing, cannot poll") when that file's directory does not exist
-  # yet, and resolvconf only creates it once PPPoE is up - which would take
-  # DHCP down with it. The router's own /etc/resolv.conf is unaffected.
+  # LAN clients' resolver, and the router's own. Both read /run/resolv.conf:
+  # the file is written by services.resolvconf below from the resolvers the
+  # ISP hands back over IPCP, so changing ISP needs no configuration here.
+  # dnsmasq is given the path rather than the service on purpose - see
+  # resolvFile in modules/dnsmasq/default.nix for why a service's output
+  # directory cannot be used.
   services.dhcpv4 = svc.dnsmasq.build {
     interface = config.services.int;
     domain = "lan";
     ranges = lib.optional (deployment.lan.dhcpRange != null) deployment.lan.dhcpRange;
-    upstreams = deployment.wan.resolvers or [ ];
+    resolvFile = "/run/resolv.conf";
   };
 
   # 2.5G WAN as a PPPoE client. The service creates its own interface
@@ -114,25 +115,53 @@ in
     dependencies = [ config.services.wan ];
   };
 
-  # The ISP's resolvers arrive as the wan service's ns1/ns2 outputs; left
-  # unconsumed the router has no /etc/resolv.conf and dnsmasq runs
-  # --no-resolv with no upstream at all. Wired as in profiles/gateway.nix.
-  services.resolvconf = oneshot rec {
+  # The ISP's resolvers arrive as the wan service's ns1/ns2 outputs. They are
+  # written to a fixed /run path rather than to this service's own output
+  # directory because dnsmasq requires the *directory* of its --resolv-file
+  # to exist when it starts, and this service only runs once PPPoE is up.
+  services.resolvconf = oneshot {
     dependencies = [ config.services.wan ];
     name = "resolvconf";
     up = ''
-      ( in_outputs ${name}
-       echo "nameserver $(output ${config.services.wan} ns1)" > resolv.conf
-       echo "nameserver $(output ${config.services.wan} ns2)" >> resolv.conf
-       chmod 0444 resolv.conf
-      )
+      ( echo "nameserver $(output ${config.services.wan} ns1)"
+        echo "nameserver $(output ${config.services.wan} ns2)"
+      ) > /run/resolv.conf
+      chmod 0444 /run/resolv.conf
     '';
   };
 
   filesystem = dir {
     etc = dir {
-      "resolv.conf" = symlink "${config.services.resolvconf}/.outputs/resolv.conf";
+      "resolv.conf" = symlink "/run/resolv.conf";
     };
+  };
+
+  # Without this a client that has a lease still cannot be routed: the
+  # kernel's forwarding switch is off by default.
+  services.packet_forwarding = svc.network.forward.build {
+    enableIPv4 = true;
+    enableIPv6 = false;
+  };
+
+  # Source NAT for LAN traffic leaving the PPPoE session.
+  #
+  # This is hand-written because modules/firewall cannot be used in a
+  # fullSystem image: its build always depends on a kmodloader service, and
+  # a kmodloader service cannot exist there (pkgs/liminix-tools/modules).
+  # The nftables modules it needs are loaded by preinit from
+  # ax6600-nss-ram.nix's moduleTree instead.
+  services.nat = oneshot {
+    name = "nat";
+    dependencies = [ config.services.wan ];
+    up = ''
+      wan=$(output ${config.services.wan} ifname)
+      ${pkgs.nftables}/bin/nft add table ip nat
+      ${pkgs.nftables}/bin/nft add chain ip nat postrouting \
+        '{ type nat hook postrouting priority 100 ; }'
+      ${pkgs.nftables}/bin/nft add rule ip nat postrouting \
+        oifname "$wan" masquerade
+    '';
+    down = "${pkgs.nftables}/bin/nft delete table ip nat";
   };
 
   services.sshd = svc.ssh.build { };
