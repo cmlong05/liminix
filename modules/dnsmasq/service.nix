@@ -14,6 +14,7 @@
   hosts,
   upstreams,
   resolvconf,
+  resolvFile,
 }:
 let
   name = "${interface.name}.dnsmasq";
@@ -54,7 +55,9 @@ longrun {
     --keep-in-foreground \
     --dhcp-authoritative \
     ${
-      if resolvconf != null then
+      if resolvFile != null then
+        "--resolv-file=${resolvFile}"
+      else if resolvconf != null then
         "--resolv-file=$(output_path ${resolvconf} resolv.conf)"
       else
         "--no-resolv"
