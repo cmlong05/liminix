@@ -27,6 +27,8 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
+  inherit (pkgs.liminix.services) oneshot;
+  inherit (pkgs.pseudofile) dir symlink;
 
   # Which network this image serves. The values are plain data in
   # ./devices/jdcloud-ax6600/config.nix. By default we build for the
@@ -82,10 +84,16 @@ in
     inherit (deployment.lan) address prefixLength;
   };
 
+  # LAN clients' resolver. dnsmasq gets explicit --server= values and no
+  # --resolv-file: 2.93 exits at start-up ("directory ... for resolv-file
+  # is missing, cannot poll") when that file's directory does not exist
+  # yet, and resolvconf only creates it once PPPoE is up - which would take
+  # DHCP down with it. The router's own /etc/resolv.conf is unaffected.
   services.dhcpv4 = svc.dnsmasq.build {
     interface = config.services.int;
     domain = "lan";
     ranges = lib.optional (deployment.lan.dhcpRange != null) deployment.lan.dhcpRange;
+    upstreams = deployment.wan.resolvers or [ ];
   };
 
   # 2.5G WAN as a PPPoE client. The service creates its own interface
@@ -106,6 +114,26 @@ in
     dependencies = [ config.services.wan ];
   };
 
+  # The ISP's resolvers arrive as the wan service's ns1/ns2 outputs; left
+  # unconsumed the router has no /etc/resolv.conf and dnsmasq runs
+  # --no-resolv with no upstream at all. Wired as in profiles/gateway.nix.
+  services.resolvconf = oneshot rec {
+    dependencies = [ config.services.wan ];
+    name = "resolvconf";
+    up = ''
+      ( in_outputs ${name}
+       echo "nameserver $(output ${config.services.wan} ns1)" > resolv.conf
+       echo "nameserver $(output ${config.services.wan} ns2)" >> resolv.conf
+       chmod 0444 resolv.conf
+      )
+    '';
+  };
+
+  filesystem = dir {
+    etc = dir {
+      "resolv.conf" = symlink "${config.services.resolvconf}/.outputs/resolv.conf";
+    };
+  };
 
   services.sshd = svc.ssh.build { };
 

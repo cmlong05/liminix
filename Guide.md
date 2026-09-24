@@ -9,7 +9,7 @@ nix-build -Q \
     -o result-lan-ram && \
     sh md5_result.sh
 
-# 有线版-NSS（lan1..lan4 桥接 + 2.5G PPPoE），不含无线栈
+# NSS（lan1..lan4 桥接 + 2.5G PPPoE + 2.4g + 5.8g）
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-nss-ram.nix \
