@@ -47,5 +47,11 @@
       username = "xga102782536";
       password = "443508";
     };
+
+    # Extra upstream resolvers
+    extraResolvers = [
+      "223.5.5.5"
+      "119.29.29.29"
+    ];
   };
 }
