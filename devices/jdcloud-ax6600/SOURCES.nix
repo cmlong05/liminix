@@ -113,6 +113,10 @@ in
     }
     {
       path = "target/linux/qualcommax/patches-6.18/0103-arm64-dts-ipq6018-add-reserved-memory-nodes.patch";
+      verify = [
+        { kind = "grep"; file = "arch/arm64/boot/dts/qcom/ipq6018.dtsi";
+          needle = "nss_region: nss@"; label = "0103: nss_region for ipq6018-nss.dtsi"; }
+      ];
       blob = "8a7ef0da7d8519826d0192b0b2d4c116a4b37524";
       sha256 = "sha256-VkG0vzD8AfvQ46flpS03g/qUq6/a1G7ZZ2XADaCl8J4=";
       note = "Adds nss_region and q6_etr/m3_dump/ramoops; the AHB radio reads the same reserved-memory block.";
