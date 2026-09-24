@@ -76,6 +76,12 @@ let
     { path = "board-2.bin"; sha256 = "sha256-eIPKmmr4Uza2BV8PQsi6NeYfMagYMK6zzTCvugg5q3c="; }
   ];
 
+  # Where the `verify` records below look: kernel-tree paths, checked after
+  # the patches have been applied.
+  ipq6018Dtsi = "arch/arm64/boot/dts/qcom/ipq6018.dtsi";
+  wcssSec = "drivers/remoteproc/qcom_q6v5_wcss_sec.c";
+  ath11kDir = "drivers/net/wireless/ath/ath11k";
+
   # The WCSS remoteproc and its device tree, in the fork's own order.
   # 0184 is here for one header, not for its driver; 0186 is bindings
   # documentation only; the rest is the driver, what it needs, and the
@@ -87,6 +93,12 @@ let
   wcss = at "target/linux/qualcommax/patches-6.18" [
     {
       path = "0184-mailbox-tmelite-qmp-Introduce-TMEL-QMP-mailbox-driver.patch";
+      verify = [
+        { kind = "file"; file = "include/linux/mailbox/tmelcom-qmp.h";
+          label = "0184: 0188's tmelcom-qmp header missing"; }
+        { kind = "grep"; file = "drivers/mailbox/Kconfig";
+          needle = "config QCOM_TMEL_QMP_MAILBOX"; label = "0184: mailbox Kconfig symbol"; }
+      ];
       sha256 = "sha256-0JDhIOLK3sdJPq6UfdMfeKlH3sfzYAd1xwpua8/Sgnc=";
       note = ''
         Creates include/linux/mailbox/tmelcom-qmp.h, which 0188 includes
@@ -104,6 +116,15 @@ let
     }
     {
       path = "0188-remoteproc-qcom-add-hexagon-based-wcss-secure-pil-driver.patch";
+      verify = [
+        { kind = "file"; file = wcssSec; label = "0188: driver not installed"; }
+        { kind = "grep"; file = "drivers/remoteproc/Makefile";
+          needle = "qcom_q6v5_wcss_sec.o"; label = "0188: driver in the Makefile"; }
+        { kind = "grep"; file = "drivers/remoteproc/Kconfig";
+          needle = "config QCOM_Q6V5_WCSS_SEC"; label = "0188: driver Kconfig symbol"; }
+        { kind = "grep"; file = wcssSec; needle = "firmware-name";
+          label = "0188 0808: firmware names from DT"; }
+      ];
       sha256 = "sha256-QZPECQPNUQun46+c2gljA4orgRkDs1GHG8ECkQ57sao=";
       note = ''
         The driver itself, a new file: loads the Q6 image through secure
@@ -119,6 +140,10 @@ let
     }
     {
       path = "0809-remoteproc-qcom-wcss-sec-enable-PRNG-clock.patch";
+      verify = [
+        { kind = "grep"; file = wcssSec; needle = ''"prng"'';
+          label = "0809: PRNG clock"; }
+      ];
       sha256 = "sha256-bQdDetY2Cn088a9gfkpIsrj6L15Tkv1iraX8qq5hrm4=";
       note = "the Q6 clocks the PRNG block itself, so the host holds the proxy clock while it runs";
     }
@@ -129,11 +154,25 @@ let
     }
     {
       path = "0811-remoteproc-qcom-wcss-sec-enable-qdss-clock.patch";
+      verify = [
+        { kind = "entry"; file = ipq6018Dtsi; anchor = "q6v5_wcss: remoteproc@cd00000";
+          needle = "GCC_QDSS_AT_CLK"; label = "0905 0811: qdss_at clock"; window = 30; }
+        { kind = "grep"; file = wcssSec; needle = ''"qdss"'';
+          label = "0811: QDSS clock"; }
+      ];
       sha256 = "sha256-plMWstOjB+0a1U+J2BvjjZp9TMJccnzELZ+iQ3j6oT0=";
       note = "the QDSS_AT clock the firmware needs while it runs";
     }
     {
       path = "0812-remoteproc-qcom-wcss-sec-add-ipq6018-support.patch";
+      verify = [
+        { kind = "entry"; file = wcssSec; anchor = "wcss_sec_ipq6018_res_init = {";
+          needle = "WCSS_PAS_ID"; label = "0812: ipq6018 PAS id"; }
+        { kind = "entry"; file = wcssSec; anchor = "wcss_sec_ipq6018_res_init = {";
+          needle = ''ss_name = "wcnss"''; label = "0812: ipq6018 ssr name"; }
+        { kind = "grep"; file = wcssSec; needle = "qcom,ipq6018-wcss-sec-pil";
+          label = "0812: ipq6018 compatible"; }
+      ];
       sha256 = "sha256-ikcOwvv0ox73aJTDvjMfjr0wmweKaM4TUavqMe5cdlY=";
       note = ''
         The one that matters here: an ipq6018 descriptor (pasid = 6) and
@@ -144,6 +183,13 @@ let
     }
     {
       path = "0905-arm64-dts-qcom-ipq6018-use-secure-WCSS-remoteproc.patch";
+      verify = [
+        { kind = "entry"; file = ipq6018Dtsi; anchor = "q6v5_wcss: remoteproc@cd00000";
+          needle = "qcom,ipq6018-wcss-sec-pil"; label = "0905: secure WCSS compatible"; }
+        { kind = "entry"; file = ipq6018Dtsi; anchor = "q6v5_wcss: remoteproc@cd00000";
+          needle = ''firmware-name = "IPQ6018/q6_fw.mdt", "IPQ6018/m3_fw.mdt"'';
+          label = "0905: firmware names in DT"; }
+      ];
       sha256 = "sha256-02/wt9KvdLs1RKMCFOMNDUGS/gJD9cg6LolvY+tyHN4=";
       note = ''
         Points the ipq6018 q6v5_wcss node at that driver: the
@@ -155,6 +201,12 @@ let
     }
     {
       path = "0906-arm64-dts-qcom-ipq6018-add-wifi-node.patch";
+      verify = [
+        { kind = "once"; file = ipq6018Dtsi; needle = "wifi: wifi@c000000";
+          label = "0906: wifi node missing or duplicated"; }
+        { kind = "grep"; file = ipq6018Dtsi; needle = "qcom,rproc = <&q6v5_wcss>";
+          label = "wifi node lost its remoteproc"; }
+      ];
       sha256 = "sha256-J8PmbmQQjAQgBXOEL1l1dLqDb1g///j2iuNR30Jy70M=";
       note = ''
         The AHB radio's own node: qcom,ipq6018-wifi at 0xc000000, its 52
@@ -167,6 +219,10 @@ let
     }
     {
       path = "0907-soc-qcom-fix-smp2p-ack-on-ipq6018.patch";
+      verify = [
+        { kind = "grep"; file = ipq6018Dtsi; needle = "qcom,smp2p-feature-ssr-ack";
+          label = "0907: smp2p ssr ack"; }
+      ];
       sha256 = "sha256-tsM8B0QnHygKf+Tzh9QKYaj3L1ScFmpCNOxxuPRIDtg=";
       note = ''
         The Q6 sets the smp2p restart flag without negotiating the
@@ -197,6 +253,10 @@ let
   ath11k = at "package/kernel/mac80211/patches/ath11k" [
     {
       path = "101-wifi-ath11k-fix-wrong-usage-of-resource_size-causing.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/qmi.c"; needle = "IORESOURCE_UNSET";
+          label = "101: resource_size misuse"; }
+      ];
       sha256 = "sha256-5YZmbXFr26h42BVJqDGKFhFuo74ZWsBztlKv2gDLG9g=";
       note = ''
         resource_size() of the zeroed struct resource is 1, not 0, so
@@ -211,6 +271,10 @@ let
     }
     {
       path = "903-ath11k-support-setting-FW-memory-mode-via-DT.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/core.c";
+          needle = "qcom,ath11k-fw-memory-mode"; label = "903: FW memory mode from DT"; }
+      ];
       sha256 = "sha256-u/e7IBdz9U8IDw4fAhBkTGDp23UP4coKWnh4mYQy2Fc=";
       note = ''
         Reads qcom,ath11k-fw-memory-mode into hw_params.fw_mem_mode, which
@@ -222,6 +286,10 @@ let
     }
     {
       path = "906-wifi-ath11k-disable-coldboot-for-ipq6018.patch";
+      verify = [
+        { kind = "entry"; file = "${ath11kDir}/core.c"; anchor = "ATH11K_HW_IPQ6018_HW10";
+          needle = "coldboot_cal_mm = false"; label = "906: coldboot disabled"; window = 50; }
+      ];
       sha256 = "sha256-u5VC7cp1nM0Va0CsPauyjeBhRhytS02lN8pus9ZhuVw=";
       note = ''
         Coldboot calibration does not work on ipq6018 and fails wifi
@@ -231,6 +299,10 @@ let
     }
     {
       path = "910-ath11k-fix-remapped-ce-accessing-issue-on-64bit-OS.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/hw.h"; needle = "ATH11K_REG_TYPE_CE";
+          label = "910: CE register window"; }
+      ];
       sha256 = "sha256-aiKQ1O3YhSxD27DrxcbJW9qpLdXKTc0izL5M2dPQeBk=";
       note = ''
         On 64-bit the CE register block is out of reach of the 32-bit
@@ -240,11 +312,19 @@ let
     }
     {
       path = "948-wifi-ath11k-Fix-the-WMM-param-type.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/wmi.c"; needle = "WMI_WMM_PARAM_TYPE_LEGACY";
+          label = "948: WMM param type"; }
+      ];
       sha256 = "sha256-HeNwgsNRqP4uW/RpGlkfKxBpO035TB6ehTwBP5VqlqU=";
       note = "the firmware does not support the 11ax EDCA parameter and asserts when an AP start sends one";
     }
     {
       path = "950-wifi-ath11k-implement-CE-interrupt-enable-disable-for-AHB.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/ahb.c";
+          needle = "ce_irq_enable = ath11k_ahb_ce_irqs_enable"; label = "950: AHB CE irq ops"; }
+      ];
       sha256 = "sha256-WJq+FosIE9CETVdqF9Y9cq9GgJIxB2Ui8d2C/MK8K8g=";
       note = ''
         ath11k_core_reset() disables CE interrupts before powering the
@@ -255,6 +335,10 @@ let
     }
     {
       path = "950-wifi-ath11k-mask-undefined-board-id.patch";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/qmi.c"; needle = "target.board_id &= 0xFF";
+          label = "950: board id masked to 8 bits"; }
+      ];
       sha256 = "sha256-MloQEmGrXG7UfV/0EkTZdi4iFp6QV/D3h1SpIadg0BI=";
       note = ''
         board_id &= 0xFF: some firmwares report the undefined board id as
@@ -264,6 +348,11 @@ let
     }
     {
       path = "951-wifi-ath11k-disable-interrupts-during-firmware-crash-recovery.patch";
+      verify = [
+        { kind = "entry"; file = "${ath11kDir}/core.c";
+          anchor = "ath11k_core_reconfigure_on_crash";
+          needle = "ath11k_hif_ce_irq_disable(ab)"; label = "951: interrupts off on crash recovery"; }
+      ];
       sha256 = "sha256-zTl1gUbRrrOR6MshMYFXizjiY+UQvX8FPshMaBwHz8A=";
       note = ''
         The AHB crash path (QMI server exit -> restart_work) never goes
