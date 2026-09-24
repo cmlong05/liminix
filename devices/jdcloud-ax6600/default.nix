@@ -65,15 +65,20 @@
             kernelPatches = map kernelPatch sources.kernelPatches;
             nssEcmPatches = map kernelPatch sources.nssEcmPatches;
             wirelessSources = import ./wireless/SOURCES.nix;
-            wirelessPatches = lib.concatMapStrings (
+            checks = import ./kernel-checks.nix { inherit lib; };
+
+            # Each wireless patch with the fuzz its group allows, kept as a
+            # list: the phase applies them one call at a time.
+            wirelessPatch =
               p:
-              "${toString p.fuzz} ${
-                pkgs.pkgsBuildBuild.fetchurl {
+              {
+                inherit (p) fuzz;
+                file = pkgs.pkgsBuildBuild.fetchurl {
                   name = baseNameOf p.path;
                   inherit (p) url sha256;
-                }
-              }\n"
-            ) wirelessSources.patches;
+                };
+              };
+            wirelessPatches = map wirelessPatch wirelessSources.patches;
 
             nssKernelFiles = pkgs.pkgsBuildBuild.callPackage ./nss/kernel-files {
               sources = import ./nss/SOURCES.nix;
@@ -90,108 +95,34 @@
               cp ${upstreamFile sources.essHeader.path sources.essHeader.sha256} \
                  $out/include/dt-bindings/net/qcom-ipq-ess.h
             '';
+
+            applyPatch = fuzz: p: "apply_patch ${toString fuzz} ${p}";
+            verify = entries: checks.lines (lib.concatMap (e: e.verify or [ ]) entries);
+
+            baseChecks = verify (sources.kernelPatches ++ sources.nssEcmPatches);
+            wirelessChecks = verify wirelessSources.patches;
           in
           ''
-          # The wcss remoteproc node is mainline's and 0905 needs it. The
-          # wifi@c000000 node is not: 6.18.52 does not have it (checked -
-          # no ipq6018 dts file contains the string), the board dts'
-          # &wifi override needs the label and ath11k matches on its
-          # compatible, so the fork's 0906 below adds it after 0905.
-          grep -q "qcom,ipq6018-wcss-pil" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
-            || { echo "ipq6018 wcss compatible missing from ipq6018.dtsi"; exit 1; }
+          export NSS_KERNEL_FILES=${nssKernelFiles}
+          export DT_INPUTS=${deviceTreeInputs}
 
-          # SOURCES.nix order. 0103 is the one that matters here: it defines
-          # nss_region, the label ipq6018-nss.dtsi needs.
-          for p in ${lib.concatStringsSep " " kernelPatches} ${lib.concatStringsSep " " nssEcmPatches}; do
-            patch -p1 --fuzz=0 < $p || { echo "failed to apply $p"; exit 1; }
-          done
-          grep -q "nss_region: nss@" arch/arm64/boot/dts/qcom/ipq6018.dtsi \
-            || { echo "nss_region missing after 0103"; exit 1; }
+          . ${./extra-patch-phase.sh}
 
-          # N5: the wcss remoteproc and the ath11k AHB fixes, in the
-          # order wireless/SOURCES.nix lists them, each with the fuzz its
-          # group allows. The wcss half applies exactly (fuzz 0): it is
-          # OpenWrt's own 6.18 set, and a hunk that stops matching there
-          # means the tree moved, which must fail rather than drift.
-          while read -r fuzz p; do
-            patch -p1 --fuzz="$fuzz" < "$p" || { echo "failed to apply $p"; exit 1; }
-          done <<'PATCHES'
-          ${wirelessPatches}PATCHES
+          require_wcss_pil_in_tarball
 
-          # What the radio needs, checked rather than assumed - a fuzzed
-          # hunk that landed in the wrong place has to be caught here,
-          # because it is a compile error or a silent misbehaviour later.
-          # One check per patch that has something to show for itself.
-          need() { grep -q "$2" "$1" || { echo "N5: $3 ($1)"; exit 1; }; }
-          # `anchor` onward, `window` lines: the sec driver's descriptors
-          # and ath11k's hw params are short braced blocks that end in a
-          # way not worth matching, and their needles ("WCSS_PAS_ID",
-          # "coldboot_cal_mm = false") occur elsewhere in the same file,
-          # so a whole-file grep would prove nothing. 25 lines covers
-          # those blocks; the dtsi's wcss node and the ipq6018 hw params
-          # entry are longer and say so.
-          in_entry() {
-            awk -v anchor="$2" -v win="$5" \
-              'BEGIN { if (win == "") win = 25 } index($0, anchor) { hit = 1 } hit { print; if (++n > win) exit }' "$1" \
-              | grep -q "$3" || { echo "N5: $4"; exit 1; }
-          }
-          wcss=drivers/remoteproc/qcom_q6v5_wcss_sec.c
-          dtsi=arch/arm64/boot/dts/qcom/ipq6018.dtsi
-          ath=drivers/net/wireless/ath/ath11k
+          # The two base lists, in SOURCES.nix order, at fuzz 0: a hunk
+          # that stops matching means the tree moved, which must fail
+          # rather than drift.
+          ${lib.concatMapStringsSep "\n" (p: applyPatch 0 p) (kernelPatches ++ nssEcmPatches)}
+          ${baseChecks}
 
-          # the wifi node is still the only one, still points at the Q6,
-          # and the node now speaks the sec driver's binding
-          test "$(grep -c 'wifi: wifi@c000000' $dtsi || true)" = 1 \
-            || { echo "N5: wifi node missing or duplicated"; exit 1; }
-          need $dtsi "qcom,rproc = <&q6v5_wcss>" "wifi node lost its remoteproc"
-          in_entry $dtsi "q6v5_wcss: remoteproc@cd00000" 'qcom,ipq6018-wcss-sec-pil' "0905: secure WCSS compatible"
-          in_entry $dtsi "q6v5_wcss: remoteproc@cd00000" 'firmware-name = "IPQ6018/q6_fw.mdt", "IPQ6018/m3_fw.mdt"' "0905: firmware names in DT"
-          in_entry $dtsi "q6v5_wcss: remoteproc@cd00000" 'GCC_QDSS_AT_CLK' "0905 0811: qdss_at clock" 30
-          need $dtsi "qcom,smp2p-feature-ssr-ack" "0907: smp2p ssr ack"
+          # wcss and ath11k sets, each at the fuzz its group allows.
+          ${lib.concatMapStringsSep "\n" (p: applyPatch p.fuzz p.file) wirelessPatches}
+          ${wirelessChecks}
 
-          # 0184's only effect here is the TME-L QMP protocol header 0188
-          # includes; the driver it also adds stays out of the build.
-          test -f include/linux/mailbox/tmelcom-qmp.h \
-            || { echo "N5: 0184: 0188's tmelcom-qmp header missing"; exit 1; }
-          need drivers/mailbox/Kconfig 'config QCOM_TMEL_QMP_MAILBOX' "0184: mailbox Kconfig symbol"
-
-          # the driver: exists, is registered for ipq6018, and loads the
-          # Q6 the secure way with the firmware names it was handed
-          test -f $wcss || { echo "N5: 0188: $wcss missing"; exit 1; }
-          need drivers/remoteproc/Makefile 'qcom_q6v5_wcss_sec.o' "0188: driver in the Makefile"
-          need drivers/remoteproc/Kconfig 'config QCOM_Q6V5_WCSS_SEC' "0188: driver Kconfig symbol"
-          in_entry $wcss 'wcss_sec_ipq6018_res_init = {' 'WCSS_PAS_ID' "0812: ipq6018 PAS id"
-          in_entry $wcss 'wcss_sec_ipq6018_res_init = {' 'ss_name = "wcnss"' "0812: ipq6018 ssr name"
-          need $wcss 'qcom,ipq6018-wcss-sec-pil' "0812: ipq6018 compatible"
-          need $wcss 'firmware-name' "0188 0808: firmware from DT"
-          need $wcss '"prng"' "0809: PRNG clock"
-          need $wcss '"qdss"' "0811: QDSS clock"
-
-          need $ath/qmi.c 'IORESOURCE_UNSET' "101: resource_size misuse"
-          need $ath/core.c 'qcom,ath11k-fw-memory-mode' "903: FW memory mode from DT"
-          in_entry $ath/core.c 'ATH11K_HW_IPQ6018_HW10' 'coldboot_cal_mm = false' "906: coldboot disabled" 50
-          need $ath/hw.h 'ATH11K_REG_TYPE_CE' "910: CE register window"
-          need $ath/wmi.c 'WMI_WMM_PARAM_TYPE_LEGACY' "948: WMM param type"
-          need $ath/ahb.c 'ce_irq_enable = ath11k_ahb_ce_irqs_enable' "950: AHB CE irq ops"
-          need $ath/qmi.c 'target.board_id &= 0xFF' "950: board id masked to 8 bits"
-          # both disable calls are in that file already; what 951 adds is
-          # a second pair inside the crash-reconfigure path
-          in_entry $ath/core.c 'ath11k_core_reconfigure_on_crash' 'ath11k_hif_ce_irq_disable(ab)' "951: interrupts off on crash recovery"
-
-          # N4: the files 0600-6 refers to but does not create (fork files/
-          # entries, not patches). Same list, see nss/SOURCES.nix.
-          cp -a --no-preserve=mode ${nssKernelFiles}/. .
-          test -f include/net/netfilter/nf_conntrack_dscpremark_ext.h \
-            || { echo "dscpremark header not installed"; exit 1; }
-
-          # Preserve the files, not the store's read-only directory modes:
-          # -a alone would leave the source root unwritable for the .config
-          # write the kernel builder does in its configure phase.
-          cp -a --no-preserve=mode ${deviceTreeInputs}/. .
-          grep -q "ess-switch@3a000000" arch/arm64/boot/dts/qcom/ipq6018-ess.dtsi \
-            || { echo "ESS dtsi not installed correctly"; exit 1; }
-          test -f include/dt-bindings/net/qcom-ipq-ess.h \
-            || { echo "ESS constants header not installed"; exit 1; }
+          install_overlay "$NSS_KERNEL_FILES"
+          install_overlay "$DT_INPUTS"
+          ${checks.lines checks.installed}
         '';
         config = {
           # pstore/ramoops: persistent kernel log at 0x60000000 so it
