@@ -1,16 +1,4 @@
-# Web-uploadable single-file image for the JDCloud AX6600 with the NSS
-# wired path (BRINGUP.md).
-#
-# The ethernet driver stack is QSDK's, not the kernel's: qca-ssdk drives
-# the ESS switch and its UNIPHY/PCS instances, qca-nss-dp provides the
-# netdevs, and qca-nss-drv brings the NSS core up. None is in the kernel
-# tree, so they build as out-of-tree modules
-# (devices/jdcloud-ax6600/nss) and `preinit` loads them before it starts
-# s6 - see boot.initramfs.preloadModules for why that, and not the
-# kmodloader service, is what a fullSystem image can do. The NSS firmware
-# travels in the same image, for the same reason: see
-# boot.initramfs.preloadFirmware.
-#
+# Web-uploadable single-file image  with NSS
 
 {
   config,
@@ -19,6 +7,11 @@
   ...
 }:
 let
+  inherit (pkgs.liminix.services) oneshot;
+
+  # Shared with ax6600-rootfs.nix - see that file for the other half.
+  targets = import ./devices/jdcloud-ax6600/nss/targets.nix;
+
   # The module packages are built against the initramfs-less twin of the
   # kernel (config.kernel.modulesKernel), not the real one: this image
   # carries the modules inside the kernel image, and the real kernel's
@@ -54,35 +47,12 @@ let
       nss.nss-clients
       nss.qca-nss-ecm
     ];
-    targets = [
-      "nf_conntrack"
-      "nf_defrag_ipv4"
-      "nf_defrag_ipv6"
-      "nf_nat"
-      # The masquerade behind services.nat (ax6600-lan.nix). NFT_NAT and
-      # NFT_MASQ can only be `m` - they depend on NF_CONNTRACK/NF_NAT, which
-      # are `m` - and a fullSystem image loads modules from nowhere but this
-      # list, so both must be named here.
+    # The masquerade services.nat (below) writes by hand needs these three;
+    # the rootfs image gets them from modules/firewall's own kmodloader.
+    targets = targets ++ [
       "nft_chain_nat"
       "nft_nat"
       "nft_masq"
-      # ECM's classifier reads the conntrack DSCPREMARK extension, the
-      # kernel's xt_DSCP target writes it. Without these two targets they
-      # ship but never load, so the extension stays zero and those
-      # connections are never offloaded.
-      "xt_DSCP"
-      "xt_dscp"
-      "qca-ssdk"
-      "qca-nss-dp"
-      "qca-nss-drv"
-      "qca-nss-pppoe"
-      "ecm"
-      # N5: the AHB radio. The WCSS remoteproc must be registered before
-      # ath11k_ahb probes (the wifi node's qcom,rproc phandle resolves
-      # then); depmod sorts that out from the order of these two. The
-      # driver is the secure-PIL one, not mainline's qcom_q6v5_wcss.
-      "qcom_q6v5_wcss_sec"
-      "ath11k_ahb"
     ];
   };
 in
@@ -91,12 +61,27 @@ in
     ./ax6600-lan.nix
     ./modules/early
     ./modules/outputs/initramfs.nix
-    # N5: the IPQ6010's own radio. Inside the image, not a service: this
-    # builds a fullSystem image, and its modules are loaded by preinit
-    # (boot.initramfs.preloadModules), which is also why the firmware the
-    # Q6 asks for is embedded rather than left in /lib/firmware.
     ./devices/jdcloud-ax6600/wireless
   ];
+
+  # Source NAT for LAN traffic leaving the PPPoE session. Hand-written here
+  # because modules/firewall cannot be used in a fullSystem image: its build
+  # always depends on a kmodloader service, and a kmodloader service cannot
+  # exist there (pkgs/liminix-tools/modules) - the nftables modules come
+  # from moduleTree above instead. ax6600-rootfs.nix uses the module.
+  services.nat = oneshot {
+    name = "nat";
+    dependencies = [ config.services.wan ];
+    up = ''
+      wan=$(output ${config.services.wan} ifname)
+      ${pkgs.nftables}/bin/nft add table ip nat
+      ${pkgs.nftables}/bin/nft add chain ip nat postrouting \
+        '{ type nat hook postrouting priority 100 ; }'
+      ${pkgs.nftables}/bin/nft add rule ip nat postrouting \
+        oifname "$wan" masquerade
+    '';
+    down = "${pkgs.nftables}/bin/nft delete table ip nat";
+  };
 
   boot = {
     initramfs = {
@@ -113,40 +98,18 @@ in
         "regulatory.db.p7s" = regdb "regulatory.db.p7s";
       };
     };
-    commandLine = lib.mkForce [
-      "panic=10 oops=panic loglevel=8"
-      "console=ttyMSM0,115200n8"
-      "fw_devlink=off"
-      # nr_cpus=1 was a bring-up workaround and has been stale since N2. It
-      # also has to go for N4 to be measurable: on one core the software
-      # path is core-bound, and NSS IRQ affinity needs the CPUs. If the
-      # board stops reaching userspace, putting it back is the first thing
-      # to try.
-      "nokaslr"
-      # nokaslr stays: second line of defence behind RANDOMIZE_BASE=n, and
-      # free at runtime.
-    ];
+
     imageFormat = "fit";
   };
 
   hardware.defaultOutput = "uimage";
 
-  # services.nat (ax6600-lan.nix) needs the nftables `ip` family and the
-  # nat/masq expressions. The base config already has nf_tables built in
-  # (ECM's bridge conntrack needs it) but none of these; NF_TABLES_IPV4 is a
-  # bool, the other two are tristates that NF_CONNTRACK/NF_NAT cap at `m`.
-  # The build's checkConfigurationPhase fails loudly if olddefconfig cannot
-  # keep a value written here.
   kernel.config = {
     NF_TABLES_IPV4 = "y";
     NFT_NAT = "m";
     NFT_MASQ = "m";
   };
 
-  # (N4) ECM's sysctls: modules/early writes them into /etc/sysctl.sh, which
-  # rc.init runs once /proc is mounted. nf_conntrack_tcp_no_window_check is
-  # added by 0600-1, ECM assumes it, and its default is 0; the other two are
-  # OpenWrt's tuning.
   early.sysctl.net.netfilter = {
     nf_conntrack_tcp_no_window_check = 1;
     nf_conntrack_max = 65535;
