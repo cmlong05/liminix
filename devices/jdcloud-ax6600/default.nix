@@ -16,13 +16,9 @@
     * 128GB/256GB eMMC (GPT), community "dual-boot" GPT layout:
       `+0:HLOS+`/`+0:HLOS_1+` (6MiB kernel FIT slots), `+rootfs+`/
       `+rootfs_1+` (2GiB), `+0:ART+` (calibration, keep a backup)
-    * Ethernet: QCA8075 4x 1G switch + QCA8081 2.5G PHY over the
-
-    * WiFi: REMOVED (QCN9074 5GHz on PCIe0 and the IPQ6018 AHB radio
-      are both absent from the kernel config and the device tree)
-    * serial console on BLSP1 UART3 (`+serial@78b1000+`, 115200n8)
+    * Ethernet: QCA8075 4x 1G switch + QCA8081 2.5G PHY
+    * WiFi:  (QCN9074 5GHz on PCIe0 and the IPQ6018 AHB radio
     * USB 3.0, tmp1628 status display, 3 LEDs / 3 keys
-
   '';
 
   module =
@@ -36,14 +32,10 @@
     {
       imports = [
         ../families/ipq6018.nix
-        # hardware.networkInterfaces (lan1..lan4, wan) is built with the
-        # network module's link service, so it must always be present
         ../../modules/network
       ];
 
       kernel = {
-        # url and hash come from SOURCES.nix so the kernel pin lives in one
-        # place, next to the blob shas of everything else upstream.
         src =
           let
             kernelSource = (import ./SOURCES.nix).kernelDts;
@@ -71,22 +63,8 @@
                 url = "${sources.upstream.rawBase}/${p.path}";
               };
             kernelPatches = map kernelPatch sources.kernelPatches;
-
-            # N4: the NSS kernel side - the fork's patches-6.18/06xx series,
-            # one entry per patch in SOURCES.nix, where each has its own
-            # note. 0600-1, 0600-2, 0600-6, 0600-7 and 0603-2 are what ECM
-            # needs; the rest is kept so the series stays whole. 0600-8 and
-            # 0607-1 are deliberately absent (see SOURCES.nix).
             nssEcmPatches = map kernelPatch sources.nssEcmPatches;
-
-            # N5: the AHB radio's kernel side - wireless/SOURCES.nix
-            # names every patch and where it is fetched from. There is no
-            # local patch: the fork drives the Q6 with its own driver
-            # (qcom_q6v5_wcss_sec), so mainline's qcom_q6v5_wcss is not
-            # touched at all.
             wirelessSources = import ./wireless/SOURCES.nix;
-            # "fuzz path" lines, in application order - a line per patch
-            # because the allowed fuzz differs per group.
             wirelessPatches = lib.concatMapStrings (
               p:
               "${toString p.fuzz} ${
@@ -97,15 +75,10 @@
               }\n"
             ) wirelessSources.patches;
 
-            # The N4 kernel-tree files (see nss/SOURCES.nix), installed
-            # below before the dtsi tree.
             nssKernelFiles = pkgs.pkgsBuildBuild.callPackage ./nss/kernel-files {
               sources = import ./nss/SOURCES.nix;
             };
 
-            # The NSS-generation dtsi and the ESS constants header, at the
-            # paths OpenWrt keeps them in, so the board dtsi's includes
-            # resolve as they do upstream.
             deviceTreeInputs = pkgs.pkgsBuildBuild.runCommand "ipq6010-nss-devicetree" { } ''
               mkdir -p $out/arch/arm64/boot/dts/qcom $out/include/dt-bindings/net
               cp ${upstreamFile sources.essDtsi.path sources.essDtsi.sha256} \
@@ -300,7 +273,11 @@
           # is taken, so no iptables-legacy core is added. Without these,
           # olddefconfig drops both symbols.
           NETFILTER_XTABLES = "y";
-          NF_TABLES = "y";
+          # Forced because modules/firewall asks for `m`: this must stay
+          # built-in, or NFT_COMPAT (below) and NF_TABLES_BRIDGE (further
+          # down) lose their `y` and olddefconfig drops them. The rootfs
+          # composition is the one that imports that module.
+          NF_TABLES = lib.mkForce "y";
           NFT_COMPAT = "y";
           # ECM registers a NFPROTO_BRIDGE/NF_BR_POST_ROUTING hook of its
           # own; 6.18 gates that whole family behind NETFILTER_FAMILY_BRIDGE,
@@ -361,7 +338,10 @@
 
           defaultOutput = "uimage";
 
-          rootDevice = "/dev/mtdblock0";
+          # A placeholder, not a fact about the board: the fullSystem image
+          # never mounts a root device, and ax6600-rootfs.nix names the real
+          # partition. mkDefault so that composition can just say so.
+          rootDevice = lib.mkDefault "/dev/mtdblock0";
           loadAddress = lim.parseInt "0x41000000";
           entryPoint = lim.parseInt "0x41000000";
 
