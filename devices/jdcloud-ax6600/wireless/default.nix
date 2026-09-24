@@ -126,6 +126,12 @@ let
   # interface is still in COUNTRY_UPDATE, and this build has no log sink
   # after the fork, so the console shows the same two lines whether the AP
   # came up or died. The comment in the `start` branch has the details.
+  #
+  # Each AP joins the LAN bridge once hostapd has its netdev in AP mode.
+  # dnsmasq is bound to that bridge only, so an AP left outside it gives
+  # an associated client no lease. The name is read from the service
+  # (`ax6600-lan.nix` builds it) instead of repeating the literal here.
+  bridge = "${config.services.int}/.outputs/ifname";
   ap = name: band: params: pkgs.writeShellScriptBin "wlan-${name}" ''
     set -eu
 
@@ -176,9 +182,14 @@ let
           sleep 1
         done
         echo "wlan-${name}: state=''${state:-none}"
+        if [ "$state" = ENABLED ]; then
+          ip link set dev "$dev" master "$(cat ${bridge})"
+          echo "wlan-${name}: joined $(cat ${bridge})"
+        fi
         [ "$state" = ENABLED ]
         ;;
       stop)
+        ip link set dev "$dev" nomaster 2>/dev/null || true
         kill "$(cat /run/hostapd-${name}.pid)"
         ;;
       status)
@@ -233,6 +244,11 @@ in
     # request_module() has no /sbin/modprobe to fall back on, so `=m`
     # never loads even though the .ko is carried in the image.
     CRYPTO_MICHAEL_MIC = "y";
+
+    # hostapd opens /dev/rfkill in rfkill_init() and logs "rfkill: Cannot
+    # open RFKILL control device" when it is missing. This board has no
+    # rfkill switch, so the option is here only to create the device node.
+    RFKILL = "y";
   };
 
   # WLAN gates these: kernel.config is merged first and conditionalConfig
