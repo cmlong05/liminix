@@ -21,11 +21,12 @@ nix-build -Q \
     sh md5_result.sh
 
 # uimage rootfs
-nix-build -Q 
+nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-rootfs.nix \
     -A outputs.uimage \
-    -A outputs.rootfs -o result-rootfs \
+    -A outputs.rootfs \
+    -o result-rootfs \
     && sh md5_result.sh
 
 
