@@ -14,35 +14,9 @@
 
 ### 1. 当前网络服务侧（换镜像形态时会碰）
 
-* **DNS 上游**（2026-09-24 修）。原状：pppd 的 `usepeerdns` 把 ISP 的解析器写进 wan 服务的
-  `ns1`/`ns2` 输出，但没有任何消费者——路由器没有 `/etc/resolv.conf`，dnsmasq 又是 `--no-resolv`
-  且零 `--server=`，于是「能 ping 通 IP、ping 不通域名」，且整个 LAN 客户端的 DNS 一起坏
-  （实测查 `10.10.10.10` 得 `rcode=5` REFUSED）。
-  现为**全动态**，换 ISP 不需要改任何配置：`services.resolvconf` oneshot 把 `ns1`/`ns2` 写进
-  **`/run/resolv.conf`**，`/etc/resolv.conf` 是它的符号链接，dnsmasq 用
-  `--resolv-file=/run/resolv.conf`。
-  **这里有个 dnsmasq 的坑**（第一次修就是踩它才把 DHCP 弄挂的）：dnsmasq 2.93 启动时对
-  `--resolv-file` 的**所在目录**建 inotify，**目录不存在就直接退出**
-  （`die("directory … for resolv-file is missing, cannot poll")`；同版本本机实测：目录缺失 →
-  `FAILED to start up`，目录在、仅文件缺失 → 正常启动）。而服务自己的 `.outputs` 目录要等该服务
-  运行（这里是 PPPoE 会话建立）才创建 → dnsmasq 先启动就必死；它同时是 DHCP 服务，于是
-  **LAN 全部拿不到租约**。所以文件落在永远存在的 `/run`，oneshot 写入时触发 `IN_CLOSE_WRITE`，
-  dnsmasq 自己重读。**同一竞态在 `modules/profiles/gateway.nix` 与 `examples/demo.nix` 里也存在**
-  （它们把 `services.resolvconf` 直接交给 dnsmasq）。为此给 `modules/dnsmasq` 加了可选的
-  `resolvFile`（纯增量，默认 `null`，那两个 profile 行为不变）。
 
-* **转发与 NAT**（2026-09-24 修）。刷机后 LAN 客户端拿到租约却上不了网，缺任何一层都不通：
-  1. `ax6600-lan.nix` 从未设 `services.packet_forwarding` → `/proc/sys/net/ipv4/conf/all/forwarding`
-     为 0，内核**根本不转发** LAN→WAN（与 NAT 无关，单这一条就够）；
-  2. 配置里没有任何 NAT 规则（仓库根 `nat.nft` 无人引用，是旧分支遗留）；
-  3. 更隐蔽：那颗内核**做不了 NAT**。基础 config 只有 `NF_TABLES=y` + `NF_TABLES_BRIDGE=y`（ECM 桥
-     conntrack 用），`NF_TABLES_IPV4` 未开（没有 `ip` family）、`NFT_NAT`/`NFT_MASQ` 未开（没有
-     masquerade），`IP_NF_IPTABLES` 与 `NETFILTER_XT_TARGET_MASQUERADE` 也未开（iptables 那条路也没有）
-     → `nft add table ip nat` 只会 `Operation not supported`。
-  已修：`kernel.config` 加 `NF_TABLES_IPV4=y`（`net/ipv4/netfilter/Kconfig` 里它是 **bool**，不带模块）、
-  `NFT_NAT=m`、`NFT_MASQ=m`（二者 `depends on NF_CONNTRACK`/`NF_NAT`，都是 `m`，所以只能是 `m`）；
-  `nft_nat`/`nft_chain_nat`/`nft_masq` 加进 `preloadModules` 的 `targets`（fullSystem 镜像只有
-  preinit 这一条模块加载路径）；`ax6600-lan.nix` 加 `services.packet_forwarding` 和手写的
+* 存在问题：
+  `ax6600-lan.nix` 加 `services.packet_forwarding` 和手写的
   `services.nat`（`oifname ppp0 masquerade`）。
   **不能用 `modules/firewall`**：它的 `build` 一定依赖一个 kmodloader 服务，而
   `pkgs/liminix-tools/modules/default.nix` 的注释写明 kmodloader **服务**在 fullSystem 镜像里不可能
@@ -113,105 +87,8 @@
 
 ### N5 无线：ath11k 三频 * 无线分成两组（2.4g+5.8g）和（5.2g QCN9024)，共三频
 
-#### N5 review（2026-09-22）——落地前对本文的更正
-
-1. **`qcom,ath11k-fw-memory-mode` 不是惰性数据**（2026-09-23 真机更正本文旧说法）。
-   `wireless/SOURCES.nix` 里 **903 是打上的**（`default.nix` 的建构期断言专门查
-   `core.c` 里存在这个属性名），board dts 给 `&wifi`（AHB）和 PCI 节点写的 `<1>` 因此
-   真的生效：AHB 跑 `fw_mem_mode 1 / num_vdevs 8 / num_peers 128`，dmesg 打
-   `FW memory mode: 1`。这正是参考实现（fork 的 board dts + 903）自己的组合，真机两个
-   pdev 都正常，所以**不做任何 DT 覆盖**；本文原先"驱动内建 mode 0 / 17 vdevs / 512 peers"
-   的说法作废（`overrides.dtsi` 里从来没有 mode 覆盖）。mode 1 在 5180↔5500 振荡是旧分支
-   QCN9074 的历史包袱，与 AHB 无关，阶段二再定。
-2. **wcss 侧走 fork 的独立驱动，不改主线**。本节曾按官方 OpenWrt 的路线做（把 ipq6018 加进
-   主线 `qcom_q6v5_wcss.c`）：主线**没有** ipq6018 driver data（6.18.y/6.19.y/master 都查过），
-   于是兼容性、firmware 名、安全 PIL、PRNG/QDSS_AT 时钟、BCR reset 可选、auto_boot 关闭
-   全要自己补——8 个 OpenWrt 补丁，而且那套**自相矛盾**：`0905` 的 commit message 明说
-   ipq6018 的 SSR 名不能是 `"q6wcss"`，却只改了 ipq8074 项，随后 `0136` 新建的 ipq6018 项又把
-   `"q6wcss"` 写回去，纠正它需要第 9 个本地补丁。
-   **VIKINGYFY 的做法不同**：它**新增一个驱动** `drivers/remoteproc/qcom_q6v5_wcss_sec.c`
-   （`0186`+`0188`+`0808`–`0812`），DTS 指到 `qcom,ipq6018-wcss-sec-pil`，firmware 名走 DT 的
-   `firmware-name`（`0905`）。ipq6018 只是其中一个 descriptor：`pasid = 6`、`ss_name = "wcnss"`
-   （`0812`）——那个纠正在人家那里本来就是对的。主线不动，**全部 15 个补丁都是上游字节、构建期
-   fetch，零本地补丁**。清单与理由在 `wireless/SOURCES.nix`。
-   连带：内核 config 用 `QCOM_Q6V5_WCSS_SEC=m`（不是 `QCOM_Q6V5_WCSS`），preload 目标
-   `qcom_q6v5_wcss_sec`。
-3. **`wifi: wifi@c000000` 不在 6.18.52 里，fork 的 `0906` 必须打**（对上文的更正）：
-   `qcom,ipq6018-wcss-pil` remoteproc 节点是主线的，但 wifi 节点不是——
-   `arch/arm64/boot/dts/qcom/` 下三个 ipq6018 dts 文件连 `wifi` 字符串都没有（解包实测）。
-   board dts 的 `&wifi { status = "okay"; ... }` 要这个 label，ath11k 也按
-   `qcom,ipq6018-wifi` 匹配（`ath11k/ahb.c` 的 of_match）。已并入 `wireless/SOURCES.nix`
-   的 wcss 组、排在 `0905` 之后：`0906` 的尾上下文正是 `0905` 写进去的 `-sec-pil` 兼容串，
-   这样它 fuzz 0 干净应用。建构期仍断言该节点唯一。
-4. **fork 的 multipd 一串（0801/0804–0807/0813–0815）不需要**：实测最小集
-   `0186/0188/0808/0809/0810/0811/0812` 即可，驱动自包含（只用到 `MPD_WCSS_PAS_ID` 常量）。
-5. **`preloadFirmware` 支持子目录需要先补建构器**（首版改错，已更正）：`gen_init_cpio`
-   不会隐式建父目录；内核 `init/initramfs.c` 的 `do_name()` 对文件走
-   `filp_open(..., O_CREAT)`、对目录走 `init_mkdir`→`ksys_mkdir`，**都不建父目录**，
-   失败即 `return 0` 静默跳过。首版把原来那句 `dir /lib/firmware` 换成了「按 firmware 名
-   生成父目录」的 `firmwareDirs`，而它只算名字自身的各级前缀（纯文件名得空列表），
-   于是 `/lib/firmware` 本身没人发——整棵子树连同 `qca-nss0.bin`、`regulatory.db` 一起被丢，
-   真机 dmesg 表现为 `qca-nss0.bin` / `regulatory.db` / `IPQ6018/q6_fw.mdt` 全 `-2`
-   （NSS 核与 Q6 都起不来；`/lib/modules` 因 `find` 含自身而幸免）。已补回
-   `echo "dir /lib/firmware 0755 0 0"`，再发各名字的父目录。
-6. **接口名不稳定**：AHB 两个 pdev 的 `wlanN` 取决于注册顺序，所以不给固定名，
-   由脚本按频段查找（见下）。
-7. **建构期检查的窗口要按块给**：`in_entry` 现在收一个可选的 window（默认 25）——
-   两个块比 25 行长：dtsi 的 `q6v5_wcss` 节点里 QDSS_AT 时钟在第 28 行，ipq6018
-   hw params 里 `coldboot_cal_mm` 在第 46 行；`951` 原来的整文件 `need` 检查
-   （`ath11k_hif_ce_irq_disable(ab)`）在**未打补丁**的树上也成立，已改为锚在
-   `ath11k_core_reconfigure_on_crash` 上的 `in_entry`。
-
 #### 阶段一，先起 IPQ6010 核心支持的双频 2.4g 和 5.8g
 
-状态：双频都已起来（2026-09-24 复验：`iw dev` 两个 AHB pdev，`CHEN` ch6 / `CHEN_5g`
-ch149 都是 `type AP`；`hostapd_cli` 两个都 `state=ENABLED`；dmesg 只有
-`FW memory mode: 1` 与 `WLAN.HK.2.12-01460`，无 BADVA/fatal，也没有 CE IRQ abort）。
-
-**「客户端已关联」2026-09-24 验完**（即原来「换一台密码已知的客户端把两个 SSID 各连一次」
-那条待办）：换一台密码已知的客户端
-（构建机 `wlp4s0`，新建 wpa-psk profile，`88888888`）把两个 SSID 各连一次，AP 侧
-`hostapd_cli all_sta` 两条都拿到
-`flags=[AUTH][ASSOC][AUTHORIZED][SHORT_PREAMBLE][WMM][HT]` + `hostapdWPAPTKState=11`
-（PTKINITDONE）：`CHEN`（2.4G ch6）与 `CHEN_5g`（5G ch149）**都真机验完**，5.8G 不再空白。
-AP 的 PMK 顺手再独立复算一遍，仍是 PBKDF2-HMAC-SHA1(`88888888`,`CHEN`,4096,32)
-= `576610e5…b83618`，与旧记录一致。
-
-**连不上的原因在客户端，且是「安全类型」不只是「密码」**：唯一自己上来的 station
-`34:ea:34:d1:3e:de`（OUI `34:EA:34` = 杭州古北电子，只支持 802.11b 速率、无 WMM 的嵌入式
-客户端）仍卡在 `hostapdWPAPTKState=8`（PTKCALCNEGOTIATING）、从未进 `AUTHORIZED`，即它的
-PSK 确实不对（旧记录的 `invalid MIC in msg 2/4` + `AP-STA-POSSIBLE-PSK-MISMATCH`、
-四次重传后 `deauth reason 15`、约每 11 s 重来一次，现象不变）。但客户端侧更常见的坑是存了
-**旧的安全类型**：构建机上存档的 profile `CHEN` 的 `key-mgmt` 就是 `sae`（WPA3），而本 AP 只有
-`wpa=2` + `wpa_key_mgmt=WPA-PSK` + CCMP，**根本不提供 SAE**——此时密码输得再对也连不上，
-而客户端不会重新弹窗让你改。处置：把客户端上的 `CHEN`/`CHEN_5g` **整条「忘记网络」**，
-重新添加时明确选 **WPA2-PSK**（不要 WPA3/SAE，也不要 WPA2/WPA3 混合），密码 `88888888`。
-
-* 形态：并入 `ax6600-nss-ram.nix`（`devices/jdcloud-ax6600/wireless`），
-  `ath11k_ahb` + `qcom_q6v5_wcss_sec` 进 `preloadModules`；Q6/m3/board-2/ART 校准按
-  `preloadFirmware` 嵌进 initramfs（fullSystem 镜像里 `/lib/firmware` 到模块加载时还不存在）。
-  节点使能走 `overrides.dtsi`（`&q6v5_wcss { status = "okay"; }`）。
-* `qcom,ath11k-fw-memory-mode` = **mode 1**（903 + board dts 的 `<1>`，见 review 1），无覆盖。
-
-* SSID 与频段：`CHEN`（AHB 2.4G，ch6）、`CHEN_5g`（AHB 5.8G，ch149）。
-* **不开机启动**：`wlan-2g` / `wlan-5g [start|stop|status]` 手动起（hostapd `-B` 守护）。
-  两个 radio 原先不加入 `int` 网桥（只验关联、不转发）；已改为 **`start` 成功后由脚本把该
-  pdev 的 netdev `master` 进 `int`，`stop` 时 `nomaster`**——netdev 名是注册顺序、写不进
-  `bridge.members`，而 dnsmasq 只绑在 `int` 上，不在桥上即使关联成功也拿不到租约。
-  这两个脚本以前打成 `writeShellScript`（单个裸文件，`defaultProfile.packages` 的 PATH
-  指向不存在的 `<store>/bin`，于是 `wlan-2g: not found`），已改为 `writeShellScriptBin`。
-* **验证**：`iw dev` 两个 pdev、`dmesg | grep -iE 'wcss|ath11k'` 出现 `FW memory mode: 1`
-  与 `WLAN.HK.2.12-01460`；`hostapd_cli -p /run/hostapd-2g status`（5g 换成
-  `/run/hostapd-5g`）为 `state=ENABLED`——`<2g|5g>` 只是占位写法，直接粘进 shell 会被当成
-  重定向（`-sh: can't open 2g: no such file`）。
-* ~~**2026-09-24：机上镜像比 HEAD 旧**~~ **该条作废（2026-09-24 复查）**：设备里
-  `wlan-5g/bin/wlan-5g` 实测已带 pidfile guard 与 state 轮询，即刷进去的就是当时 HEAD 的产物；
-  「AP 已在跑时再 `start` 走 `-EALREADY` → SIGSEGV」不再适用于当前镜像。
-* 未纳入的第一方补丁：旧分支的 `960`/`961`（AHB CE IRQ 在 Q6 停止后的守卫）本轮**不进**，
-  先只跑上游补丁；若真机出现 CE IRQ 的 synchronous external abort 再补。
-
-* **风险**：AHB 无线与 NSS 的 QRTR/固件加载时序、保留内存冲突；QCN9074 的
-  `fw_mem_mode`/MHI-790 等历史坑（阶段二）。
 
 # 阶段二，再起QCN9024外挂的5.2g
 * 不要设置开机启动，由我手动开启
@@ -226,6 +103,62 @@ PSK 确实不对（旧记录的 `invalid MIC in msg 2/4` + `AP-STA-POSSIBLE-PSK-
 * 结论必须写清：VIKINGYFY 6.18 NSS 栈**没有** ath11k NSS 补丁；官方 OpenWrt 也没有
   （issue `#23798`）；LibWrt 自称 IPQ60xx 2.4G/5G offload ✅，但 AP-VLAN 有已知问题。
 * 若要做：先在 6.12+LibWrt 上复现，再评估移植到 6.18 的成本，不要一开始就动 6.18。
+
+### N7a：eMMC rootfs 形态（2026-09-24 起，最终形态；N7 的第一半）
+
+**两个产物写进两个已存在的 GPT 分区**，不是一个整盘镜像——整盘镜像会重写 GPT 并毁掉 `+0:ART+`：
+
+| 产物 | 内容 | 写到 |
+|---|---|---|
+| `outputs.uimage` | kernel + dtb 的 FIT，cmdline 嵌在镜像里 | `0:HLOS` |
+| `outputs.rootfs` | squashfs 镜像（`modules/outputs/squashfs.nix`） | `rootfs` |
+
+**不需要的内核工作**：eMMC 那套本来就齐（`MMC_SDHCI_MSM=y`、`SQUASHFS=y`+`SQUASHFS_XZ=y`、
+`DEVTMPFS_MOUNT=y`、`EFI_PARTITION=y`）。**安装器就是现在的 fullSystem 镜像**：boot 进去 →
+把两个产物 `dd` 到对应分区 → reboot；搞砸了用 web uploader 把 fullSystem uImage 传回去恢复。
+**不要用 `outputs.updater`**（它是构建机上的脚本，靠 `min-copy-closure` 推给**可写根**，
+我们的 squashfs 根只读），也不要 `outputs.mbrimage`（带新分区表的整盘镜像）。
+
+**这个形态的收益不只是"换个介质"**：
+
+* `embedsInitramfs=false` → `config.system.outputs.kernel.modulesupport` 可用 → 模块改由
+  **标准 `pkgs/kmodloader` 服务**加载（原来是 preinit 读 `boot.initramfs.preloadModules`）；
+* 同一理由让 **`modules/firewall` 可用** → NAT（默认规则里的 `nat-tx: oifname @wan masquerade`）
+  和整套默认网关规则来自模块；`ax6600-nss-ram.nix` 那份手写 masquerade 只留给 fullSystem 形态；
+* 固件与 ART 校准不必再嵌进 initramfs（N7 原本那两条的前提）。
+
+**新建 `ax6600-rootfs.nix`**（不 import `modules/outputs/initramfs.nix`）：
+
+* `services.modules = pkgs.kmodloader.override { kernel = config.system.outputs.kernel; … }`，
+  模块目标用共用的 `devices/jdcloud-ax6600/nss/targets.nix`；
+* `services.firewall`（zones lan/wan）+ 共用的 `services.packet_forwarding`（仍是 sysctl，和规则无关）；
+* `/lib/firmware/qca-nss0.bin`——NSS 固件必须在 `services.modules` insmod 之前就在磁盘上；
+* `services.netfilter-sysctls`：ECM 的 conntrack sysctl **不能再走 `early.sysctl`**——rc.init 跑
+  `/etc/sysctl.sh` 时 `nf_conntrack` 还没被 kmodloader 加载，写入会打空；改成依赖
+  `services.modules` 的 oneshot；
+* `hardware.rootDevice = "PARTLABEL=rootfs"`、`rootfsType = "squashfs"`，cmdline 必须显式带
+  `root=`/`rootfstype=`/`rootwait`/`init=/bin/init`（NSS 那份 `lib.mkForce` 里没有它们，照抄起不来）；
+* **加载顺序**：模块改由服务加载后，`lan1..lan4`/`wan` 的 link 服务要等 netdev 出现。`ifwait` 没有
+  超时（`-t` 只在 `ifwait.fnl` 里解析、从未使用），而 `services.modules` 无依赖、会并行启动，所以
+  LAN 会在 insmod 之后自己起来——不需要显式依赖，但比 initramfs 形态慢一拍。`services.firewall`
+  自带它的 kmodloader（`build` 会把它加进 `dependencies`），`services.netfilter-sysctls` 显式依赖
+  `services.modules`。
+
+**两处定义冲突**（都在求值期报错，不是静默降级）：
+
+* `modules/firewall` 写 `NF_TABLES = "m"`，板级为 ECM 刻意写 `"y"`（`NFT_COMPAT` 与
+  `NF_TABLES_BRIDGE` 依赖它）→ 板级那份改成 `lib.mkForce "y"`；
+* `hardware.rootDevice` 板级从 `/dev/mtdblock0` 占位改成 `lib.mkDefault`，让组合去命名真分区。
+
+**还没做（下一步）**：AHB 无线。`devices/jdcloud-ax6600/wireless/default.nix` 用
+`boot.initramfs.preloadFirmware` 交固件，而那个选项只声明在 `modules/outputs/initramfs.nix` 里；
+rootfs 形态要把同一批 blob（`IPQ6018/q6_fw.*`、`m3_fw.*`、
+`ath11k/IPQ6018/hw1.0/{board-2.bin,cal-ahb-c000000.wifi.bin}`）放到 `/lib/firmware`。
+在固件交付改造完成前，`ax6600-rootfs.nix` 是**有线形态**。
+
+**上机前必须确认**：eMMC 的 GPT 分区名与编号（`ls /dev/disk/by-partlabel/`、
+`cat /proc/partitions`）——`root=PARTLABEL=rootfs` 与 `0:HLOS` 槽都依赖它，现在只是照社区
+dual-boot 布局写的。
 
 ### N7 产品化
 * 内核和用户态软件是自动分区，还是分地方配置的？
@@ -265,46 +198,6 @@ $ nix-build -Q --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
 $ sh md5_result.sh
 ```
-
----
-
-## 6. 风险与失败模式
-
-1. **唯一 6.18+NSS 的实证是 fork**：compat 补丁是 fork 派生材料，逐条落地时可能遇到
-   补丁上下文漂移；台账 + `.rej` 扫描是唯一保险。
-2. **镜像形态**：不接受 tftpboot/串口就必须走备选 B（内建），风险显著上升。
-3. **闭源固件**：许可与版本差异（11.4/12.5；MESH 需 11.4）；NSS 固件文件名在无 hotplug
-   fallback 的 Liminix 下要手工对准。
-4. **内存 profile**（*N3 review 更正*）：不再是风险。`NSS_MEM_PROFILE_*` 只是驱动里的 C
-   宏，没有 Kconfig/默认定义，VIKINGYFY 的包与 Makefile 都不传 → 默认即最大档，适合 1 GiB。
-   「`NSS_MEM_PROFILE_HIGH` 被限制在 ipq807x」是 qosmio feed 的规则，与本 pin 无关。
-5. **DTS/保留内存**：`0103` 改了 `q6_region` 并新增 `m3_dump`，与 AHB 无线的区域重叠
-   必须在 N1 定稿。
-6. **时钟**：CMN PLL 节点是否必须、NSS crypto rcg 警告的来源在换代后要重新确认。
-   *N1 实测*：NSS 代的 `ipq6018-ess.dtsi` 把 `bias_pll_cc_clk`/`bias_pll_nss_noc_clk`
-   定义成 `fixed-clock`，且**不引用** `qcom,ipq6018-cmn-pll` 节点 —— 所以 CMN PLL 的
-   0080/0082/0191 对 DTS 非必需（mainline `gcc-ipq6018.c` 靠 `fixed-clock` 满足父时钟）。
-   crypto rcg 警告源于 PPE 代 dtsi 的 `assigned-clock-rates = 600 MHz`，NSS 代已改为
-   `eip197_node` 的 `clock-frequency = 300 MHz`，该覆盖因此删除。
-7. **ath11k fw-memory-mode**（*N5 真机更正*）：没有 DT 覆盖，903 生效，AHB 实际跑 mode 1
-   （8 vdevs / 128 peers）——正是参考实现 fork board dts + 903 的组合，两个 pdev 实测正常。
-   旧文"`overrides.dtsi` 设成 mode 0"是错的，未实测的 mode 0 也不再是目标。
-   QCN9074（阶段二）节点同样是 `<1>`，而旧分支实测那里要 mode 2 才不振荡
-   （见 ax6600 分支 `DEVELOPMENT_LOG` 4.7/4.8），阶段二定稿时再改 PCI 节点。
-8. **AHB 固件版本**（*N5 真机*）：`linux-firmware` 的 `IPQ6018/hw1.0` 2.7.0.1-02409 在 5.8G
-   AP 的 peer create 上必断言；`ath11k-firmware-ddwrt@0c817c46` 的 2.12-01460 正常。
-   台账在 `wireless/SOURCES.nix`。注意 `/lib/firmware` 是 RAM 镜像里的，热替换只在当次
-   开机有效，必须落进构建。
-9. **止损**：任何阶段失败都能回到 `re-cs-02` 的 PPE 有线镜像（已硬件验证）。
-
----
-
-## 7. 待确认决策（已按推荐值写在上面，可改）
-
-1. 基线：**6.18.52 + VIKINGYFY main 的 NSS 代**（备选：6.12 + LibWrt）。
-2. 形态：**kmod + `pkgs/kmodloader` + tftpboot 镜像**（备选：fullSystem + `=y` graft）。
-3. fork 派生补丁：**以独立补丁 + sha256 收录并标注来源**（备选：只作参考、自行重写）。
-4. 文档语言与粒度：中文正文、每阶段单独确认后实施。
 
 ---
 
