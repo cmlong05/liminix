@@ -59,6 +59,13 @@ let
       "nf_defrag_ipv4"
       "nf_defrag_ipv6"
       "nf_nat"
+      # The masquerade behind services.nat (ax6600-lan.nix). NFT_NAT and
+      # NFT_MASQ can only be `m` - they depend on NF_CONNTRACK/NF_NAT, which
+      # are `m` - and a fullSystem image loads modules from nowhere but this
+      # list, so both must be named here.
+      "nft_chain_nat"
+      "nft_nat"
+      "nft_masq"
       # ECM's classifier reads the conntrack DSCPREMARK extension, the
       # kernel's xt_DSCP target writes it. Without these two targets they
       # ship but never load, so the extension stays zero and those
@@ -123,6 +130,18 @@ in
   };
 
   hardware.defaultOutput = "uimage";
+
+  # services.nat (ax6600-lan.nix) needs the nftables `ip` family and the
+  # nat/masq expressions. The base config already has nf_tables built in
+  # (ECM's bridge conntrack needs it) but none of these; NF_TABLES_IPV4 is a
+  # bool, the other two are tristates that NF_CONNTRACK/NF_NAT cap at `m`.
+  # The build's checkConfigurationPhase fails loudly if olddefconfig cannot
+  # keep a value written here.
+  kernel.config = {
+    NF_TABLES_IPV4 = "y";
+    NFT_NAT = "m";
+    NFT_MASQ = "m";
+  };
 
   # (N4) ECM's sysctls: modules/early writes them into /etc/sysctl.sh, which
   # rc.init runs once /proc is mounted. nf_conntrack_tcp_no_window_check is
