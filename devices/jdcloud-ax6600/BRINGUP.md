@@ -128,68 +128,40 @@
 
 #### 阶段一，先起 IPQ6010 核心支持的双频 2.4g 和 5.8g
 
-状态：真机已通（2026-09-23：`CHEN`de hostapd 都 `state=ENABLED`；把 pin 的
-Q6 固件与 `CRYPTO_MICHAEL_MIC=y` 一起打进镜像后，2.4G `CHEN` 再次 `state=ENABLED` 且已有
-客户端关联，见下）。
+状态：双频都已起来（2026-09-24 复验：`iw dev` 两个 AHB pdev，`CHEN` ch6 / `CHEN_5g`
+ch149 都是 `type AP`；`hostapd_cli` 两个都 `state=ENABLED`；dmesg 只有
+`FW memory mode: 1` 与 `WLAN.HK.2.12-01460`，无 BADVA/fatal，也没有 CE IRQ abort）。
+
+**「客户端已关联」到 2026-09-24 仍未复现**：本轮唯一上来的 station
+`34:ea:34:d1:3e:de`（只支持 802.11b 速率、无 WMM）卡在 4-way，hostapd 报
+`invalid MIC in msg 2/4` + `AP-STA-POSSIBLE-PSK-MISMATCH`，四次重传后
+`deauth reason 15`，约每 11 s 重来一次。**是它自己的 PSK 不对，AP 侧已算过账**
+（2026-09-24）：hostapd `-K` 打出的 PMK 与 PBKDF2(`CHEN`,`88888888`) 一致
+（`576610e5…b83618`），它打出的 PTK/KCK 用独立实现也逐字节复算一致，而那条 msg2 的
+MIC 在正确 PSK/PTK 下应是 `e3b782a2…`、客户端送的是 `d3f26297…`；msg1 里发出去的
+ANonce 又和推导用的 ANonce 相同（驱动没动帧）。也就是说：**两个 SSID 都连不上时，
+先怀疑客户端存的是旧密码**——「忘记网络」再用 WPA2-PSK `88888888` 重连。
+5.8G 至今没有任何 station 试过；**换一台密码已知的客户端把两个 SSID 各连一次**，
+这条才算验完。
 
 * 形态：并入 `ax6600-nss-ram.nix`（`devices/jdcloud-ax6600/wireless`），
   `ath11k_ahb` + `qcom_q6v5_wcss_sec` 进 `preloadModules`；Q6/m3/board-2/ART 校准按
   `preloadFirmware` 嵌进 initramfs（fullSystem 镜像里 `/lib/firmware` 到模块加载时还不存在）。
   节点使能走 `overrides.dtsi`（`&q6v5_wcss { status = "okay"; }`）。
 * `qcom,ath11k-fw-memory-mode` = **mode 1**（903 + board dts 的 `<1>`，见 review 1），无覆盖。
-* **AHB 的 Q6 固件必须 pin 参考那一版**（2026-09-23 真机定位，本轮唯一的致命项）：
-  linux-firmware 的 `ath11k/IPQ6018/hw1.0`（`WLAN.HK.2.7.0.1-02409`，变体
-  `6018.wlanfw.evalQ`）在 **5.8G AP 的 BSS peer 建立时直接固件断言**——
-  即 phy0 第一次 interface up，还没到 channel/beacon 配置：
-  `qcom-wcss-secure-pil: fatal error received ... BADVA = 0x00dcd87c`（正是接口 MAC
-  `dc:d8:7c:...`，固件把 peer 地址当指针解引用），hostapd 只看到
-  `Could not set interface wlan0 flags (UP): No such file or directory`（`-ENOENT`）。
-  2.4G phy1 在同一版固件下一直正常，所以现象是"2.4G 能起、5.8G 一起就崩"。
-  改用 `VIKINGYFY/ath11k-firmware-ddwrt@0c817c46` 的 `IPQ6018/hw1.0`
-  （q6 + m3 + board-2，`fw_version.txt` = **`WLAN.HK.2.12-01460`**，即本机参考实现跑的
-  那一版）后，**热替换 `/lib/firmware` 让 Q6 重新加载即可复现修复**：dmesg 报
-  2.12-01460，两个 AP 全部起来、dmesg 零报错。台账在 `wireless/SOURCES.nix` 的
-  `q6Firmware` / `boardData`（13 个 q6/m3 文件 + board-2，逐文件 sha256）。
-* **关联需要 `CRYPTO_MICHAEL_MIC`**（2026-09-23 真机，客户端第一次尝试时暴露）：
-  `ath11k_peer_rx_frag_setup()`（`dp_rx.c`）对**每个 peer 无条件**
-  `crypto_alloc_shash("michael_mic")`，主线把该符号留成 `=m`，而 fullSystem 镜像没有
-  kmodloader——preinit 只加载模块树的 `load-order`，`request_module()` 又没有
-  `/sbin/modprobe` 兜底，于是 `.ko` 虽在镜像里却永不加载，站加入直接失败：
-  `failed to allocate michael_mic shash: -2` → `failed to setup dp for peer` →
-  `Failed to add station`（AP 自己起得来，客户端连不上）。已在 `wireless/default.nix`
-  的 `kernel.config` 里设 `CRYPTO_MICHAEL_MIC = "y"`；当次开机可 `insmod
-  /lib/modules/0.0/michael_mic.ko` 现场验证。其余所需 crypto（AES/CCM/CMAC/GCM/ARC4）
-  本来就是 `=y`。**内建进镜像后实测**：`hostapd_cli -p /run/hostapd-2g status` 报
-  `num_sta[0]=1`，客户端确实关联上了。
-* **`wlan-<band> start` 现在按 pidfile 挡住重复起**（2026-09-23 加固）：AP 已在跑时再
-  `start`，第二个 hostapd 会在 `NL80211_CMD_SET_INTERFACE` 上拿到 `-EALREADY`
-  （extack `Match already configured`），记 `Could not configure driver mode` 后走错误路径
-  deinit 并 SIGSEGV。脚本现在先 `kill -0` 查 `/run/hostapd-<name>.pid`：活着就打印 pid 直接
-  返回 0（顺带让 `start` 幂等），pidfile 陈旧（进程已死）则照常起。判据仍是
-  `hostapd_cli -p /run/hostapd-<2g|5g> status`。
-* **串口上"停在 COUNTRY_UPDATE"是正常样子**（2026-09-23 澄清，别再当故障查）：
-  conf 有 `country_code=CN`，冷启动时驱动报的当前 regd 是 `00`，于是
-  `hostapd_setup_interface()`（`hostapd.c:2047`）`set_country()` 成功后设
-  `wait_channel_update` 并注册 5 秒超时即返回；`main()` 接着进
-  `hostapd_global_run()` 的 `os_daemonize()`（`-B` 的 `daemon(0,0)`），
-  stdout/stderr 全进 `/dev/null`。这份 hostapd 只有 stdout 一个日志出口
-  （overlay.nix 的 defconfig 没有 `CONFIG_DEBUG_SYSLOG`/`CONFIG_DEBUG_FILE`，
-  所以 `-f` 也是空转；conf 里的 `logger_syslog` 只管 hostapd_logger 的模块位），
-  fork 之后的 `DISABLED`/`ENABLED` 或失败退出**在串口上完全看不见**：成功与失败同形。
-  串口上只会出现两行——`rfkill: Cannot open RFKILL control device`（`MSG_INFO`；内核
-  `# CONFIG_RFKILL is not set`，没有 `/dev/rfkill`，不影响 AP）与
-  `wlanN: interface state UNINITIALIZED->COUNTRY_UPDATE`。
-  判据一律用 `hostapd_cli -p /run/hostapd-<2g|5g> status`（`state=ENABLED`）；
-  要看全过程则先 `wlan-<band> stop`，再前台跑
-  `hostapd -d -i <dev> /nix/store/<hash>-hostapd-<2g|5g>.conf`。
-  `wlan-<band> start` 现在起完会轮询控制接口把最终 state 打出来，不是 ENABLED 就返回非 0。
+
 * SSID 与频段：`CHEN`（AHB 2.4G，ch6）、`CHEN_5g`（AHB 5.8G，ch149）。
 * **不开机启动**：`wlan-2g` / `wlan-5g [start|stop|status]` 手动起（hostapd `-B` 守护）；
   两个 radio 不加入 `int` 网桥，本阶段只验关联，不做转发。
   这两个脚本以前打成 `writeShellScript`（单个裸文件，`defaultProfile.packages` 的 PATH
   指向不存在的 `<store>/bin`，于是 `wlan-2g: not found`），已改为 `writeShellScriptBin`。
 * **验证**：`iw dev` 两个 pdev、`dmesg | grep -iE 'wcss|ath11k'` 出现 `FW memory mode: 1`
-  与 `WLAN.HK.2.12-01460`；`hostapd_cli -p /run/hostapd-<2g|5g> status` 为 `state=ENABLED`。
+  与 `WLAN.HK.2.12-01460`；`hostapd_cli -p /run/hostapd-2g status`（5g 换成
+  `/run/hostapd-5g`）为 `state=ENABLED`——`<2g|5g>` 只是占位写法，直接粘进 shell 会被当成
+  重定向（`-sh: can't open 2g: no such file`）。
+* **2026-09-24：机上镜像比 HEAD 旧**。设备里那份 `wlan-2g` 没有 HEAD 的 pidfile guard 和
+  state 轮询（store 里仍是 `exec hostapd -B` 的老写法），所以 AP 已在跑时再 `wlan-2g start`
+  会走 `-EALREADY` → SIGSEGV（实测 `rc=139`，两个 AP 未受影响）。要重建 + 重刷才生效。
 * 未纳入的第一方补丁：旧分支的 `960`/`961`（AHB CE IRQ 在 Q6 停止后的守卫）本轮**不进**，
   先只跑上游补丁；若真机出现 CE IRQ 的 synchronous external abort 再补。
 
@@ -236,7 +208,7 @@ Q6 固件与 `CRYPTO_MICHAEL_MIC=y` 一起打进镜像后，2.4G `CHEN` 再次 `
 | N2 | `lan1..lan4` + `wan` 存在、链路 up、DHCP/ssh 可用、`wan` 2500 Mbps |
 | N3 | ✅ 真机：`NSS fw version: NSS.FW.12.5-210-CP.R` + `NSS core 0 booted successfully`；`/proc/sys/dev/nss/` 可读（debugfs 需手工 mount）；计数增长待验 |
 | N4 | 首启：ECM init `-22`，缺 `NETFILTER_FAMILY_BRIDGE`（见 D.20）；修好后待验 ECM offload 命中（`ecm_db` 计数增长）+ 转发热路径 A53 占用显著下降 + PPPoE/2.5G 吞吐基准 |
-| N5 | ✅ 真机：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；固件与 `CRYPTO_MICHAEL_MIC=y` 都进镜像这一版，2.4G `CHEN` `state=ENABLED` 且客户端已关联（`num_sta[0]=1`），5.8G 待起。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
+| N5 | ✅ 双频都起：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；9-24 在「pin 固件 + `CRYPTO_MICHAEL_MIC=y` 都进镜像」这一版上复验，两个 AP 同样都 `state=ENABLED`（5.8G 不再「待起」），dmesg 无 BADVA、无 CE IRQ abort。**关联未验完**：本轮只见到一个 PSK 不符的客户端在 4-way 上循环（`invalid MIC in msg 2/4`、`AP-STA-POSSIBLE-PSK-MISMATCH`），5.8G 没有客户端试过；另外机上镜像比 HEAD 旧（`wlan-<band> start` 的 guard 还没生效）。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
 
 **明确不承诺**：满血 ≠ WiFi offload（6.18 栈没有）；满血 ≠ 保证 2.5G 线速（社区反馈
 有 2.5G 口只协商到 1G 的案例，链路速率要单独实测）。

@@ -47,5 +47,17 @@
       username = "xga102782536";
       password = "443508";
     };
+
+    # Resolvers handed to LAN clients as dnsmasq `--server=`. These are the
+    # two the ISP's BRAS actually hands back over IPCP (they also land in
+    # /etc/resolv.conf via services.resolvconf, which is what this router
+    # itself uses). dnsmasq is not pointed at the negotiated values because
+    # dnsmasq 2.93 exits at start-up - taking DHCP with it - if the
+    # directory of its `--resolv-file` does not exist yet, and that file is
+    # only written once the PPPoE session is up. See BRINGUP 1.
+    resolvers = [
+      "202.103.44.150"
+      "202.103.24.68"
+    ];
   };
 }
