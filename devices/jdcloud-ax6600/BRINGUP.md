@@ -14,6 +14,42 @@
 
 ### 1. 当前网络服务侧（换镜像形态时会碰）
 
+* **DNS 上游**（2026-09-24 修）。原状：pppd 的 `usepeerdns` 把 ISP 的解析器写进 wan 服务的
+  `ns1`/`ns2` 输出，但没有任何消费者——路由器没有 `/etc/resolv.conf`，dnsmasq 又是 `--no-resolv`
+  且零 `--server=`，于是「能 ping 通 IP、ping 不通域名」，且整个 LAN 客户端的 DNS 一起坏
+  （实测查 `10.10.10.10` 得 `rcode=5` REFUSED）。
+  现为**全动态**，换 ISP 不需要改任何配置：`services.resolvconf` oneshot 把 `ns1`/`ns2` 写进
+  **`/run/resolv.conf`**，`/etc/resolv.conf` 是它的符号链接，dnsmasq 用
+  `--resolv-file=/run/resolv.conf`。
+  **这里有个 dnsmasq 的坑**（第一次修就是踩它才把 DHCP 弄挂的）：dnsmasq 2.93 启动时对
+  `--resolv-file` 的**所在目录**建 inotify，**目录不存在就直接退出**
+  （`die("directory … for resolv-file is missing, cannot poll")`；同版本本机实测：目录缺失 →
+  `FAILED to start up`，目录在、仅文件缺失 → 正常启动）。而服务自己的 `.outputs` 目录要等该服务
+  运行（这里是 PPPoE 会话建立）才创建 → dnsmasq 先启动就必死；它同时是 DHCP 服务，于是
+  **LAN 全部拿不到租约**。所以文件落在永远存在的 `/run`，oneshot 写入时触发 `IN_CLOSE_WRITE`，
+  dnsmasq 自己重读。**同一竞态在 `modules/profiles/gateway.nix` 与 `examples/demo.nix` 里也存在**
+  （它们把 `services.resolvconf` 直接交给 dnsmasq）。为此给 `modules/dnsmasq` 加了可选的
+  `resolvFile`（纯增量，默认 `null`，那两个 profile 行为不变）。
+
+* **转发与 NAT**（2026-09-24 修）。刷机后 LAN 客户端拿到租约却上不了网，缺任何一层都不通：
+  1. `ax6600-lan.nix` 从未设 `services.packet_forwarding` → `/proc/sys/net/ipv4/conf/all/forwarding`
+     为 0，内核**根本不转发** LAN→WAN（与 NAT 无关，单这一条就够）；
+  2. 配置里没有任何 NAT 规则（仓库根 `nat.nft` 无人引用，是旧分支遗留）；
+  3. 更隐蔽：那颗内核**做不了 NAT**。基础 config 只有 `NF_TABLES=y` + `NF_TABLES_BRIDGE=y`（ECM 桥
+     conntrack 用），`NF_TABLES_IPV4` 未开（没有 `ip` family）、`NFT_NAT`/`NFT_MASQ` 未开（没有
+     masquerade），`IP_NF_IPTABLES` 与 `NETFILTER_XT_TARGET_MASQUERADE` 也未开（iptables 那条路也没有）
+     → `nft add table ip nat` 只会 `Operation not supported`。
+  已修：`kernel.config` 加 `NF_TABLES_IPV4=y`（`net/ipv4/netfilter/Kconfig` 里它是 **bool**，不带模块）、
+  `NFT_NAT=m`、`NFT_MASQ=m`（二者 `depends on NF_CONNTRACK`/`NF_NAT`，都是 `m`，所以只能是 `m`）；
+  `nft_nat`/`nft_chain_nat`/`nft_masq` 加进 `preloadModules` 的 `targets`（fullSystem 镜像只有
+  preinit 这一条模块加载路径）；`ax6600-lan.nix` 加 `services.packet_forwarding` 和手写的
+  `services.nat`（`oifname ppp0 masquerade`）。
+  **不能用 `modules/firewall`**：它的 `build` 一定依赖一个 kmodloader 服务，而
+  `pkgs/liminix-tools/modules/default.nix` 的注释写明 kmodloader **服务**在 fullSystem 镜像里不可能
+  存在（需要 `kernel.modulesupport`，而 fullSystem 把整个 rootdir 嵌进同一个 kernel derivation → 成环）。
+  NB：`ax6600-lan-ram.nix`（有线版）也会拿到 `services.nat`，但它没有 `preloadModules`，模块不会加载，
+  那段 nft 会失败——那个镜像要 NAT 得把这几项写成 `=y`。
+
 * 本设备还没有 eMMC rootfs/updater 输出；`hardware.rootDevice` 是 `/dev/mtdblock0` 占位。
 
 ---
@@ -132,17 +168,24 @@
 ch149 都是 `type AP`；`hostapd_cli` 两个都 `state=ENABLED`；dmesg 只有
 `FW memory mode: 1` 与 `WLAN.HK.2.12-01460`，无 BADVA/fatal，也没有 CE IRQ abort）。
 
-**「客户端已关联」到 2026-09-24 仍未复现**：本轮唯一上来的 station
-`34:ea:34:d1:3e:de`（只支持 802.11b 速率、无 WMM）卡在 4-way，hostapd 报
-`invalid MIC in msg 2/4` + `AP-STA-POSSIBLE-PSK-MISMATCH`，四次重传后
-`deauth reason 15`，约每 11 s 重来一次。**是它自己的 PSK 不对，AP 侧已算过账**
-（2026-09-24）：hostapd `-K` 打出的 PMK 与 PBKDF2(`CHEN`,`88888888`) 一致
-（`576610e5…b83618`），它打出的 PTK/KCK 用独立实现也逐字节复算一致，而那条 msg2 的
-MIC 在正确 PSK/PTK 下应是 `e3b782a2…`、客户端送的是 `d3f26297…`；msg1 里发出去的
-ANonce 又和推导用的 ANonce 相同（驱动没动帧）。也就是说：**两个 SSID 都连不上时，
-先怀疑客户端存的是旧密码**——「忘记网络」再用 WPA2-PSK `88888888` 重连。
-5.8G 至今没有任何 station 试过；**换一台密码已知的客户端把两个 SSID 各连一次**，
-这条才算验完。
+**「客户端已关联」2026-09-24 验完**（即原来「换一台密码已知的客户端把两个 SSID 各连一次」
+那条待办）：换一台密码已知的客户端
+（构建机 `wlp4s0`，新建 wpa-psk profile，`88888888`）把两个 SSID 各连一次，AP 侧
+`hostapd_cli all_sta` 两条都拿到
+`flags=[AUTH][ASSOC][AUTHORIZED][SHORT_PREAMBLE][WMM][HT]` + `hostapdWPAPTKState=11`
+（PTKINITDONE）：`CHEN`（2.4G ch6）与 `CHEN_5g`（5G ch149）**都真机验完**，5.8G 不再空白。
+AP 的 PMK 顺手再独立复算一遍，仍是 PBKDF2-HMAC-SHA1(`88888888`,`CHEN`,4096,32)
+= `576610e5…b83618`，与旧记录一致。
+
+**连不上的原因在客户端，且是「安全类型」不只是「密码」**：唯一自己上来的 station
+`34:ea:34:d1:3e:de`（OUI `34:EA:34` = 杭州古北电子，只支持 802.11b 速率、无 WMM 的嵌入式
+客户端）仍卡在 `hostapdWPAPTKState=8`（PTKCALCNEGOTIATING）、从未进 `AUTHORIZED`，即它的
+PSK 确实不对（旧记录的 `invalid MIC in msg 2/4` + `AP-STA-POSSIBLE-PSK-MISMATCH`、
+四次重传后 `deauth reason 15`、约每 11 s 重来一次，现象不变）。但客户端侧更常见的坑是存了
+**旧的安全类型**：构建机上存档的 profile `CHEN` 的 `key-mgmt` 就是 `sae`（WPA3），而本 AP 只有
+`wpa=2` + `wpa_key_mgmt=WPA-PSK` + CCMP，**根本不提供 SAE**——此时密码输得再对也连不上，
+而客户端不会重新弹窗让你改。处置：把客户端上的 `CHEN`/`CHEN_5g` **整条「忘记网络」**，
+重新添加时明确选 **WPA2-PSK**（不要 WPA3/SAE，也不要 WPA2/WPA3 混合），密码 `88888888`。
 
 * 形态：并入 `ax6600-nss-ram.nix`（`devices/jdcloud-ax6600/wireless`），
   `ath11k_ahb` + `qcom_q6v5_wcss_sec` 进 `preloadModules`；Q6/m3/board-2/ART 校准按
@@ -151,17 +194,19 @@ ANonce 又和推导用的 ANonce 相同（驱动没动帧）。也就是说：**
 * `qcom,ath11k-fw-memory-mode` = **mode 1**（903 + board dts 的 `<1>`，见 review 1），无覆盖。
 
 * SSID 与频段：`CHEN`（AHB 2.4G，ch6）、`CHEN_5g`（AHB 5.8G，ch149）。
-* **不开机启动**：`wlan-2g` / `wlan-5g [start|stop|status]` 手动起（hostapd `-B` 守护）；
-  两个 radio 不加入 `int` 网桥，本阶段只验关联，不做转发。
+* **不开机启动**：`wlan-2g` / `wlan-5g [start|stop|status]` 手动起（hostapd `-B` 守护）。
+  两个 radio 原先不加入 `int` 网桥（只验关联、不转发）；已改为 **`start` 成功后由脚本把该
+  pdev 的 netdev `master` 进 `int`，`stop` 时 `nomaster`**——netdev 名是注册顺序、写不进
+  `bridge.members`，而 dnsmasq 只绑在 `int` 上，不在桥上即使关联成功也拿不到租约。
   这两个脚本以前打成 `writeShellScript`（单个裸文件，`defaultProfile.packages` 的 PATH
   指向不存在的 `<store>/bin`，于是 `wlan-2g: not found`），已改为 `writeShellScriptBin`。
 * **验证**：`iw dev` 两个 pdev、`dmesg | grep -iE 'wcss|ath11k'` 出现 `FW memory mode: 1`
   与 `WLAN.HK.2.12-01460`；`hostapd_cli -p /run/hostapd-2g status`（5g 换成
   `/run/hostapd-5g`）为 `state=ENABLED`——`<2g|5g>` 只是占位写法，直接粘进 shell 会被当成
   重定向（`-sh: can't open 2g: no such file`）。
-* **2026-09-24：机上镜像比 HEAD 旧**。设备里那份 `wlan-2g` 没有 HEAD 的 pidfile guard 和
-  state 轮询（store 里仍是 `exec hostapd -B` 的老写法），所以 AP 已在跑时再 `wlan-2g start`
-  会走 `-EALREADY` → SIGSEGV（实测 `rc=139`，两个 AP 未受影响）。要重建 + 重刷才生效。
+* ~~**2026-09-24：机上镜像比 HEAD 旧**~~ **该条作废（2026-09-24 复查）**：设备里
+  `wlan-5g/bin/wlan-5g` 实测已带 pidfile guard 与 state 轮询，即刷进去的就是当时 HEAD 的产物；
+  「AP 已在跑时再 `start` 走 `-EALREADY` → SIGSEGV」不再适用于当前镜像。
 * 未纳入的第一方补丁：旧分支的 `960`/`961`（AHB CE IRQ 在 Q6 停止后的守卫）本轮**不进**，
   先只跑上游补丁；若真机出现 CE IRQ 的 synchronous external abort 再补。
 
@@ -208,7 +253,7 @@ ANonce 又和推导用的 ANonce 相同（驱动没动帧）。也就是说：**
 | N2 | `lan1..lan4` + `wan` 存在、链路 up、DHCP/ssh 可用、`wan` 2500 Mbps |
 | N3 | ✅ 真机：`NSS fw version: NSS.FW.12.5-210-CP.R` + `NSS core 0 booted successfully`；`/proc/sys/dev/nss/` 可读（debugfs 需手工 mount）；计数增长待验 |
 | N4 | 首启：ECM init `-22`，缺 `NETFILTER_FAMILY_BRIDGE`（见 D.20）；修好后待验 ECM offload 命中（`ecm_db` 计数增长）+ 转发热路径 A53 占用显著下降 + PPPoE/2.5G 吞吐基准 |
-| N5 | ✅ 双频都起：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；9-24 在「pin 固件 + `CRYPTO_MICHAEL_MIC=y` 都进镜像」这一版上复验，两个 AP 同样都 `state=ENABLED`（5.8G 不再「待起」），dmesg 无 BADVA、无 CE IRQ abort。**关联未验完**：本轮只见到一个 PSK 不符的客户端在 4-way 上循环（`invalid MIC in msg 2/4`、`AP-STA-POSSIBLE-PSK-MISMATCH`），5.8G 没有客户端试过；另外机上镜像比 HEAD 旧（`wlan-<band> start` 的 guard 还没生效）。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
+| N5 | ✅ 双频都起 + **关联两个频段都验完**：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；9-24 在「pin 固件 + `CRYPTO_MICHAEL_MIC=y` 都进镜像」这一版上复验，两个 AP 同样都 `state=ENABLED`（5.8G 不再「待起」），dmesg 无 BADVA、无 CE IRQ abort；9-24 再用一台密码已知的客户端把两个 SSID 各连一次，AP 侧两条都到 `hostapdWPAPTKState=11`（PTKINITDONE）+ `AUTHORIZED`。当时那个 PSK 不符的循环客户端（`invalid MIC in msg 2/4`、`AP-STA-POSSIBLE-PSK-MISMATCH`）是它自己存了错的凭据/安全类型，AP 侧无责。转发已接上（`start` 把 pdev 的 netdev join 进 `int`），待真机复验 DHCP 租约。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
 
 **明确不承诺**：满血 ≠ WiFi offload（6.18 栈没有）；满血 ≠ 保证 2.5G 线速（社区反馈
 有 2.5G 口只协商到 1G 的案例，链路速率要单独实测）。
