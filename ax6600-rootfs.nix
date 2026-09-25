@@ -15,10 +15,12 @@
 #     gateway ruleset come from there instead of from the hand-written nft
 #     rule ax6600-nss-ram.nix has to use.
 #
-# Not here yet: the AHB radio. wireless/default.nix hands its firmware to
-# boot.initramfs.preloadFirmware, which only exists in the initramfs form;
-# a rootfs image needs the same blobs under /lib/firmware instead. The NSS
-# firmware is done below because the wired path cannot work without it.
+# The AHB radio is here too: devices/jdcloud-ax6600/wireless brings in the
+# drivers and the hostapd tooling, and its ./rootfs-firmware.nix module puts
+# the blobs under /lib/firmware (the fullSystem images import its
+# ./preload-firmware.nix instead, because preinit runs before activate has
+# created that directory). The radios are not started at boot - BRINGUP N5
+# asks for wlan-2g / wlan-5g to be run by hand.
 {
   config,
   lib,
@@ -42,8 +44,15 @@ in
     ./ax6600-lan.nix
     ./modules/early
     ./modules/firewall
+    ./devices/jdcloud-ax6600/wireless
+    ./devices/jdcloud-ax6600/wireless/rootfs-firmware.nix
   ];
 
+  # The image's only module tree: `all` is `wired ++ wireless` (see
+  # targets.nix), and the nft set comes from modules/firewall's own list
+  # rather than from a second kmodloader, which would insmod the same
+  # nf_conntrack/nf_nat (see firewall.kernelModules below) and put a second
+  # copy of the kernel's modules in the image.
   services.modules = pkgs.kmodloader.override {
     inherit (config.system.outputs) kernel;
     modules = [
@@ -53,12 +62,11 @@ in
       nss.nss-clients
       nss.qca-nss-ecm
     ];
-    # `wired` only: this image does not import
-    # devices/jdcloud-ax6600/wireless, so its kernel builds neither
-    # qcom_q6v5_wcss_sec nor ath11k_ahb, and modules.build fails at modprobe
-    # for any target whose .ko is missing. See targets.nix.
-    targets = (import ./devices/jdcloud-ax6600/nss/targets.nix).wired;
+    targets = (import ./devices/jdcloud-ax6600/nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
   };
+
+  # ... so the firewall depends on that tree instead of building one.
+  firewall.kernelModules = config.services.modules;
 
   # nss-drv asks for this while it probes, so it has to be on disk before
   # services.modules insmods it: an ordinary /lib/firmware file, not the
