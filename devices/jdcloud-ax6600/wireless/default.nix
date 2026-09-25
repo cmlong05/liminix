@@ -74,14 +74,38 @@ let
        bs=1 skip=4096 count=131072 status=none
   '';
 
-  # boot.initramfs.preloadFirmware is an attrsOf package keyed by the
-  # name the kernel asks for, so each file has to be a derivation of its
-  # own rather than a path inside firmwarePkg.
+  # Both deliveries at the bottom of this file hand the kernel an attrsOf
+  # package keyed by the name it asks for, so each file has to be a derivation
+  # of its own rather than a path inside firmwarePkg.
   firmwareFile =
     name:
     pkgs.runCommand "firmware-${baseNameOf name}" { } ''
       install -D -m 0644 ${firmwarePkg}/${name} $out
     '';
+
+  # The names the drivers ask for, exactly as they ask: the Q6 and m3 images
+  # from the wcss remoteproc, board-2 from ath11k's board data lookup, and the
+  # per-unit calibration ath11k builds out of the bus and device name. Both
+  # delivery modules (./preload-firmware.nix, ./rootfs-firmware.nix) index
+  # firmwarePkg with this list, so a name that is not in the tree fails their
+  # build instead of shipping a dangling file.
+  firmwareNames = [
+    "IPQ6018/q6_fw.mdt"
+    "IPQ6018/q6_fw.b00"
+    "IPQ6018/q6_fw.b01"
+    "IPQ6018/q6_fw.b02"
+    "IPQ6018/q6_fw.b03"
+    "IPQ6018/q6_fw.b04"
+    "IPQ6018/q6_fw.b05"
+    "IPQ6018/q6_fw.b07"
+    "IPQ6018/q6_fw.b08"
+    "IPQ6018/m3_fw.mdt"
+    "IPQ6018/m3_fw.b00"
+    "IPQ6018/m3_fw.b01"
+    "IPQ6018/m3_fw.b02"
+    "ath11k/IPQ6018/hw1.0/board-2.bin"
+    "ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin"
+  ];
 
   # --- hostapd ------------------------------------------------------
   #
@@ -222,111 +246,107 @@ in
 {
   imports = [ ../../../modules/wlan.nix ];
 
-  kernel.config = {
-    # The AHB half of ath11k needs the remoteproc framework; the wcss
-    # driver itself comes from the kernel patches.
-    REMOTEPROC = "y";
-    # wlan.nix builds cfg80211 as a module; this device has wanted it
-    # built-in since N4, when the only reason to have it at all was ECM's
-    # VAP test reading net_device->ieee80211_ptr (that field exists for
-    # With CRDA and signature checks off, regulatory.db is cfg80211's only source of country rules,
-    # needed at late_initcall inside initramfs—so CFG80211 must be built-in (=y).
-    CFG80211 = lib.mkForce "y";
-
-    # ath11k_peer_rx_frag_setup() allocates a "michael_mic" shash for every
-    # peer it adds (dp_rx.c:3189), unconditionally and before the key
-    # handling, so without this no station can be added at all:
-    #   ath11k: failed to allocate michael_mic shash: -2
-    #   ath11k: failed to setup dp for peer <mac> on vdev 0 (-2)
-    #   ath11k: Failed to add station: <mac> for VDEV: 0
-    # Mainline leaves the symbol at m, and a fullSystem image has no
-    # kmodloader: preinit loads exactly the module tree's load-order and
-    # request_module() has no /sbin/modprobe to fall back on, so `=m`
-    # never loads even though the .ko is carried in the image.
-    CRYPTO_MICHAEL_MIC = "y";
-
-    # hostapd opens /dev/rfkill in rfkill_init() and logs "rfkill: Cannot
-    # open RFKILL control device" when it is missing. This board has no
-    # rfkill switch, so the option is here only to create the device node.
-    RFKILL = "y";
+  # The blobs, one package per name. How they reach the kernel depends on the
+  # image form, which is not this module's business: ./preload-firmware.nix
+  # embeds them in a fullSystem image, where preinit loads these drivers
+  # before activate has created /lib/firmware, and ./rootfs-firmware.nix puts
+  # them under /lib/firmware for a mounted root.
+  #
+  # regulatory.db is in neither list: modules/wlan.nix installs it under
+  # /lib/firmware as an ordinary file. cfg80211 asks for it at late_initcall
+  # though, before activate has made that file, so a fullSystem image keeps
+  # its own copy in boot.initramfs.preloadFirmware (ax6600-nss-ram.nix).
+  options.wireless.firmwareFiles = lib.mkOption {
+    type = lib.types.attrsOf lib.types.package;
+    internal = true;
+    description = ''
+      The radio's firmware, one package per name the kernel asks for,
+      relative to /lib/firmware.
+    '';
   };
 
-  # WLAN gates these: kernel.config is merged first and conditionalConfig
-  # only when its key is enabled (modules/kernel/modules-kernel.nix).
-  # WLAN itself comes from wlan.nix.
-  kernel.conditionalConfig.WLAN = {
-    WLAN_VENDOR_ATH = "y";
-    ATH_COMMON = "m";
-    ATH11K = "m";
-    ATH11K_AHB = "m";
-    MAC80211 = "m";
-    # The brcmfmac/ath10k style conditionals are off, so this is the only
-    # wireless driver in the image; debug is on because bringing a Q6 up
-    # is what the logs are for.
-    ATH11K_DEBUG = "y";
+  config = {
+    kernel.config = {
+      # The AHB half of ath11k needs the remoteproc framework; the wcss
+      # driver itself comes from the kernel patches.
+      REMOTEPROC = "y";
+      # wlan.nix builds cfg80211 as a module; this device has wanted it
+      # built-in since N4, when the only reason to have it at all was ECM's
+      # VAP test reading net_device->ieee80211_ptr (that field exists for
+      # With CRDA and signature checks off, regulatory.db is cfg80211's only source of country rules,
+      # needed at late_initcall inside initramfs—so CFG80211 must be built-in (=y).
+      CFG80211 = lib.mkForce "y";
 
-    # ath11k talks to the Q6 over QMI/QRTR, and on IPQ6018 that runs on
-    # the SMEM glink edge the WCSS remoteproc declares (channel "IPCRTR"):
-    # net/qrtr/smd.c is what bridges that rpmsg device into QRTR. Without
-    # either, the Q6 boots and no QMI server ever appears, so ath11k
-    # waits forever.
-    #
-    # The remoteproc itself is QCOM_Q6V5_WCSS_SEC, not mainline's
-    # QCOM_Q6V5_WCSS: the Q6 is booted through secure PIL, which is what
-    # wireless/SOURCES.nix adds a driver for. The module name that
-    # preloadModules asks for follows from this.
-    QCOM_Q6V5_WCSS_SEC = "m";
-    RPMSG = "y";
-    RPMSG_QCOM_GLINK = "y";
-    RPMSG_QCOM_GLINK_SMEM = "y";
-    QRTR = "y";
-    QRTR_SMD = "y";
+      # ath11k_peer_rx_frag_setup() allocates a "michael_mic" shash for every
+      # peer it adds (dp_rx.c:3189), unconditionally and before the key
+      # handling, so without this no station can be added at all:
+      #   ath11k: failed to allocate michael_mic shash: -2
+      #   ath11k: failed to setup dp for peer <mac> on vdev 0 (-2)
+      #   ath11k: Failed to add station: <mac> for VDEV: 0
+      # Mainline leaves the symbol at m, and a fullSystem image has no
+      # kmodloader: preinit loads exactly the module tree's load-order and
+      # request_module() has no /sbin/modprobe to fall back on, so `=m`
+      # never loads even though the .ko is carried in the image.
+      CRYPTO_MICHAEL_MIC = "y";
 
-    # smp2p carries the Q6 start/stop handshake, apcs_glb is the mailbox
-    # it signals through, and the tcsr mutex backs SMEM.
-    QCOM_SMEM = "y";
-    QCOM_SMP2P = "y";
-    QCOM_APCS_IPC = "y";
-    MAILBOX = "y";
-    HWSPINLOCK = "y";
-    HWSPINLOCK_QCOM = "y";
+      # hostapd opens /dev/rfkill in rfkill_init() and logs "rfkill: Cannot
+      # open RFKILL control device" when it is missing. This board has no
+      # rfkill switch, so the option is here only to create the device node.
+      RFKILL = "y";
+    };
 
-    # Secure PIL (qcom_scm_pas_auth_and_reset, PAS id 6) is what the
-    # ipq6018 driver data in the wcss patches is configured for.
-    QCOM_SCM = "y";
+    # WLAN gates these: kernel.config is merged first and conditionalConfig
+    # only when its key is enabled (modules/kernel/modules-kernel.nix).
+    # WLAN itself comes from wlan.nix.
+    kernel.conditionalConfig.WLAN = {
+      WLAN_VENDOR_ATH = "y";
+      ATH_COMMON = "m";
+      ATH11K = "m";
+      ATH11K_AHB = "m";
+      MAC80211 = "m";
+      # The brcmfmac/ath10k style conditionals are off, so this is the only
+      # wireless driver in the image; debug is on because bringing a Q6 up
+      # is what the logs are for.
+      ATH11K_DEBUG = "y";
+
+      # ath11k talks to the Q6 over QMI/QRTR, and on IPQ6018 that runs on
+      # the SMEM glink edge the WCSS remoteproc declares (channel "IPCRTR"):
+      # net/qrtr/smd.c is what bridges that rpmsg device into QRTR. Without
+      # either, the Q6 boots and no QMI server ever appears, so ath11k
+      # waits forever.
+      #
+      # The remoteproc itself is QCOM_Q6V5_WCSS_SEC, not mainline's
+      # QCOM_Q6V5_WCSS: the Q6 is booted through secure PIL, which is what
+      # wireless/SOURCES.nix adds a driver for. The module name that
+      # preloadModules asks for follows from this.
+      QCOM_Q6V5_WCSS_SEC = "m";
+      RPMSG = "y";
+      RPMSG_QCOM_GLINK = "y";
+      RPMSG_QCOM_GLINK_SMEM = "y";
+      QRTR = "y";
+      QRTR_SMD = "y";
+
+      # smp2p carries the Q6 start/stop handshake, apcs_glb is the mailbox
+      # it signals through, and the tcsr mutex backs SMEM.
+      QCOM_SMEM = "y";
+      QCOM_SMP2P = "y";
+      QCOM_APCS_IPC = "y";
+      MAILBOX = "y";
+      HWSPINLOCK = "y";
+      HWSPINLOCK_QCOM = "y";
+
+      # Secure PIL (qcom_scm_pas_auth_and_reset, PAS id 6) is what the
+      # ipq6018 driver data in the wcss patches is configured for.
+      QCOM_SCM = "y";
+    };
+
+    wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
+
+    # hostapd is started by hand, so it is a tool here, not a service.
+    defaultProfile.packages = [
+      pkgs.iw
+      pkgs.hostapd
+    ]
+    ++ lib.mapAttrsToList (name: b: ap name b.band b.params) bands;
   };
-
-  # The modules the radio needs must load from preinit, before any s6
-  # service could load them (a fullSystem image has no kmodloader), and
-  # preinit's load_modules() runs before activate creates /lib/firmware -
-  # so everything the drivers request during probe is embedded here
-  # rather than put in the filesystem. Nothing here asks for
-  # regulatory.db: cfg80211 is built-in with CRDA support off, so it
-  # never issues that request (see the CFG80211 note above).
-  boot.initramfs = {
-    preloadFirmware = lib.genAttrs [
-      "IPQ6018/q6_fw.mdt"
-      "IPQ6018/q6_fw.b00"
-      "IPQ6018/q6_fw.b01"
-      "IPQ6018/q6_fw.b02"
-      "IPQ6018/q6_fw.b03"
-      "IPQ6018/q6_fw.b04"
-      "IPQ6018/q6_fw.b05"
-      "IPQ6018/q6_fw.b07"
-      "IPQ6018/q6_fw.b08"
-      "IPQ6018/m3_fw.mdt"
-      "IPQ6018/m3_fw.b00"
-      "IPQ6018/m3_fw.b01"
-      "IPQ6018/m3_fw.b02"
-      "ath11k/IPQ6018/hw1.0/board-2.bin"
-      "ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin"
-    ] firmwareFile;
-  };
-
-  # hostapd is started by hand, so it is a tool here, not a service.
-  defaultProfile.packages = [
-    pkgs.iw
-    pkgs.hostapd
-  ]
-  ++ lib.mapAttrsToList (name: b: ap name b.band b.params) bands;
 }
