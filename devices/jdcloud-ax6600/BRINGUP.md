@@ -21,8 +21,8 @@
   **不能用 `modules/firewall`**：它的 `build` 一定依赖一个 kmodloader 服务，而
   `pkgs/liminix-tools/modules/default.nix` 的注释写明 kmodloader **服务**在 fullSystem 镜像里不可能
   存在（需要 `kernel.modulesupport`，而 fullSystem 把整个 rootdir 嵌进同一个 kernel derivation → 成环）。
-  NB：`ax6600-lan-ram.nix`（有线版）也会拿到 `services.nat`，但它没有 `preloadModules`，模块不会加载，
-  那段 nft 会失败——那个镜像要 NAT 得把这几项写成 `=y`。
+  NB：`ax6600-nss-ram.nix` 里那份手写 `services.nat` 依赖 `preloadModules` 把
+  `nft_nat`/`nft_masq` 加载进来；要更早可用就得把那几项写成 `=y`。
 
 * 本设备还没有 eMMC rootfs/updater 输出；`hardware.rootDevice` 是 `/dev/mtdblock0` 占位。
 
@@ -85,16 +85,6 @@
 
 ## 4. 分阶段计划
 
-### N5 无线：ath11k 三频 * 无线分成两组（2.4g+5.8g）和（5.2g QCN9024)，共三频
-
-#### 阶段一，先起 IPQ6010 核心支持的双频 2.4g 和 5.8g
-
-
-# 阶段二，再起QCN9024外挂的5.2g
-* 不要设置开机启动，由我手动开启
-* **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联；
-* **风险**： 同上
-
 
 ### N6（可选/实验）NSS WiFi offload 评估
 
@@ -150,20 +140,40 @@
   `NF_TABLES_BRIDGE` 依赖它）→ 板级那份改成 `lib.mkForce "y"`；
 * `hardware.rootDevice` 板级从 `/dev/mtdblock0` 占位改成 `lib.mkDefault`，让组合去命名真分区。
 
-**还没做（下一步）**：AHB 无线。`devices/jdcloud-ax6600/wireless/default.nix` 用
-`boot.initramfs.preloadFirmware` 交固件，而那个选项只声明在 `modules/outputs/initramfs.nix` 里；
-rootfs 形态要把同一批 blob（`IPQ6018/q6_fw.*`、`m3_fw.*`、
-`ath11k/IPQ6018/hw1.0/{board-2.bin,cal-ahb-c000000.wifi.bin}`）放到 `/lib/firmware`。
-在固件交付改造完成前，`ax6600-rootfs.nix` 是**有线形态**。这也是
-`nss/targets.nix` 分成 `wired`/`wireless`/`all` 三组的原因：这个镜像的 kernel 里没有
-`qcom_q6v5_wcss_sec`/`ath11k_ahb` 两个模块，而 `pkgs.liminix.modules.build` 会对每个
-target 跑 `modprobe -S 0.0 -d $out --show-depends`，缺一个就直接构建失败（不是静默跳过）。
-所以 rootfs/USB 形态取 `.wired`，`ax6600-nss-ram.nix` 取 `.all`；固件交付做完后
-rootfs/USB 再改回 `.all` 并 import `devices/jdcloud-ax6600/wireless`。
+**AHB 无线（2026-09-25 完成交付改造）**：`devices/jdcloud-ax6600/wireless/default.nix` 原来用
+`boot.initramfs.preloadFirmware` 交固件，而那个选项只声明在 `modules/outputs/initramfs.nix` 里，
+所以只有 fullSystem 形态能用它。现在拆成三层：
 
-**上机前必须确认**：eMMC 的 GPT 分区名与编号（`ls /dev/disk/by-partlabel/`、
-`cat /proc/partitions`）——`root=PARTLABEL=rootfs` 与 `0:HLOS` 槽都依赖它，现在只是照社区
-dual-boot 布局写的。
+* `wireless/default.nix` —— 只留与形态无关的部分：内核配置 / `conditionalConfig.WLAN`、hostapd 与
+  `wlan-2g`/`wlan-5g` 工具，并把同一批 blob 做成 `wireless.firmwareFiles`（`attrsOf package`，
+  key 就是内核问的名字：`IPQ6018/q6_fw.*`、`m3_fw.*`、
+  `ath11k/IPQ6018/hw1.0/{board-2.bin,cal-ahb-c000000.wifi.bin}`）；
+* `wireless/preload-firmware.nix` —— fullSystem 一侧：`boot.initramfs.preloadFirmware =
+  config.wireless.firmwareFiles`（`ax6600-nss-ram.nix` import 它，它自己那几个 blob 照旧合并）；
+* `wireless/rootfs-firmware.nix` —— 挂根一侧：把同一批文件装成一棵树，只把顶层目录
+  `IPQ6018`/`ath11k` 做成 `/lib/firmware` 下的符号链接，于是别的模块还能往同一目录里加东西
+  （`modules/wlan.nix` 的 `regulatory.db`、`ax6600-rootfs.nix` 的 `qca-nss0.bin`——`filesystem` 是
+  `types.anything`，会按属性递归合并，实测四个定义合成
+  `{IPQ6018, ath11k, qca-nss0.bin, regulatory.db}`）。
+
+`ax6600-rootfs.nix`（eMMC/USB 两个挂根形态共用）现在 import 这两者，并把 `services.modules` 的
+targets 从 `.wired` 换成 `.all`（`wired ++ wireless`，见 `nss/targets.nix`）——这正是当初把
+targets 分成三组的原因：缺 `.ko` 的 target 会让 `modules.build` 的 `modprobe --show-depends`
+直接失败。**待重编后验**：2.4G/5.8G 两个 pdev、`FW memory mode: 1`、以及
+`wlan-2g`/`wlan-5g` 起 AP（N5 的判据在挂根形态上复验一次）。
+
+**eMMC GPT 实测（2026-09-25，从起来的 USB 形态里读的）**：
+本机**不是**设备描述里那套"社区dual-boot 布局",也没有 `rootfs_1`，现在共 18 个分区：
+| 分区 | 设备 | 大小 | 现在装的是什么 |
+|---|---|---|---|
+| `0:HLOS` | p16 | 6 MiB | 原厂 kernel FIT |
+| `0:HLOS_1` | p17 | 6 MiB | 原厂备用槽 |
+| `rootfs` | **p18** | **58.2 GiB（整盘剩余）**|
+| `0:ART` | p15 | 512 KiB | 校准数据，勿动 |
+| p1–p14 | | 各 256 KiB–1.8 MiB | `0:SBL1`/`BOOTCONFIG`/`QSEE`/`DEVCFG`/`RPM`/`CDT`/`APPSBLENV`/`APPSBL` 的 A/B 两份 |
+
+块设备编号有个坑：分区号 ≥8 的走扩展主设备号，所以 `rootfs`(p18) 是 **259:10**——日志里
+`Mounted root … on device 259:10` 指的就是它，不是 p10。
 
 ### N7b：USB 根形态（2026-09-25，N7 的第二半）
 
@@ -207,6 +217,13 @@ s6 起来，LAN/DHCP/ssh 与 N7a 一致；④ 不插盘重启是 `rootwait` 无�
 只作兜底；拔盘没有回退，救援只能靠网页重传。
 
 ### N7 产品化
+* 可考虑：**U 盘持久化 **：USB 根形态现在根是只读 squashfs（`/` 100% used，可写的
+  只有 `/dev`、`/run`、`/tmp`），**没有任何持久数据位置**。做法：给 U 盘加第二个 ext4 分区
+  （或用 `sgdisk` 把现在单分区改成 GPT 双分区），用 `modules/mount` 的 `partlabel` 服务挂到
+  `/persist`——它自带 mdevd/uevent 等待，正好解决 USB 异步枚举；需要落盘的服务（密钥、
+  dnsmasq lease、hostapd 配置等）再按 `doc/configuration.adoc` 的 runtime secrets 指过去。
+  注意只读根下 `/etc` 不可写，凡是要写配置的模块都得改成写 `/persist` 或 `/run`；
+  另外 eMMC 形态要持久化的话同理，但那边写的是 p18（会覆盖原厂内容），见 N7a 实测表。
 * 内核和用户态软件是自动分区，还是分地方配置的？
   比如，iperf3在最终产品里，不应该rootfs/HLOS里，而应该在用户态里
 * eMMC 可写 rootfs + `outputs.updater`（参考 `turris-omnia` 的 `/dev/mmcblk0p1` 形态，
@@ -221,6 +238,9 @@ s6 起来，LAN/DHCP/ssh 与 N7a 一致；④ 不插盘重启是 `rootwait` 无�
   `/lib/firmware`），且只对本机成立，产品化时按上一条改掉。
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G；
 
+# N8，QCN9024外挂的5.2g
+* 不要设置开机启动，由我手动开启
+* **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联；
 ---
 
 ## 5. 验收与「满血」判据
@@ -237,13 +257,6 @@ s6 起来，LAN/DHCP/ssh 与 N7a 一致；④ 不插盘重启是 `rootwait` 无�
 **明确不承诺**：满血 ≠ WiFi offload（6.18 栈没有）；满血 ≠ 保证 2.5G 线速（社区反馈
 有 2.5G 口只协商到 1G 的案例，链路速率要单独实测）。
 
-构建命令沿用现有惯例（N2 起镜像形态可能换成 tftpboot）：
-
-```console
-$ nix-build -Q --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-lan-ram.nix -A outputs.uimage -o result-lan-ram
-$ sh md5_result.sh
-```
 
 ---
 
