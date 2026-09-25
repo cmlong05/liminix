@@ -14,35 +14,42 @@ let
   inherit (lib) mkOption types;
   inherit (pkgs) liminix;
 
+  # The modules the ruleset needs. A composition that already loads modules
+  # can merge these names into its own tree and set firewall.kernelModules to
+  # that service instead, so that the image has one kmodloader rather than two
+  # trees that insmod the same nf_conntrack/nf_nat and ship twice the kernel's
+  # modules (ax6600-rootfs.nix does this).
+  targets = [
+    "nft_fib_ipv4"
+    "nft_fib_ipv6"
+    "nf_log_syslog"
+
+    "nf_conntrack"
+    "nf_defrag_ipv4"
+    "nf_defrag_ipv6"
+    "nf_log_syslog"
+    "nf_nat"
+    "nf_reject_ipv4"
+    "nf_reject_ipv6"
+    "nf_tables"
+    "nft_chain_nat"
+    "nft_ct"
+    "nft_fib"
+    "nft_fib_ipv4"
+    "nft_fib_ipv6"
+    "nft_limit"
+    "nft_log"
+    "nft_masq"
+    "nft_nat"
+    "nft_reject"
+    "nft_reject_inet"
+    "nft_reject_ipv4"
+    "nft_reject_ipv6"
+  ];
+
   kmodules = pkgs.kmodloader.override {
     inherit (config.system.outputs) kernel;
-    targets = [
-      "nft_fib_ipv4"
-      "nft_fib_ipv6"
-      "nf_log_syslog"
-
-      "nf_conntrack"
-      "nf_defrag_ipv4"
-      "nf_defrag_ipv6"
-      "nf_log_syslog"
-      "nf_nat"
-      "nf_reject_ipv4"
-      "nf_reject_ipv6"
-      "nf_tables"
-      "nft_chain_nat"
-      "nft_ct"
-      "nft_fib"
-      "nft_fib_ipv4"
-      "nft_fib_ipv6"
-      "nft_limit"
-      "nft_log"
-      "nft_masq"
-      "nft_nat"
-      "nft_reject"
-      "nft_reject_inet"
-      "nft_reject_ipv4"
-      "nft_reject_ipv6"
-    ];
+    inherit targets;
   };
 in
 {
@@ -53,8 +60,29 @@ in
     system.service.firewall = mkOption {
       type = liminix.lib.types.serviceDefn;
     };
+    firewall = {
+      kernelModules = mkOption {
+        type = types.nullOr liminix.lib.types.service;
+        default = null;
+        description = ''
+          A service that loads firewall.kernelModuleTargets, used as the
+          firewall's dependency instead of the kmodloader this module builds
+          for itself. Its module tree has to contain those targets.
+        '';
+      };
+      kernelModuleTargets = mkOption {
+        type = types.listOf types.str;
+        internal = true;
+        description = ''
+          modprobe names of the modules the ruleset needs, for merging into
+          the targets of the service in firewall.kernelModules.
+        '';
+      };
+    };
   };
   config = {
+    firewall.kernelModuleTargets = targets;
+
     system.service.firewall =
       let
         svc = config.system.callService ./service.nix {
@@ -79,6 +107,11 @@ in
             description = "firewall ruleset";
           };
         };
+
+        # the composition's tree when it has one, else the private tree above.
+        # Laziness is what keeps an unset option from building that tree.
+        moduleService =
+          if config.firewall.kernelModules == null then kmodules else config.firewall.kernelModules;
       in
       svc
       // {
@@ -86,7 +119,7 @@ in
           args:
           let
             args' = args // {
-              dependencies = (args.dependencies or [ ]) ++ [ kmodules ];
+              dependencies = (args.dependencies or [ ]) ++ [ moduleService ];
             };
           in
           svc.build args';

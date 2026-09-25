@@ -63,6 +63,9 @@ in
     ./modules/early
     ./modules/outputs/initramfs.nix
     ./devices/jdcloud-ax6600/wireless
+    # This form embeds the radio's blobs in the image; the mounted-root forms
+    # import ./devices/jdcloud-ax6600/wireless/rootfs-firmware.nix instead.
+    ./devices/jdcloud-ax6600/wireless/preload-firmware.nix
   ];
 
   # Source NAT for LAN traffic leaving the PPPoE session. Hand-written here
@@ -93,18 +96,22 @@ in
       # loading modules, which is before activate creates /lib/firmware,
       # so the blob is embedded in the image rather than put in the
       # filesystem (see boot.initramfs.preloadFirmware).
+      #
+      # regulatory.db is embedded for the same kind of reason: cfg80211 asks
+      # for it at late_initcall, and modules/wlan.nix's copy under
+      # /lib/firmware only appears once activate has run. No .p7s: the
+      # signature check is off (CFG80211_REQUIRE_SIGNED_REGDB, modules/wlan.nix),
+      # so nothing ever reads it.
       preloadFirmware = {
         "qca-nss0.bin" = nss.nss-firmware;
         "regulatory.db" = regdb "regulatory.db";
-        "regulatory.db.p7s" = regdb "regulatory.db.p7s";
       };
     };
 
     imageFormat = "fit";
   };
 
-  hardware.defaultOutput = "uimage";
-
+  # hardware.defaultOutput is left at the device default ("uimage").
   kernel.config = {
     NF_TABLES_IPV4 = "y";
     NFT_NAT = "m";

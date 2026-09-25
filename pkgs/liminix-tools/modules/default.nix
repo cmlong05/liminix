@@ -51,6 +51,12 @@ runCommand "kernel-modules"
   }
   ''
     set -eu
+    # A target the tree has no module for must fail the build: without
+    # pipefail, the awk reading modprobe's output drops its "not found"
+    # status and a wrong name ships an image missing that module. A target
+    # the kernel built in is not a failure - modprobe exits 0 and prints
+    # "builtin <name>", which the awk discards.
+    set -o pipefail
     mkdir -p $out/lib/modules/0.0
 
     # `|| test -n` on both loops: the lists have no trailing newline, and
