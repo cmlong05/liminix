@@ -9,8 +9,9 @@
 let
   inherit (pkgs.liminix.services) oneshot;
 
-  # Shared with ax6600-rootfs.nix - see that file for the other half.
-  targets = import ./devices/jdcloud-ax6600/nss/targets.nix;
+  # Shared with ax6600-rootfs.nix - see that file for the other half, and
+  # targets.nix for why the radio's two modules are a group of their own.
+  targets = (import ./devices/jdcloud-ax6600/nss/targets.nix).all;
 
   # The module packages are built against the initramfs-less twin of the
   # kernel (config.kernel.modulesKernel), not the real one: this image
