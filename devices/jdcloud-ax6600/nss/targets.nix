@@ -4,19 +4,16 @@
 #
 # A target whose .ko the image's kernel does not build is a *build failure*,
 # not a no-op: modules.build runs `modprobe --show-depends` for every name.
-# That is why the two images cannot share one flat list - they do not build
-# the same modules:
+# That is why each target belongs to the group of images that build it:
 #
 #   * `wired` - conntrack/netfilter plus the NSS drivers. Every image builds
-#     these. ax6600-rootfs.nix (and ax6600-usb.nix on top of it) takes this
-#     group alone, because neither imports devices/jdcloud-ax6600/wireless
-#     yet: delivering the radio's firmware to /lib/firmware is still the open
-#     half of N7a, and until it is done those two modules do not exist.
+#     these.
 #   * `wireless` - N5's AHB radio. Only the images that import
 #     wireless/default.nix build these, since that module is what sets
 #     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB in the kernel config.
 #
-# `all` is both groups, for those fullSystem images (ax6600-nss-ram.nix).
+# `all` is both groups: ax6600-rootfs.nix (and ax6600-usb.nix on top of it)
+# and ax6600-nss-ram.nix all import wireless/default.nix, so all three take it.
 #
 # Not here: the nft_* modules. ax6600-nss-ram.nix appends them for the
 # masquerade it writes by hand, and the rootfs image gets them from
