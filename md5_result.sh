@@ -11,7 +11,6 @@
 # artifacts - a uimage and a squashfs - which are built with an `-o` of their
 # own so the name says which is which:
 #
-#   result-lan-ram     - ax6600-lan-ram.nix   outputs.uimage   (wired, RAM)
 #   result-nss-lan-ram - ax6600-nss-ram.nix   outputs.uimage   (wired + radio, RAM)
 #   result-uimage      - ax6600-rootfs.nix    outputs.uimage   (eMMC: kernel FIT + dtb)
 #   result-rootfs      - ax6600-rootfs.nix    outputs.rootfs   (eMMC: squashfs root)
@@ -27,7 +26,7 @@
 set -u
 cd "$(dirname "$0")"
 
-known="result-lan-ram result-nss-lan-ram result-uimage result-rootfs result-usb-uimage result-usb-rootfs"
+known="result-nss-lan-ram result-uimage result-rootfs result-usb-uimage result-usb-rootfs"
 
 if [ "$#" -gt 0 ]; then
     results="$*"
