@@ -53,7 +53,11 @@ in
       nss.nss-clients
       nss.qca-nss-ecm
     ];
-    targets = import ./devices/jdcloud-ax6600/nss/targets.nix;
+    # `wired` only: this image does not import
+    # devices/jdcloud-ax6600/wireless, so its kernel builds neither
+    # qcom_q6v5_wcss_sec nor ath11k_ahb, and modules.build fails at modprobe
+    # for any target whose .ko is missing. See targets.nix.
+    targets = (import ./devices/jdcloud-ax6600/nss/targets.nix).wired;
   };
 
   # nss-drv asks for this while it probes, so it has to be on disk before
@@ -94,7 +98,9 @@ in
 
   # root= and init= are spelled out because this force-overrides the list
   # modules/base.nix builds them into - an initramfs image does not need
-  # them, a rootfs image does.
+  # them, a rootfs image does. root= reads hardware.rootDevice rather than
+  # repeating the partition name, so a composition that points the same
+  # image at other media (ax6600-usb.nix) only has to override that option.
   boot = {
     imageFormat = "fit";
     commandLine = lib.mkForce [
@@ -102,10 +108,17 @@ in
       "console=ttyMSM0,115200n8"
       "fw_devlink=off"
       "nokaslr"
-      "root=PARTLABEL=rootfs"
+      "root=${config.hardware.rootDevice}"
       "rootfstype=squashfs"
       "rootwait"
       "init=/bin/init"
     ];
+  };
+
+  kernel.config = {
+    CMDLINE = lib.mkForce "\"${lib.concatStringsSep " " config.boot.commandLine}\"";
+    CMDLINE_FROM_BOOTLOADER = lib.mkForce "n";
+    CMDLINE_FORCE = "y";
+    DEVTMPFS_MOUNT = lib.mkForce "n";
   };
 }

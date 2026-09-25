@@ -98,7 +98,6 @@ in
     kernel.config = {
       NETFILTER = "y";
       NETFILTER_ADVANCED = "y";
-      NETFILTER_NETLINK = "m";
       NF_CONNTRACK = "m";
 
       NETLINK_DIAG = "y";
@@ -113,7 +112,6 @@ in
       NFT_REJECT = "m";
       NFT_REJECT_INET = "m";
 
-      NF_CT_PROTO_DCCP = "y";
       NF_CT_PROTO_SCTP = "y";
       NF_CT_PROTO_UDPLITE = "y";
       NF_LOG_SYSLOG = "m";
