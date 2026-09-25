@@ -1,9 +1,18 @@
 #!/bin/sh
 
-# NSS（lan1..lan4 桥接 + 2.5G PPPoE + 2.4g + 5.8g）
+# 构建 rootfs
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-nss-ram.nix \
+    -I liminix-config=./ax6600-usb.nix \
+    -A outputs.rootfs \
+    -o result-usb-rootfs
+
+# 构建内核
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb.nix \
     -A outputs.uimage \
-    -o result-nss-lan-ram && \
-    sh md5_result.sh
+    -o result-usb-uimage
+
+# 再跑 md5
+sh md5_result.sh

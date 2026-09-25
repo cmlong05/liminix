@@ -30,5 +30,27 @@ nix-build -Q \
     && sh md5_result.sh
 
 
+# USB 根：内核形状与 rootfs 形态相同（FIT = kernel + dtb，无 rootdir），
+# 根文件系统在 U 盘的 liminix-root 分区上；eMMC 完全不被写。
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb.nix \
+    -A outputs.uimage \
+    -A outputs.rootfs \
+    -o result-usb \
+    && sh md5_result.sh
+
+# U 盘准备：GPT + 一个名为 liminix-root 的分区（root=PARTLABEL=liminix-root，
+# 分区名必须一致；兜底可把 ax6600-usb.nix 里的 rootDevice 换成 /dev/sda1）
+sudo sgdisk -o -n 1:2048:0 -c 1:liminix-root -t 1:8300 /dev/sdX
+sudo partprobe /dev/sdX
+sudo dd if=result-usb-rootfs of=/dev/sdc1XX bs=1M conv=fdatasync status=progress
+
+# 启动：把 result-usb/uimage 从 U-Boot 网页上传，和 -ram 镜像同一个入口，
+# 从内存 bootm；也可以 dd 进 eMMC 的 0:HLOS，两种方式都从 U 盘挂根。
+# 起不来就重新上传 ram 镜像（ax6600-lan-ram.nix / ax6600-nss-ram.nix）恢复。
+# 注意：拔盘重启时 rootwait 是无限等设备，不是回退。
+
+
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"

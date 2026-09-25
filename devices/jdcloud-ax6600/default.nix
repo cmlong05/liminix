@@ -12,12 +12,12 @@
 
     === Hardware summary
 
-    * Qualcomm IPQ6010 (4x Cortex-A53 @1.8GHz), 1GiB RAM
-    * 128GB/256GB eMMC (GPT), community "dual-boot" GPT layout:
+    * Qualcomm IPQ6010 (4x Cortex-A53 @1.8GHz), 原厂 1GiB RAM，改成后4GiB,可用3GiB，
+    * 64GB/128GB/256GB eMMC (GPT), community "dual-boot" GPT layout:
       `+0:HLOS+`/`+0:HLOS_1+` (6MiB kernel FIT slots), `+rootfs+`/
-      `+rootfs_1+` (2GiB), `+0:ART+` (calibration, keep a backup)
+      `+rootfs_1+`, `+0:ART+` (calibration, keep a backup)
     * Ethernet: QCA8075 4x 1G switch + QCA8081 2.5G PHY
-    * WiFi:  (QCN9074 5GHz on PCIe0 and the IPQ6018 AHB radio
+    * WiFi:  (QCN9074 5.2GHz on PCIe0 and the IPQ6018 AHB radio (2.4+5.8Ghz)
     * USB 3.0, tmp1628 status display, 3 LEDs / 3 keys
   '';
 
