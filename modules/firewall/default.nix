@@ -98,7 +98,6 @@ in
     kernel.config = {
       NETFILTER = "y";
       NETFILTER_ADVANCED = "y";
-      NETFILTER_NETLINK = "m";
       NF_CONNTRACK = "m";
 
       NETLINK_DIAG = "y";
