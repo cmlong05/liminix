@@ -154,11 +154,57 @@
 `boot.initramfs.preloadFirmware` 交固件，而那个选项只声明在 `modules/outputs/initramfs.nix` 里；
 rootfs 形态要把同一批 blob（`IPQ6018/q6_fw.*`、`m3_fw.*`、
 `ath11k/IPQ6018/hw1.0/{board-2.bin,cal-ahb-c000000.wifi.bin}`）放到 `/lib/firmware`。
-在固件交付改造完成前，`ax6600-rootfs.nix` 是**有线形态**。
+在固件交付改造完成前，`ax6600-rootfs.nix` 是**有线形态**。这也是
+`nss/targets.nix` 分成 `wired`/`wireless`/`all` 三组的原因：这个镜像的 kernel 里没有
+`qcom_q6v5_wcss_sec`/`ath11k_ahb` 两个模块，而 `pkgs.liminix.modules.build` 会对每个
+target 跑 `modprobe -S 0.0 -d $out --show-depends`，缺一个就直接构建失败（不是静默跳过）。
+所以 rootfs/USB 形态取 `.wired`，`ax6600-nss-ram.nix` 取 `.all`；固件交付做完后
+rootfs/USB 再改回 `.all` 并 import `devices/jdcloud-ax6600/wireless`。
 
 **上机前必须确认**：eMMC 的 GPT 分区名与编号（`ls /dev/disk/by-partlabel/`、
 `cat /proc/partitions`）——`root=PARTLABEL=rootfs` 与 `0:HLOS` 槽都依赖它，现在只是照社区
 dual-boot 布局写的。
+
+### N7b：USB 根形态（2026-09-25，N7 的第二半）
+
+uimage 形状与 N7a 完全相同（FIT = kernel + dtb，cmdline 内嵌，无 rootdir），只把根设备
+从 eMMC 分区换成 U 盘分区：`hardware.rootDevice = "PARTLABEL=liminix-root"`。
+
+* 新增 `ax6600-usb.nix` = `ax6600-rootfs.nix` + `modules/usb.nix` + IPQ6018 USB3 host 配置；
+* `ax6600-rootfs.nix` 只改一处：cmdline 的 `root=` 改成插值 `config.hardware.rootDevice`
+  （原来写死 `PARTLABEL=rootfs`，与同一个文件里的 `hardware.rootDevice` 重复），
+  新形态用 `lib.mkForce` 覆盖该选项即可，eMMC 形态的取值与行为不变；
+* 用法与恢复流程写进了仓库根 `Guide.md`。
+
+**为什么根必须是 squashfs、不能是 ext4**：`modules/outputs/ext4fs.nix` 会
+`boot.initramfs.enable = true`，内核因此内嵌 preinit initramfs；而
+`pkgs/preinit/preinit.c` 拿 cmdline 的 `root=` 直接 `mount()`——不解析 PARTLABEL/UUID、
+不重试、不等设备——USB 是异步枚举，preinit 必然输给竞态。squashfs 形态由内核自己挂根，
+cmdline 里本来就有 `rootwait`，会等到 USB 枚举出分区。要可写数据就另开一个 ext4 分区，
+用 `modules/mount` 的 `partlabel` 挂到 `/persist`（它自带 mdevd/uevent 等待）。
+
+**DTS 不用动**（已核对 pin 到的内容）：fork 的 `ipq6018-common.dtsi` 已
+`&usb3 { dr_mode = "host"; status = "okay"; }`（compatible `qcom,ipq6018-dwc3`/`qcom,dwc3`）
+并开了 `&ssphy_0`；板级 dtsi 已开 `&qusb_phy_0` 和 GPIO22 的 `usb_vbus`
+（`regulator-boot-on`）。`overrides.dtsi` 不加东西。
+
+**内核符号**（在 store 里的 6.18.52 源码上逐条核对过，全部 `=y`）：`USB_DWC3` +
+`USB_DWC3_HOST`（两个 mode 选项都没有默认值，不显式选就等于没编 host）+ `USB_DWC3_QCOM`
+（6.18 把老的 `qcom,dwc3` glue 放在 `dwc3-qcom-legacy.c`，与新的 `qcom,snps-dwc3` 驱动同挂
+这个 Kconfig）+ `USB_XHCI_HCD`/`USB_XHCI_PLATFORM` + `PHY_QCOM_QMP` +
+`PHY_QCOM_QMP_USB`（`qcom,ipq6018-qmp-usb3-phy`）+ `PHY_QCOM_QUSB2`
+（`qcom,ipq6018-qusb2-phy`）。通用那半走 `modules/usb.nix`；该文件写了
+`MSDOS_PARTITION`/`EFI_PARTITION` 却没写 `PARTITION_ADVANCED`，而 6.18 里这两个符号挂在
+其下，不补就会被 olddefconfig 静默丢掉、`root=PARTLABEL=` 失效——新形态补上了这一条。
+
+**判据**：① uimage 能被 U-Boot 网页上传并从内存 `bootm`（无 ramdisk 的 FIT，与 -ram 同路）；
+② 串口看到 dwc3/xhci 认到设备、USB 盘枚举成 `sda`；③ 内核挂上 `PARTLABEL=liminix-root`、
+s6 起来，LAN/DHCP/ssh 与 N7a 一致；④ 不插盘重启是 `rootwait` 无限等而不是 panic，
+重新上传 -ram 镜像可恢复，整个过程 eMMC 未被写。
+
+**风险/未验**：qusb_phy_0 的 vbus 由内核 fixed regulator（GPIO22）拉起，U-Boot 是否已预热未知；
+`/dev/sda` 这个名字只在单盘时成立（eMMC 是 `mmcblk0`），所以主用 PARTLABEL，`/dev/sda1`
+只作兜底；拔盘没有回退，救援只能靠网页重传。
 
 ### N7 产品化
 * 内核和用户态软件是自动分区，还是分地方配置的？
