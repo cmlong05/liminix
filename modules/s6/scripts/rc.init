@@ -32,9 +32,20 @@ fi
 mkdir -m 0751 -p /run/services/outputs
 chgrp system /run/services/outputs
 
-if test -d /persist; then
-    mkdir -m 0751  -p /persist/services/state
-    (cd /run/services && ln -s ../../persist/services/state .)
+### Compose-time hook, run before the service manager starts
+if test -d /etc/rc-init.d ; then
+    for f in /etc/rc-init.d/* ; do
+        test -x "$f" && "$f"
+    done
+fi
+
+### Service state (mkstate in service-fns.sh) needs a writable directory
+state_mountpoint=
+test -s /run/state-mountpoint && state_mountpoint=$(cat /run/state-mountpoint)
+if test -n "$state_mountpoint" ; then
+    mkdir -m 0751 -p "$state_mountpoint/services/state"
+    chgrp system "$state_mountpoint/services/state"
+    ln -s "$state_mountpoint/services/state" /run/services/state
 else
     mkdir -m 0751 -p /run/services/state
 fi

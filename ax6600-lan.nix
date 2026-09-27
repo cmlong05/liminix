@@ -1,10 +1,5 @@
 # Wired-LAN configuration base for JDCloud AX6600 (RE-CS-02)
 #
-# WIRED-ONLY / NO-WIFI build: there is no wireless interface, no ath11k
-# module and no radio in the device tree. The only network transport is
-# this wired bridge plus the WAN uplink, which is all this variant
-# needs. (The ax6600 branch carries the radio bring-up image.)
-
 {
   config,
   lib,
@@ -14,7 +9,8 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
-  inherit (pkgs.liminix.services) oneshot;
+  inherit (pkgs.liminix.services) longrun oneshot;
+  inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
 
   # Which network this image serves
@@ -26,6 +22,20 @@ let
       import lookup.value
     else
       import ./devices/jdcloud-ax6600/config.nix;
+
+  runtime = config.services.runtime-config;
+  runtimeConfigFile = "/persist/config.json";
+
+  seedValue =
+    v:
+    if builtins.isAttrs v then
+      lib.filterAttrs (_: x: x != null) (lib.mapAttrs (_: seedValue) v)
+    else if builtins.isList v then
+      map seedValue v
+    else if v == null then
+      null
+    else
+      toString v;
 in
 {
   imports = [
@@ -36,6 +46,25 @@ in
     ./modules/ppp
     ./modules/ssh
   ];
+
+  services.runtime-config = svc.secrets.local.build {
+    name = "runtime-config";
+    path = runtimeConfigFile;
+    seed = pkgs.writeText "runtime-config.json" (builtins.toJSON (seedValue deployment));
+  };
+
+  services.hostname = lib.mkForce (
+    oneshot {
+      name = "hostname";
+      dependencies = [ runtime ];
+      up = ''
+        h=$(output ${runtime} hostname)
+        test -n "$h" || h=${lib.escapeShellArg deployment.hostname}
+        echo "$h" > /proc/sys/kernel/hostname
+      '';
+      down = "true";
+    }
+  );
 
   hostname = lib.mkDefault deployment.hostname;
 
@@ -53,30 +82,51 @@ in
     ];
   };
 
-  services.int-address = svc.network.address.build {
-    interface = config.services.int;
-    family = "inet";
-    inherit (deployment.lan) address prefixLength;
+  services.int-address = oneshot {
+    name = "int-address";
+    dependencies = [
+      config.services.int
+      runtime
+    ];
+    up = ''
+      dev=$(output ${config.services.int} ifname)
+      address=$(output ${runtime} lan/address)
+      prefixLength=$(output ${runtime} lan/prefixLength)
+      test -n "$address" || address=${lib.escapeShellArg deployment.lan.address}
+      test -n "$prefixLength" || prefixLength=${toString deployment.lan.prefixLength}
+      ip address add $address/$prefixLength dev $dev
+      (in_outputs int-address
+       echo $address > address
+       echo $prefixLength > prefix-length
+       echo inet > family
+       echo $dev > ifname
+      )
+    '';
+    down = "true";
   };
 
-  # LAN clients' resolver, and the router's own. Both read /run/resolv.conf:
-  # the file is written by services.resolvconf below from the resolvers the
-  # ISP hands back over IPCP, so changing ISP needs no configuration here.
-  # dnsmasq is given the path rather than the service on purpose - see
-  # resolvFile in modules/dnsmasq/default.nix for why a service's output
-  # directory cannot be used.
   services.dhcpv4 = svc.dnsmasq.build {
     interface = config.services.int;
     domain = "lan";
-    ranges = lib.optional (deployment.lan.dhcpRange != null) deployment.lan.dhcpRange;
+    ranges = lib.optional (deployment.lan.dhcpRange != null)
+      "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})";
     resolvFile = "/run/resolv.conf";
+    dependencies = [ runtime ];
   };
 
   # 2.5G WAN as a PPPoE client
   services.wan = svc.pppoe.build {
     interface = nifs.wan;
-    username = deployment.wan.pppoe.username;
-    password = deployment.wan.pppoe.password;
+    username =
+      if deployment.wan.pppoe.username == null then
+        null
+      else
+        outputRef runtime "wan/pppoe/username";
+    password =
+      if deployment.wan.pppoe.password == null then
+        null
+      else
+        outputRef runtime "wan/pppoe/password";
   };
   services.defaultroute4 = svc.network.route.build {
     via = "$(output ${config.services.wan} address)";
@@ -84,18 +134,42 @@ in
     dependencies = [ config.services.wan ];
   };
 
-  # The ISP's resolvers arrive as the wan service's ns1/ns2 outputs, and
-  # deployment.wan.extraResolvers is appended to them
+  services.wan-redial = longrun {
+    name = "wan-redial";
+    run = ''
+      until test -d /run/service/${config.services.wan.name}/supervise ; do
+        sleep 1
+      done
+      while : ; do
+        ${pkgs.s6}/bin/s6-svwait -d /run/service/${config.services.wan.name}
+        ${pkgs.s6-rc}/bin/s6-rc -b -u change ${config.services.wan.name} || true
+        sleep 30
+      done
+    '';
+  };
+
   services.resolvconf = oneshot {
-    dependencies = [ config.services.wan ];
+    dependencies = [
+      config.services.wan
+      runtime
+    ];
     name = "resolvconf";
     up = ''
       (
         echo "nameserver $(output ${config.services.wan} ns1)"
         echo "nameserver $(output ${config.services.wan} ns2)"
-        ${lib.concatMapStringsSep "\n" (r: "echo \"nameserver ${r}\"") (
-          deployment.wan.extraResolvers or [ ]
-        )}
+        found=
+        for f in $(output_path ${runtime} wan/extraResolvers)/* ; do
+            test -f "$f" || continue
+            echo "nameserver $(cat $f)"
+            found=1
+        done
+        if test -z "$found" ; then
+          ${lib.concatMapStringsSep "\n" (r: "echo \"nameserver ${r}\"") (
+            deployment.wan.extraResolvers or [ ]
+          )}
+          :
+        fi
       ) > /run/resolv.conf
       chmod 0444 /run/resolv.conf
     '';
@@ -106,9 +180,6 @@ in
       "resolv.conf" = symlink "/run/resolv.conf";
     };
   };
-
-  # Without this a client that has a lease still cannot be routed: the
-  # kernel's forwarding switch is off by default.
   services.packet_forwarding = svc.network.forward.build {
     enableIPv4 = true;
     enableIPv6 = false;

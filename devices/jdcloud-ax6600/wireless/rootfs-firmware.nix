@@ -6,7 +6,7 @@
 # Only the tree's top-level directories are symlinked, so /lib/firmware stays a
 # directory other modules can add to: modules/wlan.nix puts regulatory.db there
 # and ax6600-rootfs.nix the NSS firmware kmodloader's nss-drv asks for while it
-# probes. The fullSystem images import ./preload-firmware.nix instead.
+# probes.
 { pkgs, lib, config, ... }:
 let
   inherit (pkgs.pseudofile) dir symlink;
@@ -19,8 +19,16 @@ let
   '';
 in
 {
-  filesystem.lib.firmware = dir {
-    IPQ6018 = symlink "${tree}/IPQ6018";
-    ath11k = symlink "${tree}/ath11k";
+  # The same shape as the other modules that add to /lib/firmware, and it has
+  # to be: the squashfs builder writes config.filesystem.contents, so the
+  # abbreviated `filesystem.lib.firmware = ...` would land in a stray
+  # top-level key that nothing reads and the firmware would silently not ship.
+  filesystem = dir {
+    lib = dir {
+      firmware = dir {
+        IPQ6018 = symlink "${tree}/IPQ6018";
+        ath11k = symlink "${tree}/ath11k";
+      };
+    };
   };
 }
