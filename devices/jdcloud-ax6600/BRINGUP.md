@@ -21,8 +21,8 @@
   **不能用 `modules/firewall`**：它的 `build` 一定依赖一个 kmodloader 服务，而
   `pkgs/liminix-tools/modules/default.nix` 的注释写明 kmodloader **服务**在 fullSystem 镜像里不可能
   存在（需要 `kernel.modulesupport`，而 fullSystem 把整个 rootdir 嵌进同一个 kernel derivation → 成环）。
-  NB：`ax6600-nss-ram.nix` 里那份手写 `services.nat` 依赖 `preloadModules` 把
-  `nft_nat`/`nft_masq` 加载进来；要更早可用就得把那几项写成 `=y`。
+  NB：已删除的 RAM/fullSystem 形态里那份手写 `services.nat` 依赖 `preloadModules`
+  把 `nft_nat`/`nft_masq` 加载进来；要更早可用就得把那几项写成 `=y`。
 
 * 本设备还没有 eMMC rootfs/updater 输出；`hardware.rootDevice` 是 `/dev/mtdblock0` 占位。
 
@@ -85,7 +85,6 @@
 
 ## 4. 分阶段计划
 
-
 ### N6（可选/实验）NSS WiFi offload 评估
 
 * 依据 LibWrt 的 `package/kernel/mac80211/patches/nss/{ath11k,subsys,ath10k}` 与
@@ -94,27 +93,15 @@
   （issue `#23798`）；LibWrt 自称 IPQ60xx 2.4G/5G offload ✅，但 AP-VLAN 有已知问题。
 * 若要做：先在 6.12+LibWrt 上复现，再评估移植到 6.18 的成本，不要一开始就动 6.18。
 
-### N7a：eMMC rootfs 形态（2026-09-24 起，最终形态；N7 的第一半）
+### N7a：eMMC rootfs 形态
 
-**两个产物写进两个已存在的 GPT 分区**，不是一个整盘镜像——整盘镜像会重写 GPT 并毁掉 `+0:ART+`：
-
-| 产物 | 内容 | 写到 |
-|---|---|---|
-| `outputs.uimage` | kernel + dtb 的 FIT，cmdline 嵌在镜像里 | `0:HLOS` |
-| `outputs.rootfs` | squashfs 镜像（`modules/outputs/squashfs.nix`） | `rootfs` |
-
-**不需要的内核工作**：eMMC 那套本来就齐（`MMC_SDHCI_MSM=y`、`SQUASHFS=y`+`SQUASHFS_XZ=y`、
-`DEVTMPFS_MOUNT=y`、`EFI_PARTITION=y`）。**安装器就是现在的 fullSystem 镜像**：boot 进去 →
-把两个产物 `dd` 到对应分区 → reboot；搞砸了用 web uploader 把 fullSystem uImage 传回去恢复。
-**不要用 `outputs.updater`**（它是构建机上的脚本，靠 `min-copy-closure` 推给**可写根**，
-我们的 squashfs 根只读），也不要 `outputs.mbrimage`（带新分区表的整盘镜像）。
 
 **这个形态的收益不只是"换个介质"**：
 
 * `embedsInitramfs=false` → `config.system.outputs.kernel.modulesupport` 可用 → 模块改由
   **标准 `pkgs/kmodloader` 服务**加载（原来是 preinit 读 `boot.initramfs.preloadModules`）；
 * 同一理由让 **`modules/firewall` 可用** → NAT（默认规则里的 `nat-tx: oifname @wan masquerade`）
-  和整套默认网关规则来自模块；`ax6600-nss-ram.nix` 那份手写 masquerade 只留给 fullSystem 形态；
+  和整套默认网关规则来自模块；手写 masquerade 只留给（已删除的）fullSystem 形态；
 * 固件与 ART 校准不必再嵌进 initramfs（N7 原本那两条的前提）。
 
 **新建 `ax6600-rootfs.nix`**（不 import `modules/outputs/initramfs.nix`）：
@@ -142,14 +129,13 @@
 
 **AHB 无线（2026-09-25 完成交付改造）**：`devices/jdcloud-ax6600/wireless/default.nix` 原来用
 `boot.initramfs.preloadFirmware` 交固件，而那个选项只声明在 `modules/outputs/initramfs.nix` 里，
-所以只有 fullSystem 形态能用它。现在拆成三层：
+所以只有 fullSystem 形态能用它。现在拆成两层（fullSystem 一侧的
+`preload-firmware.nix` 后来随 RAM 形态一起删除）：
 
 * `wireless/default.nix` —— 只留与形态无关的部分：内核配置 / `conditionalConfig.WLAN`、hostapd 与
   `wlan-2g`/`wlan-5g` 工具，并把同一批 blob 做成 `wireless.firmwareFiles`（`attrsOf package`，
   key 就是内核问的名字：`IPQ6018/q6_fw.*`、`m3_fw.*`、
   `ath11k/IPQ6018/hw1.0/{board-2.bin,cal-ahb-c000000.wifi.bin}`）；
-* `wireless/preload-firmware.nix` —— fullSystem 一侧：`boot.initramfs.preloadFirmware =
-  config.wireless.firmwareFiles`（`ax6600-nss-ram.nix` import 它，它自己那几个 blob 照旧合并）；
 * `wireless/rootfs-firmware.nix` —— 挂根一侧：把同一批文件装成一棵树，只把顶层目录
   `IPQ6018`/`ath11k` 做成 `/lib/firmware` 下的符号链接，于是别的模块还能往同一目录里加东西
   （`modules/wlan.nix` 的 `regulatory.db`、`ax6600-rootfs.nix` 的 `qca-nss0.bin`——`filesystem` 是
@@ -162,15 +148,7 @@ targets 分成三组的原因：缺 `.ko` 的 target 会让 `modules.build` 的 
 直接失败。**待重编后验**：2.4G/5.8G 两个 pdev、`FW memory mode: 1`、以及
 `wlan-2g`/`wlan-5g` 起 AP（N5 的判据在挂根形态上复验一次）。
 
-**eMMC GPT 实测（2026-09-25，从起来的 USB 形态里读的）**：
-本机**不是**设备描述里那套"社区dual-boot 布局",也没有 `rootfs_1`，现在共 18 个分区：
-| 分区 | 设备 | 大小 | 现在装的是什么 |
-|---|---|---|---|
-| `0:HLOS` | p16 | 6 MiB | 原厂 kernel FIT |
-| `0:HLOS_1` | p17 | 6 MiB | 原厂备用槽 |
-| `rootfs` | **p18** | **58.2 GiB（整盘剩余）**|
-| `0:ART` | p15 | 512 KiB | 校准数据，勿动 |
-| p1–p14 | | 各 256 KiB–1.8 MiB | `0:SBL1`/`BOOTCONFIG`/`QSEE`/`DEVCFG`/`RPM`/`CDT`/`APPSBLENV`/`APPSBL` 的 A/B 两份 |
+# 不要管实际的eMMC GPT，各种机器有各种不同
 
 块设备编号有个坑：分区号 ≥8 的走扩展主设备号，所以 `rootfs`(p18) 是 **259:10**——日志里
 `Mounted root … on device 259:10` 指的就是它，不是 p10。
@@ -193,10 +171,6 @@ uimage 形状与 N7a 完全相同（FIT = kernel + dtb，cmdline 内嵌，无 ro
 cmdline 里本来就有 `rootwait`，会等到 USB 枚举出分区。要可写数据就另开一个 ext4 分区，
 用 `modules/mount` 的 `partlabel` 挂到 `/persist`（它自带 mdevd/uevent 等待）。
 
-**DTS 不用动**（已核对 pin 到的内容）：fork 的 `ipq6018-common.dtsi` 已
-`&usb3 { dr_mode = "host"; status = "okay"; }`（compatible `qcom,ipq6018-dwc3`/`qcom,dwc3`）
-并开了 `&ssphy_0`；板级 dtsi 已开 `&qusb_phy_0` 和 GPIO22 的 `usb_vbus`
-（`regulator-boot-on`）。`overrides.dtsi` 不加东西。
 
 **内核符号**（在 store 里的 6.18.52 源码上逐条核对过，全部 `=y`）：`USB_DWC3` +
 `USB_DWC3_HOST`（两个 mode 选项都没有默认值，不显式选就等于没编 host）+ `USB_DWC3_QCOM`
@@ -241,23 +215,6 @@ s6 起来，LAN/DHCP/ssh 与 N7a 一致；④ 不插盘重启是 `rootwait` 无�
 # N8，QCN9024外挂的5.2g
 * 不要设置开机启动，由我手动开启
 * **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联；
----
-
-## 5. 验收与「满血」判据
-
-| 阶段 | 判据 |
-|---|---|
-| N0 | `nix-instantiate --parse` 通过 |
-| N1 | dtb 含 `ess-switch` / `nss@40000000` / `dp1..dp5`；真机无 panic |
-| N2 | `lan1..lan4` + `wan` 存在、链路 up、DHCP/ssh 可用、`wan` 2500 Mbps |
-| N3 | ✅ 真机：`NSS fw version: NSS.FW.12.5-210-CP.R` + `NSS core 0 booted successfully`；`/proc/sys/dev/nss/` 可读（debugfs 需手工 mount）；计数增长待验 |
-| N4 | 首启：ECM init `-22`，缺 `NETFILTER_FAMILY_BRIDGE`（见 D.20）；修好后待验 ECM offload 命中（`ecm_db` 计数增长）+ 转发热路径 A53 占用显著下降 + PPPoE/2.5G 吞吐基准 |
-| N5 | ✅ 双频都起 + **关联两个频段都验完**：`iw dev` 两个 AHB pdev、`FW memory mode: 1`、Q6 跑 `WLAN.HK.2.12-01460`；9-23 热替换固件那一版 `CHEN`/`CHEN_5g` 两个 hostapd 都 `state=ENABLED`；9-24 在「pin 固件 + `CRYPTO_MICHAEL_MIC=y` 都进镜像」这一版上复验，两个 AP 同样都 `state=ENABLED`（5.8G 不再「待起」），dmesg 无 BADVA、无 CE IRQ abort；9-24 再用一台密码已知的客户端把两个 SSID 各连一次，AP 侧两条都到 `hostapdWPAPTKState=11`（PTKINITDONE）+ `AUTHORIZED`。当时那个 PSK 不符的循环客户端（`invalid MIC in msg 2/4`、`AP-STA-POSSIBLE-PSK-MISMATCH`）是它自己存了错的凭据/安全类型，AP 侧无责。转发已接上（`start` 把 pdev 的 netdev join 进 `int`），待真机复验 DHCP 租约。**Q6 固件必须 pin fork 那一版**，linux-firmware 的 2.7.0.1 让 5.8G 必崩（见 N5 阶段一） |
-
-**明确不承诺**：满血 ≠ WiFi offload（6.18 栈没有）；满血 ≠ 保证 2.5G 线速（社区反馈
-有 2.5G 口只协商到 1G 的案例，链路速率要单独实测）。
-
-
 ---
 
 ## 附录 
