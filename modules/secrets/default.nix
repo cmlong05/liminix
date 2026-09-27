@@ -15,6 +15,10 @@ let
 in
 {
   options.system.service.secrets = {
+    local = mkOption {
+      description = "read secrets from a JSON file on the running system";
+      type = liminix.lib.types.serviceDefn;
+    };
     outboard = mkOption {
       description = "fetch secrets from external vault with https";
       type = liminix.lib.types.serviceDefn;
@@ -30,6 +34,29 @@ in
 
   };
   config.system.service.secrets = {
+    local = config.system.callService ./local.nix {
+      name = mkOption {
+        description = "service name";
+        type = types.str;
+      };
+      path = mkOption {
+        description = "pathname of the JSON file to read";
+        type = types.str;
+      };
+      seed = mkOption {
+        description = ''
+          JSON file to publish while `path` is not on a mounted filesystem,
+          and to copy to `path` on the first run that finds one.
+        '';
+        type = types.nullOr types.path;
+        default = null;
+      };
+      interval = mkOption {
+        description = "how often to re-read the file, in minutes";
+        type = types.int;
+        default = 1;
+      };
+    };
     outboard = config.system.callService ./outboard.nix {
       url = mkOption {
         description = "source url";
