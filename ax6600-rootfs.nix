@@ -40,7 +40,7 @@ in
     targets = (import ./devices/jdcloud-ax6600/nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
   };
 
-  firewall.kernelModules = configservices.modules;
+  firewall.kernelModules = config.services.modules;
 
   filesystem = dir {
     lib = dir {
@@ -78,7 +78,7 @@ in
       "fw_devlink=off"
       "nokaslr"
       "root=${config.hardware.rootDevice}"
-      "rootfstype=squashfs"
+      "rootfstype=${config.rootfsType}"
       "rootwait"
       "init=/bin/init"
     ];

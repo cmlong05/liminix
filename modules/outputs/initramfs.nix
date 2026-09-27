@@ -15,12 +15,7 @@ let
   cfg = config.boot.initramfs;
   o = config.system.outputs;
 
-  # The directories a set of firmware names needs below /lib/firmware,
-  # sorted so that every ancestor precedes its children. A firmware name
-  # is whatever the driver requests, so it may be a path; the kernel
-  # creates no implicit parents while unpacking, which means each one has
-  # to be in the archive first. A plain name ("qca-nss0.bin") needs
-  # nothing: /lib/firmware itself is emitted separately.
+
   firmwareDirs =
     names:
     let
@@ -40,27 +35,13 @@ in
   imports = [ ./system-configuration.nix ];
   options = {
     boot.initramfs = {
-      enable = mkEnableOption "initramfs";
-      # "full system" mode: embed the entire system (nix store, s6,
-      # filesystem contents) into the initramfs itself, so no root
-      # device is needed at all. This produces a single-file kernel
-      # image containing everything, which can be booted by a U-Boot
-      # that loads an initramfs image (e.g. /uimage.html on some
-      # boards), or embedded in a FIT image.
-      #
-      # The command line must NOT contain a root= parameter when this
-      # is enabled: preinit treats a missing root device as "we are
-      # already running the whole system".
+      enable = mkOption {
+        type = types.bool;
+        default = cfg.fullSystem;
+      };
+
       fullSystem = mkEnableOption "embed the whole system in the initramfs";
-      # Loadable modules to put in the image, as a `pkgs/liminix-tools/modules`
-      # tree. preinit loads every entry of its load-order through
-      # finit_module before it hands over to s6, so a fullSystem image can
-      # carry modules even though a kmodloader *service* cannot: that
-      # service needs kernel.modulesupport, and fullSystem embeds the
-      # whole rootdir into that same kernel derivation.
-      #
-      # Only meaningful together with fullSystem: the non-fullSystem
-      # initramfs is preinit alone and has no module tree to load from.
+
       preloadModules = mkOption {
         type = types.nullOr types.package;
         default = null;
@@ -70,12 +51,7 @@ in
           `boot.initramfs.fullSystem`.
         '';
       };
-      # Firmware for the modules above. It cannot come from
-      # `filesystem.lib.firmware` in this image shape, even though that is
-      # where the kernel looks: preinit runs load_modules() *before* it
-      # runs activate, and activate is what creates /lib/firmware, so a
-      # request_firmware() during finit_module finds nothing. Files named
-      # here are embedded in the image at /lib/firmware/<name> instead.
+
       preloadFirmware = mkOption {
         type = types.attrsOf types.package;
         default = { };
@@ -156,13 +132,6 @@ in
             ];
           }
           ''
-            # Build the cpio from a spec so we can also create /proc,
-            # /dev and a /dev/console node: preinit mounts /proc and
-            # /dev first thing, and the kernel opens /dev/console for
-            # init's stdio - without these preinit fails silently.
-            # /init must be preinit (it populates the root filesystem
-            # via activate); rootdir's /init symlink (s6 init) is
-            # moved to /init.s6.
             (
               cd ${o.rootdir}
               find . -mindepth 1 | sort | while read -r p; do
