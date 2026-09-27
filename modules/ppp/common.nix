@@ -24,7 +24,7 @@ let
     escapeShellArgs
     ;
   inherit (liminix.services) longrun;
-  inherit (builtins) toJSON toString typeOf;
+  inherit (builtins) toJSON toString;
 
   ip-up = writeAshScript "ip-up" { } ''
     exec >&5 2>&5
@@ -51,19 +51,15 @@ let
     touch ipv6-up
     test -e ip-up && ( echo >/proc/self/fd/10 || true)
   '';
+  isOutputRef = o: builtins.isFunction o || (builtins.isAttrs o && o ? __functor);
   literal_or_output =
     let
       v =
         o:
-        (
-          {
-            string = toJSON;
-            int = toJSON;
-            lambda = (o: "output(${toJSON (o "service")}, ${toJSON (o "path")})");
-          }
-          .${typeOf o}
-        )
-          o;
+        if isOutputRef o then
+          "output(${toJSON (o "service")}, ${toJSON (o "path")})"
+        else
+          toJSON o;
     in
     o: "{{ ${v o} }}";
 
@@ -124,7 +120,7 @@ let
   };
 in
 svc.secrets.subscriber.build {
-  watch = lib.filter (n: typeOf n == "lambda") [
+  watch = lib.filter isOutputRef [
     username
     password
   ];
