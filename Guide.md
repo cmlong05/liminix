@@ -72,6 +72,32 @@ sudo mkfs.ext4 -L liminix-persist /dev/sdX3
 # 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
 
 
+# ext4 根变体
+# rootfs
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb-ext4.nix \
+    -A outputs.rootfs \
+    -o result-usb-ext4-rootfs \
+    && sh md5_result.sh
+
+# 或者 方便直接拷贝
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb-ext4.nix \
+    -A outputs.bootablerootdir \
+    -o result-usb-ext4-tree
+
+# Kernel
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb-ext4.nix \
+    -A outputs.uimage \
+    -o result-usb-ext4-uimage \
+    && sh md5_result.sh
+
+# 写入U盘，两种方式，一种直接将dd整个分区，之后修改扩容
+# 一种挂载分区后，rsync过去
 
 # 修改uboot的环境变量第一顺位为usb
 setenv bootcmd 'usb start; fatload usb 0:1 0x44000000 fit.itb; bootm 0x44000000'

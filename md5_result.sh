@@ -8,7 +8,7 @@
 set -u
 cd "$(dirname "$0")"
 
-known="result-uimage result-rootfs result-usb-uimage result-usb-rootfs"
+known="result-uimage result-rootfs result-usb-uimage result-usb-rootfs result-usb-ext4-uimage result-usb-ext4-rootfs"
 
 if [ "$#" -gt 0 ]; then
     results="$*"
