@@ -62,6 +62,16 @@ in
       type = types.nullOr types.str;
       default = null;
     };
+    boot.rootfs.mount = mkOption {
+      type = types.enum [
+        "initramfs"
+        "kernel"
+      ];
+      default = "initramfs";
+      description = ''
+        Who mounts the root filesystem.
+      '';
+    };
 
     boot = {
       commandLine = mkOption {

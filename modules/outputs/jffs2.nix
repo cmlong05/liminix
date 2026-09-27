@@ -22,7 +22,7 @@ in
       JFFS2_ZLIB = "y";
       JFFS2_CMODE_SIZE = "y";
     };
-    boot.initramfs.enable = true;
+    boot.initramfs.enable = mkIf (config.boot.rootfs.mount == "initramfs") true;
     system.outputs = {
       rootfs =
         let
