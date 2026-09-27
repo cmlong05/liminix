@@ -18,7 +18,7 @@ in
       EXT4_USE_FOR_EXT2 = "y";
       FS_ENCRYPTION = "y";
     };
-    boot.initramfs.enable = true;
+    boot.initramfs.enable = mkIf (config.boot.rootfs.mount == "initramfs") true;
     system.outputs = {
       rootfs =
         let
