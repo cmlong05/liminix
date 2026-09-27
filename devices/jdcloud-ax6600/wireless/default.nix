@@ -85,10 +85,9 @@ let
 
   # The names the drivers ask for, exactly as they ask: the Q6 and m3 images
   # from the wcss remoteproc, board-2 from ath11k's board data lookup, and the
-  # per-unit calibration ath11k builds out of the bus and device name. Both
-  # delivery modules (./preload-firmware.nix, ./rootfs-firmware.nix) index
-  # firmwarePkg with this list, so a name that is not in the tree fails their
-  # build instead of shipping a dangling file.
+  # per-unit calibration ath11k builds out of the bus and device name.
+  # ./rootfs-firmware.nix indexes firmwarePkg with this list, so a name that is
+  # not in the tree fails its build instead of shipping a dangling file.
   firmwareNames = [
     "IPQ6018/q6_fw.mdt"
     "IPQ6018/q6_fw.b00"
@@ -246,16 +245,12 @@ in
 {
   imports = [ ../../../modules/wlan.nix ];
 
-  # The blobs, one package per name. How they reach the kernel depends on the
-  # image form, which is not this module's business: ./preload-firmware.nix
-  # embeds them in a fullSystem image, where preinit loads these drivers
-  # before activate has created /lib/firmware, and ./rootfs-firmware.nix puts
-  # them under /lib/firmware for a mounted root.
+  # The blobs, one package per name. How they reach the kernel is
+  # ./rootfs-firmware.nix's business: it puts them under /lib/firmware for a
+  # mounted root.
   #
-  # regulatory.db is in neither list: modules/wlan.nix installs it under
-  # /lib/firmware as an ordinary file. cfg80211 asks for it at late_initcall
-  # though, before activate has made that file, so a fullSystem image keeps
-  # its own copy in boot.initramfs.preloadFirmware (ax6600-nss-ram.nix).
+  # regulatory.db is not here: modules/wlan.nix installs it under /lib/firmware
+  # as an ordinary file.
   options.wireless.firmwareFiles = lib.mkOption {
     type = lib.types.attrsOf lib.types.package;
     internal = true;
@@ -270,12 +265,11 @@ in
       # The AHB half of ath11k needs the remoteproc framework; the wcss
       # driver itself comes from the kernel patches.
       REMOTEPROC = "y";
-      # wlan.nix builds cfg80211 as a module; this device has wanted it
-      # built-in since N4, when the only reason to have it at all was ECM's
-      # VAP test reading net_device->ieee80211_ptr (that field exists for
-      # With CRDA and signature checks off, regulatory.db is cfg80211's only source of country rules,
-      # needed at late_initcall inside initramfs—so CFG80211 must be built-in (=y).
-      CFG80211 = lib.mkForce "y";
+      # A module, not built-in: the mounted-root shapes load it from the
+      # kmodloader once /lib/firmware is on disk, where modules/wlan.nix puts
+      # regulatory.db. Built-in it asks for that file at late_initcall, before
+      # the kernel mounts the root, and the failure sticks.
+      CFG80211 = lib.mkForce "m";
 
       # ath11k_peer_rx_frag_setup() allocates a "michael_mic" shash for every
       # peer it adds (dp_rx.c:3189), unconditionally and before the key

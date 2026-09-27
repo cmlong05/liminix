@@ -1,5 +1,6 @@
 {
   liminix,
+  lib,
   ifwait,
   svc,
 }:
@@ -10,26 +11,30 @@ let
   inherit (liminix.services) bundle oneshot;
   addif =
     member:
-    # how do we get sight of services from here? maybe we need to
-    # implement ifwait as a regular derivation instead of a
-    # service definition
-    svc.ifwait.build {
-      state = "running";
-      interface = member;
-      dependencies = [
-        primary
-        member
-      ];
-      service = oneshot {
+    let
+      port = oneshot {
         name = "${primary.name}.member.${member.name}";
         up = ''
           ip link set dev $(output ${member} ifname) master $(output ${primary} ifname)
         '';
         down = "ip link set dev $(output ${member} ifname) nomaster";
       };
-    };
+      watcher = svc.ifwait.build {
+        state = "running";
+        interface = member;
+        dependencies = [
+          primary
+          member
+        ];
+        service = port;
+      };
+    in
+    [
+      port
+      watcher
+    ];
 in
 bundle {
   name = "${primary.name}.members";
-  contents = map addif members;
+  contents = lib.concatMap addif members;
 }

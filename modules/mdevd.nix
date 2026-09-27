@@ -22,7 +22,7 @@ in
         # would love to know what mdevd-coldplug/udevadm trigger does
         # that this doesn't
         up = ''
-          for i in $(find /sys -name uevent); do ( echo change > $i ) ; done
+          find /sys -name uevent | while IFS= read -r i; do echo change > "$i"; done
         '';
         dependencies = [
           devout

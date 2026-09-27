@@ -1,22 +1,28 @@
 # 构建命令
 # -Q 不把各 derivation 的构建日志转发到终端
-# 指定配置文件
+# 指定配置文件 （此项设定和现有持续化config路径是否和谐？）
 # -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix
 
+# uboot设置env从U盘启动
+setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; fi; bootipq'
+saveenv
+printenv bootcmd
+reset
 
-# 单文件 RAM 镜像（lan1..lan4 桥接 + 2.5G PPPoE + 2.4g + 5.8g + NSS）
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-nss-ram.nix \
-    -A outputs.uimage \
-    -o result-nss-lan-ram && \
-    sh md5_result.sh
+# U盘系统里的内容，三个分区（GPT 自己建，见下面"U 盘分区与刷写"）
+# p1: FAT，只放 fit.itb（内核 FIT = kernel + dtb，cmdline 内嵌，U-Boot 按这个名字 fatload）
+# p2: rootfs（squashfs），GPT 分区名必须是 liminix-root（root=PARTLABEL=liminix-root）
+# p3: 持续化存储，ext4，卷标 liminix-persist，挂 /persist
+
 
 # uimage rootfs
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-rootfs.nix \
     -A outputs.uimage \
+&& nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-rootfs.nix \
     -A outputs.rootfs \
     -o result-rootfs \
     && sh md5_result.sh
@@ -36,25 +42,49 @@ nix-build -Q \
     -o result-usb-rootfs \
     && sh md5_result.sh
 
-# U 盘准备：GPT + 一个名为 liminix-root 的分区（root=PARTLABEL=liminix-root，
-# 分区名必须一致；兜底可把 ax6600-usb.nix 里的 rootDevice 换成 /dev/sda1）
-sudo sgdisk -o -n 1:2048:0 -c 1:liminix-root -t 1:8300 /dev/sdX
+# U 盘分区与刷写
+nix shell nixpkgs#gptfdisk
+sudo sgdisk -o \
+    -n 1:0:+64M   -c 1:boot            -t 1:ef00 \
+    -n 2:0:+6144M -c 2:liminix-root    -t 2:8300 \
+    -n 3:0:0      -c 3:liminix-persist -t 3:8300 \
+    /dev/sdX
 sudo partprobe /dev/sdX
-sudo dd if=result-usb-rootfs of=/dev/sdX1 bs=1M conv=fdatasync status=progress
 
-# 启动：把 result-usb-uimage 从 U-Boot 网页上传，和 -ram 镜像同一个入口，
-# 从内存 bootm；也可以 dd 进 eMMC 的 0:HLOS，两种方式都从 U 盘挂根。
-# 起不来就重新上传 ram 镜像（ax6600-nss-ram.nix）恢复。
-# 注意：拔盘重启时 rootwait 是无限等设备，不是回退。
+# 格式化 p1 内核分区
+sudo mkfs.vfat -F 16 -n BOOT /dev/sdX1
+# 复制kernel(注意修改文件名)
+sudo mount /dev/sdX1 /mnt
+sudo cp result-usb-uimage /mnt/fit.itb && sync
+sudo umount /mnt
+
+# p2：squashfs 原样 dd 进分区（分区比文件系统大即可，其余是空洞）
+# 进一步考虑改成 ext4，或者看什么分区内型适合nixos
+sudo dd if=result-usb-rootfs of=/dev/sdX2 bs=4M conv=fdatasync status=progress
+
+# p3：ext4 空盘，卷标必须和 ax6600-usb.nix 的 persistLabel 一致，hook 靠它挂
+nix shell nixpkgs#e2fsprogs
+sudo mkfs.ext4 -L liminix-persist /dev/sdX3
+# p3会被挂载到/persist, 如果把其中的 config.json 删掉后重启即回到镜像里的默认值文件。 
+# 不是合法 JSON 会整份回落到镜像里的种子并在日志里报错；
+# 少了某个键时，hostname/地址/DHCP/resolvers 各自回落到建构期默认值
+# PPPoE 账号则没有默认值可用、拨号服务起不来（LAN 和 ssh 不受影响，可以ssh进去改回来）
+# 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
 
 
-# 无线（2.4G = CHEN，5.8G = CHEN_5g，密码 88888888）：这两个 AP 不由开机自启，
-# 进系统后手动开。脚本按频段找 AHB pdev 的 netdev，起来后把它 join 进 int 桥。
+
+# 修改uboot的环境变量第一顺位为usb
+setenv bootcmd 'usb start; fatload usb 0:1 0x44000000 fit.itb; bootm 0x44000000'
+saveenv
+
+# 手动开wifi。脚本按频段找 AHB pdev 
 ssh root@10.10.10.10
-wlan-2g                # wlan-2g status / wlan-2g stop 同理
+# wlan-2g status / wlan-2g stop 
+wlan-2g
 wlan-5g
-iw dev                 # 两个 pdev 的 netdev；hostapd_cli -p /run/hostapd-2g status
-
+# 检查wifi状态
+iw dev
+hostapd_cli -p /run/hostapd-2g status
 
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
