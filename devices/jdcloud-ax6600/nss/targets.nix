@@ -13,10 +13,9 @@
 #     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB in the kernel config.
 #
 # `all` is both groups: ax6600-rootfs.nix (and ax6600-usb.nix on top of it)
-# and ax6600-nss-ram.nix all import wireless/default.nix, so all three take it.
+# imports wireless/default.nix, so both take it.
 #
-# Not here: the nft_* modules. ax6600-nss-ram.nix appends them for the
-# masquerade it writes by hand, and the rootfs image gets them from
+# Not here: the nft_* modules. The rootfs image gets them from
 # modules/firewall's own kmodloader instead.
 let
   wired = [
@@ -37,10 +36,6 @@ let
     "ecm"
   ];
 
-  # N5: the AHB radio. The WCSS remoteproc must be registered before
-  # ath11k_ahb probes (the wifi node's qcom,rproc phandle resolves then);
-  # depmod sorts that out from the order of these two. The driver is the
-  # secure-PIL one, not mainline's qcom_q6v5_wcss.
   wireless = [
     "qcom_q6v5_wcss_sec"
     "ath11k_ahb"
