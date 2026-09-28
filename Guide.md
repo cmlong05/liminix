@@ -3,7 +3,7 @@
 # 指定配置文件 （此项设定和现有持续化config路径是否和谐？）
 # -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix
 
-# uboot设置env从U盘启动
+# uboot设置env从U盘启动，未插U盘，检测不到则从默认内部启动
 setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; fi; bootipq'
 saveenv
 printenv bootcmd
@@ -15,7 +15,7 @@ reset
 # p3: 持续化存储，ext4，卷标 liminix-persist，挂 /persist
 
 
-# uimage rootfs
+### 基础版 uimage rootfs
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-rootfs.nix \
@@ -27,22 +27,39 @@ nix-build -Q \
     -o result-rootfs \
     && sh md5_result.sh
 
-
-# USB 根：内核形状与 rootfs 形态相同（FIT = kernel + dtb，无 rootdir），
-# 根文件系统在 U 盘的 liminix-root 分区上；eMMC 完全不被写。
+### USB squashfs版
 nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb.nix \
-    -A outputs.uimage \
-    -o result-usb-uimage \
-    && nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-usb.nix \
     -A outputs.rootfs \
     -o result-usb-rootfs \
     && sh md5_result.sh
 
-# U 盘分区与刷写
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb.nix \
+    -A outputs.uimage \
+    -o result-usb-uimage \
+    && sh md5_result.sh
+
+### USB ext4 版
+# rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb-ext4.nix \
+    -A outputs.rootfs \
+    -o result-usb-ext4-rootfs \
+    && sh md5_result.sh
+# Kernel
+nix-build -Q \
+    --arg device "import ./devices/jdcloud-ax6600" \
+    -I liminix-config=./ax6600-usb-ext4.nix \
+    -A outputs.uimage \
+    -o result-usb-ext4-uimage \
+    && sh md5_result.sh
+
+
+### U 盘分区与刷写
 nix shell nixpkgs#gptfdisk
 sudo sgdisk -o \
     -n 1:0:+64M   -c 1:boot            -t 1:ef00 \
@@ -55,16 +72,27 @@ sudo partprobe /dev/sdX
 sudo mkfs.vfat -F 16 -n BOOT /dev/sdX1
 # 复制kernel(注意修改文件名)
 sudo mount /dev/sdX1 /mnt
-sudo cp result-usb-uimage /mnt/fit.itb && sync
+sudo cp result-usb-ext4-uimage /mnt/fit.itb && sync
 sudo umount /mnt
 
-# p2：squashfs 原样 dd 进分区（分区比文件系统大即可，其余是空洞）
-# 进一步考虑改成 ext4，或者看什么分区内型适合nixos
-sudo dd if=result-usb-rootfs of=/dev/sdX2 bs=4M conv=fdatasync status=progress
+# p2：把镜像 loop 挂载，再用 rsync 写进分区（fifo 和属主随 rsync 落地）
+sudo mkdir -p /mnt/img
+sudo mount -o loop,ro result-usb-ext4-rootfs /mnt/img
+# 首次需要格式化，之后直接挂载后 rsync（mkfs 按分区大小建，不需要再扩容）
+sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
+sudo mount /dev/sdX2 /mnt
+sudo rsync -aHAX --numeric-ids --info=progress2 --delete --exclude=/lost+found /mnt/img/ /mnt/
+sync ; sudo umount /mnt /mnt/img
+
+# 或者直接把整个镜像 dd 进分区
+sudo dd if=result-usb-ext4-rootfs of=/dev/sdX2 bs=4M conv=fdatasync status=progress
+# 扩文件系统：
+sudo e2fsck -f /dev/sdX2
+sudo resize2fs /dev/sdX2
 
 # p3：ext4 空盘，卷标必须和 ax6600-usb.nix 的 persistLabel 一致，hook 靠它挂
 nix shell nixpkgs#e2fsprogs
-sudo mkfs.ext4 -L liminix-persist /dev/sdX3
+sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 # p3会被挂载到/persist, 如果把其中的 config.json 删掉后重启即回到镜像里的默认值文件。 
 # 不是合法 JSON 会整份回落到镜像里的种子并在日志里报错；
 # 少了某个键时，hostname/地址/DHCP/resolvers 各自回落到建构期默认值
@@ -72,39 +100,7 @@ sudo mkfs.ext4 -L liminix-persist /dev/sdX3
 # 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
 
 
-# ext4 根变体
-# rootfs
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
-    -A outputs.rootfs \
-    -o result-usb-ext4-rootfs \
-    && sh md5_result.sh
-
-# 或者 方便直接拷贝
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
-    -A outputs.bootablerootdir \
-    -o result-usb-ext4-tree
-
-# Kernel
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
-    -A outputs.uimage \
-    -o result-usb-ext4-uimage \
-    && sh md5_result.sh
-
-# 写入U盘，两种方式，一种直接将dd整个分区，之后修改扩容
-# 一种挂载分区后，rsync过去
-
-# 修改uboot的环境变量第一顺位为usb
-setenv bootcmd 'usb start; fatload usb 0:1 0x44000000 fit.itb; bootm 0x44000000'
-saveenv
-
-# 手动开wifi。脚本按频段找 AHB pdev 
-ssh root@10.10.10.10
+# 手动开wifi
 # wlan-2g status / wlan-2g stop 
 wlan-2g
 wlan-5g
