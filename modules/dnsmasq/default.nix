@@ -99,6 +99,16 @@ in
           }
         );
       };
+      hostsFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Path of a file of --dhcp-host lines, one host per line, in the
+          syntax of `hosts` above. dnsmasq reads it at start-up and whenever
+          it receives SIGHUP, so unlike `hosts` - which is fixed in the
+          image - it can carry leases that change on a running system.
+        '';
+      };
       domain = mkOption {
         # this can be given multiple times so probably should be
         # domains plural and list of string
