@@ -15,6 +15,7 @@
   upstreams,
   resolvconf,
   resolvFile,
+  hostsFile,
 }:
 let
   name = "${interface.name}.dnsmasq";
@@ -63,6 +64,7 @@ longrun {
         "--no-resolv"
     } \
     ${lib.concatStringsSep " " (mapAttrsToList hostOpt hosts)} \
+    ${if hostsFile != null then "--dhcp-hostsfile=${hostsFile}" else ""} \
     --no-hosts \
     --log-dhcp \
     --enable-ra \
