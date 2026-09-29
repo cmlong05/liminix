@@ -14,7 +14,9 @@
 #     has created /lib/firmware;
 #   * a hostapd AP per band, an ordinary s6 longrun service: ssid,
 #     passphrase and channel come from the deployment and can be changed
-#     at run time via /persist/config.json.
+#     at run time via /persist/config.json. Encryption is the exception -
+#     each band names its own mode, read at build time only through
+#     `bandSecurity`, see `securityModes` below.
 #
 # wlan0 is the 2.4 GHz pdev and wlan1 the 5.8 GHz one; `link` waits for
 # each netdev with ifwait, so ath11k registering them asynchronously
@@ -132,6 +134,55 @@ let
     "24g" = "wlan24g";
     "58g" = "wlan58g";
   };
+
+  # Encryption, build-time only: modules/hostapd turns `params` into a
+  # static config file, so there is no way to leave a line out at run time
+  # and hence one entry per mode rather than independent knobs.
+  # Every band names its own mode; there is no wifi-wide default.
+  # wpa2-wpa3 needs hostapd built with CONFIG_SAE.
+  securityModes =
+    {
+      wpa2 = {
+        auth_algs = 1;
+        wpa = 2;
+        wpa_key_mgmt = "WPA-PSK";
+        wpa_pairwise = "CCMP";
+        rsn_pairwise = "CCMP";
+      };
+      wpa2-wpa3 = {
+        auth_algs = 1;
+        wpa = 2;
+        wpa_key_mgmt = "WPA-PSK SAE";
+        wpa_pairwise = "CCMP";
+        rsn_pairwise = "CCMP";
+        # PMF optional: WPA3 stations use it, WPA2-only ones still associate
+        ieee80211w = 1;
+      };
+      open = {
+        auth_algs = 1;
+      };
+    };
+  bandConf = name: (deployment.wifi.bands or { }).${name} or { };
+  bandSecurity =
+    name:
+    if (bandConf name) ? security then
+      (bandConf name).security
+    else
+      throw "wifi.bands.${name}.security: every band needs its own encryption mode";
+  securityFor =
+    name:
+    securityModes.${bandSecurity name}
+    or (throw "wifi.bands.${name}.security: expected wpa2, wpa2-wpa3 or open, got ${bandSecurity name}");
+
+  # There is no wifi-wide passphrase either: each band names its own, and
+  # this fails at build time rather than leaving hostapd to read an empty
+  # file. The value itself is still read at run time, from the path below.
+  bandPasswordPath =
+    name:
+    if (bandConf name) ? password then
+      "wifi/bands/${name}/password"
+    else
+      throw "wifi.bands.${name}.password: every band needs its own passphrase";
 in
 {
   imports = [
@@ -247,24 +298,24 @@ in
     # service s6 starts at boot. ssid/passphrase/channel come from the
     # runtime-config tree; modules/hostapd's secrets subscriber makes
     # that service a dependency and restarts hostapd when it changes.
+    # Encryption comes from the per-band `securityFor` instead, see above.
     services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
       name: netif:
       lib.nameValuePair "hostap-${name}" (svc.hostapd.build {
         interface = config.hardware.networkInterfaces.${netif};
-        params = {
-          ssid = outputRef runtime "wifi/bands/${name}/ssid";
-          wpa_passphrase = outputRef runtime "wifi/password";
-          country_code = outputRef runtime "wifi/countryCode";
-          hw_mode = outputRef runtime "wifi/bands/${name}/hw_mode";
-          channel = outputRef runtime "wifi/bands/${name}/channel";
-          wmm_enabled = 1;
-          ieee80211n = 1;
-          auth_algs = 1;
-          wpa = 2;
-          wpa_key_mgmt = "WPA-PSK";
-          wpa_pairwise = "CCMP";
-          rsn_pairwise = "CCMP";
-        };
+        params =
+          {
+            ssid = outputRef runtime "wifi/bands/${name}/ssid";
+            country_code = outputRef runtime "wifi/countryCode";
+            hw_mode = outputRef runtime "wifi/bands/${name}/hw_mode";
+            channel = outputRef runtime "wifi/bands/${name}/channel";
+            wmm_enabled = 1;
+            ieee80211n = 1;
+          }
+          // securityFor name
+          // lib.optionalAttrs (bandSecurity name != "open") {
+            wpa_passphrase = outputRef runtime (bandPasswordPath name);
+          };
       })
     ) bands);
 
