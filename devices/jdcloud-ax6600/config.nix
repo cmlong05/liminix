@@ -46,17 +46,26 @@
     # Build-time switch (a rebuild is needed, unlike the run-time overrides
     # above): false leaves the APs off at boot, to be started by hand.
     autostart = true;
-    password = "mubimuba";
+    # Each band names its own passphrase and encryption mode: there is no
+    # wifi-wide one of either, so two SSIDs cannot share a secret by
+    # accident. Passphrases are read at run time; the mode is build-time
+    # only, because hostapd's config is a static file that run time cannot
+    # rewrite.
+    # Mode: "wpa2" | "wpa2-wpa3" (needs hostapd built with SAE) | "open".
     bands = {
       "24g" = {
         ssid = "MUL";
         hw_mode = "g";
         channel = "6";
+        password = "mubimuba";
+        security = "wpa2";
       };
       "58g" = {
         ssid = "MU";
         hw_mode = "a";
         channel = "149";
+        password = "mubimuba";
+        security = "wpa2";
       };
     };
   };
