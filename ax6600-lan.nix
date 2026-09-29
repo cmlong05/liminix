@@ -79,6 +79,8 @@ in
       nifs.lan2
       nifs.lan3
       nifs.lan4
+      nifs.wlan24g
+      nifs.wlan58g
     ];
   };
 
