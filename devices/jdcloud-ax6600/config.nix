@@ -18,10 +18,10 @@
 
   wan = {
     pppoe = {
-      username = "xga102782536";
-      password = "443508";
-      # username = "5260383575";
-      # password = "888888";
+      # username = "xga102782536";
+      # password = "443508";
+      username = "5260383575";
+      password = "888888";
     };
 
     # Extra upstream resolvers
@@ -29,5 +29,26 @@
       "223.5.5.5"
       "119.29.29.29"
     ];
+  };
+
+  # APs. Read at build time by devices/jdcloud-ax6600/wireless/default.nix
+  # and again at run time from this file's seed in /persist/config.json, so
+  # changing an SSID, passphrase or channel needs no new image.
+  # `bands` is keyed by which AHB pdev serves it: "24g" and "58g".
+  wifi = {
+    countryCode = "CN";
+    password = "88888888!!";
+    bands = {
+      "24g" = {
+        ssid = "CHEN";
+        hw_mode = "g";
+        channel = "6";
+      };
+      "58g" = {
+        ssid = "CHEN-5g";
+        hw_mode = "a";
+        channel = "149";
+      };
+    };
   };
 }
