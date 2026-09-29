@@ -38,5 +38,6 @@ in
     gptfdisk
     util-linux
     iperf3
+    vim
   ];
 }
