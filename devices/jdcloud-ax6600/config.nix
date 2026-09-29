@@ -14,6 +14,24 @@
     address = "10.10.10.10";
     prefixLength = 24;
     dhcpRange = "10.10.10.50,10.10.10.200,255.255.255.0,12h";
+
+    # Static leases keyed by hostname, applied at run time: `mac` and `ip`
+    # are required, `leasetime` optional (default 86400). Keep the
+    # addresses outside dhcpRange.
+    dhcpHosts = {
+      raspberrypi = {
+        mac = "B8:27:EB:C0:01:5A";
+        ip = "10.10.10.1";
+      };
+      ASUS = {
+        mac = "3C:7C:3F:50:D8:3F";
+        ip = "10.10.10.5";
+      };
+      openmediavault = {
+        mac = "34:97:F6:BC:8D:AA";
+        ip = "10.10.10.9";
+      };
+    };
   };
 
   wan = {
