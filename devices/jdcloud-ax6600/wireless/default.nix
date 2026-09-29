@@ -15,11 +15,12 @@
 #   * one script per band that starts a hostapd AP, building its hostapd
 #     config at start time from the deployment's wifi values.
 #
-# Nothing here autostarts the APs - BRINGUP N5 asks for the radios to be
-# brought up by hand. The modules are in preloadModules, so the radio
-# and its netdevs are up once the system is, and `wlan-24g` / `wlan-58g`
-# do the rest. Which wlanN each pdev gets is registration order, which
-# is why the scripts look the interface up by band, not by name.
+# The APs come up at boot unless wifi.autostart is false: a oneshot per
+# band waits for the AHB netdev to be registered and then runs the
+# `wlan-24g` / `wlan-58g` script. Those scripts are also on the login
+# PATH, so an AP can still be stopped and started by hand. Which wlanN
+# each pdev gets is registration order, which is why the scripts look
+# the interface up by band, not by name.
 #
 # `qcom,ath11k-fw-memory-mode = <1>`, which the fork's board dts sets on
 # both wifi nodes, IS read here: patch 903 is applied (see ./SOURCES.nix),
@@ -30,6 +31,8 @@
 # 1" disproves. There is therefore no override of it anywhere.
 { pkgs, lib, config, ... }:
 let
+  inherit (pkgs.liminix.services) oneshot;
+
   # --- firmware -----------------------------------------------------
   #
   # The Q6 image, the m3 and the board data are the set ./SOURCES.nix
@@ -123,6 +126,7 @@ let
   wifi = deployment.wifi or { };
   wifiBand = name: defaults: defaults // ((wifi.bands or { }).${name} or { });
   countryCode = wifi.countryCode or "CN";
+  wifiAutostart = wifi.autostart or true;
 
   # --- hostapd ------------------------------------------------------
   #
@@ -275,6 +279,10 @@ EOF
       };
     };
   };
+
+  # One script per band, keyed by band: the login tool and the service
+  # below both come from these.
+  apPkgs = lib.mapAttrs (name: b: ap name b.band b.params) bands;
 in
 {
   imports = [ ../../../modules/wlan.nix ];
@@ -370,11 +378,42 @@ in
 
     wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
 
-    # hostapd is started by hand, so it is a tool here, not a service.
+    # Unless wifi.autostart is false, one oneshot per band brings its AP
+    # up at boot: the `wlan-24g` (or `wlan-58g`) script, run once the
+    # AHB netdev exists. ath11k registers that netdev only after the Q6
+    # firmware boots, well after this oneshot's dependencies are up, so
+    # the up script polls for it and gives up (successfully) rather than
+    # block the boot forever.
+    services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
+      name: pkg:
+      lib.nameValuePair "wlan-${name}" (oneshot {
+        name = "wlan-${name}";
+        dependencies = [
+          runtime
+          config.services.int
+        ];
+        timeout-up = 90000;
+        up = ''
+          i=0
+          until ${pkg}/bin/wlan-${name} status >/dev/null 2>&1; do
+            i=$((i + 1))
+            if test "$i" -ge 60 ; then
+              echo "wlan-${name}: no AHB netdev after 60s; start it by hand"
+              exit 0
+            fi
+            sleep 1
+          done
+          ${pkg}/bin/wlan-${name} start
+        '';
+        down = "${pkg}/bin/wlan-${name} stop >/dev/null 2>&1 || true";
+      })
+    ) apPkgs);
+
+    # The scripts stay on the login PATH so an AP can be cycled by hand.
     defaultProfile.packages = [
       pkgs.iw
       pkgs.hostapd
     ]
-    ++ lib.mapAttrsToList (name: b: ap name b.band b.params) bands;
+    ++ builtins.attrValues apPkgs;
   };
 }
