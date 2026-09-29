@@ -42,9 +42,14 @@ let
       name = name';
       run = ''
         dir=/run/service/${name}
-        echo waiting for $dir
-        if test -e $dir/notification-fd; then flag="-U"; else flag="-u"; fi
-        ${s6}/bin/s6-svwait $flag /run/service/${name} || exit
+        
+        # oneshot services have no supervise directory to wait for
+        if test -d $dir ; then
+          echo waiting for $dir
+          if test -e $dir/notification-fd; then flag="-U"; else flag="-u"; fi
+          ${s6}/bin/s6-svwait $flag $dir || exit
+        fi
+
         PATH=${s6-rc}/bin:${s6}/bin:${s6-rc-up-tree}/bin:$PATH
         ${watch-outputs}/bin/watch-outputs ${restart-flag} ${name} ${refs}
       '';
