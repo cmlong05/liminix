@@ -21,7 +21,7 @@
 | 前置 | eMMC 挂根：uimage + squashfs rootfs | 已落地 | `8ec44be`、`ad4f4c0` |
 | 前置 | USB 挂根：uimage + squashfs rootfs | 已落地 | `04229a7` |
 | 前置 | USB 挂根：ext4 可写 root | 已落地 | `234723e`、`63bf2e4` |
-| 前置 | AHB 2.4G/5.8G AP 开机自动启动（`wifi.autostart` 可关） | 已落地 | — |
+| 前置 | AHB 2.4G/5.8G AP 走标准 hostapd 服务（s6 长驻，`wifi.autostart` 可关） | 已落地 | — |
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
 | N7 | 产品化：持久化、分区、per-unit 数据 | 待办 | — |
 | N8 | 外挂 QCN9024 的 5.2G | 待办 | — |
