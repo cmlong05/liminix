@@ -32,15 +32,15 @@ nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-usb.nix \
     -A outputs.rootfs \
-    -o result-usb-rootfs \
-    && sh md5_result.sh
+    -o result-usb-rootfs
 
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-usb.nix \
     -A outputs.uimage \
-    -o result-usb-uimage \
-    && sh md5_result.sh
+    -o result-usb-uimage
+
+sh md5_result.sh
 
 ### USB ext4 版
 # rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
@@ -49,14 +49,14 @@ nix-build -Q \
     -I liminix-config=./ax6600-usb-ext4.nix \
     -A outputs.rootfs \
     -o result-usb-ext4-rootfs \
-    && sh md5_result.sh
 # Kernel
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./ax6600-usb-ext4.nix \
     -A outputs.uimage \
     -o result-usb-ext4-uimage \
-    && sh md5_result.sh
+
+sh md5_result.sh
 
 
 ### U 盘分区与刷写

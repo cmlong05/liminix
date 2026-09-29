@@ -18,10 +18,10 @@
 
   wan = {
     pppoe = {
-      # username = "xga102782536";
-      # password = "443508";
-      username = "5260383575";
-      password = "888888";
+      username = "xga102782536";
+      password = "443508";
+      # username = "5260383575";
+      # password = "888888";
     };
 
     # Extra upstream resolvers
@@ -40,15 +40,15 @@
     # Build-time switch (a rebuild is needed, unlike the run-time overrides
     # above): false leaves the APs off at boot, to be started by hand.
     autostart = true;
-    password = "88888888!!";
+    password = "mubimuba";
     bands = {
       "24g" = {
-        ssid = "CHEN";
+        ssid = "MUL";
         hw_mode = "g";
         channel = "6";
       };
       "58g" = {
-        ssid = "CHEN-5g";
+        ssid = "MU";
         hw_mode = "a";
         channel = "149";
       };

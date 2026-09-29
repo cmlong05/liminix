@@ -44,6 +44,7 @@ in
     ./modules/firewall
     ./devices/jdcloud-ax6600/wireless
     ./devices/jdcloud-ax6600/wireless/rootfs-firmware.nix
+    ./devices/jdcloud-ax6600/art.nix
   ];
 
   services.modules = pkgs.kmodloader.override {
