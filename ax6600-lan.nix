@@ -36,6 +36,36 @@ let
       null
     else
       toString v;
+
+  # builtins.toJSON writes the whole tree on one line; this indents it so
+  # the file dropped in /persist stays readable and hand-editable.
+  prettyJson =
+    let
+      pad = n: lib.concatStringsSep "" (lib.genList (_: "  ") n);
+      go =
+        depth: v:
+        if builtins.isAttrs v then
+          if v == { } then
+            "{}"
+          else
+            "{\n"
+            + lib.concatStringsSep ",\n" (
+              lib.mapAttrsToList (
+                k: x: "${pad (depth + 1)}${builtins.toJSON k}: ${go (depth + 1) x}"
+              ) v
+            )
+            + "\n${pad depth}}"
+        else if builtins.isList v then
+          if v == [ ] then
+            "[]"
+          else
+            "[\n"
+            + lib.concatStringsSep ",\n" (map (x: "${pad (depth + 1)}${go (depth + 1) x}") v)
+            + "\n${pad depth}]"
+        else
+          builtins.toJSON v;
+    in
+    go 0;
 in
 {
   imports = [
@@ -50,7 +80,7 @@ in
   services.runtime-config = svc.secrets.local.build {
     name = "runtime-config";
     path = runtimeConfigFile;
-    seed = pkgs.writeText "runtime-config.json" (builtins.toJSON (seedValue deployment));
+    seed = pkgs.writeText "runtime-config.json" (prettyJson (seedValue deployment) + "\n");
   };
 
   services.hostname = lib.mkForce (

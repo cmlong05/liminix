@@ -23,7 +23,7 @@
 | 前置 | USB 挂根：ext4 可写 root | 已落地 | `234723e`、`63bf2e4` |
 | 前置 | AHB 2.4G/5.8G AP 走标准 hostapd 服务（s6 长驻，`wifi.autostart` 可关） | 已落地 | — |
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
-| N7 | 产品化：持久化、分区、per-unit 数据 | 待办 | — |
+| N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 进行中 | — |
 | N8 | 外挂 QCN9024 的 5.2G | 待办 | — |
 
 **NB**
@@ -71,21 +71,17 @@
 
 ### N6（可选/实验）NSS WiFi offload 评估
 
-* 依据 LibWrt 的 `package/kernel/mac80211/patches/nss/{ath11k,subsys,ath10k}` 与
+* 参考 LibWrt 的 `package/kernel/mac80211/patches/nss/{ath11k,subsys,ath10k}` 与
   `ATH11K_NSS_SUPPORT`，以及 `NSS_DRV_WIFIOFFLOAD_ENABLE`。
-* 结论必须写清：VIKINGYFY 6.18 NSS 栈**没有** ath11k NSS 补丁；官方 OpenWrt 也没有
-  （issue `#23798`）；LibWrt 自称 IPQ60xx 2.4G/5G offload ✅，但 AP-VLAN 有已知问题。
-* 若要做：先在 6.12+LibWrt 上复现，再评估移植到 6.18 的成本，不要一开始就动 6.18。
+* 参考 VIKINGYFY 6.18 NSS 栈
 
 
-### N7 产品化【待办】
+
+### N7 产品化【进行中】
 
 * 内核和用户态软件是自动分区，还是分地方配置的？
   比如，iperf3 在最终产品里，不应该在 rootfs/HLOS 里，而应该在用户态里。
-* **per-unit 数据统一从 `0:ART` 取**：MAC（0x0）落到 `local-mac-address`
-  （`label-mac-device = &dp1` 已由 DTS 声明）、AHB/PCI 校准（0x1000 起 0x20000），
-  由启动早期（preinit 或足够早的服务，必须先于驱动 probe）取出写进 `/lib/firmware`；
-  镜像只带通用固件（q6/m3、board-2、regdb、NSS 固件）。
+* **per-unit 数据统一从 `0:ART` 取**（已经实现）
 * **删除建构期嵌入**：`wireless/default.nix` 的 `firmwarePkg` 现在把
   `art/mmc_0-ART.bin`（`.gitignore` 忽略、未进版本库，新克隆会缺件）的 0x1000 切片
   烧进 initramfs。那是 RAM 单文件镜像的临时手段（preinit 早于 activate 建出
