@@ -82,10 +82,6 @@
 * 内核和用户态软件是自动分区，还是分地方配置的？
   比如，iperf3 在最终产品里，不应该在 rootfs/HLOS 里，而应该在用户态里。
 * **per-unit 数据统一从 `0:ART` 取**（已经实现）
-* **删除建构期嵌入**：`wireless/default.nix` 的 `firmwarePkg` 现在把
-  `art/mmc_0-ART.bin`（`.gitignore` 忽略、未进版本库，新克隆会缺件）的 0x1000 切片
-  烧进 initramfs。那是 RAM 单文件镜像的临时手段（preinit 早于 activate 建出
-  `/lib/firmware`），且只对本机成立，产品化时按上一条改掉。
 
 ### N8：QCN9024 外挂的 5.2G【待办】
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G。

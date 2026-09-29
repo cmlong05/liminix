@@ -47,7 +47,7 @@ let
   # 2026-09-23: 2.7.0.1 crashes phy0's AP, this build does not, and 2.4 GHz
   # works on either. The m3 and the board data come from the same pin
   # because they are the same release as the q6 image; the per-unit
-  # calibration stays ours (0:ART). See ../BRINGUP.md N5.
+  # calibration is not shipped at all - ../art.nix extracts it from 0:ART at boot 
   fwRef = "0c817c46568ef6871042c7e2efc95ac24a1f02e6";
   fw =
     ps:
