@@ -1,8 +1,7 @@
 # N5 phase 1: the IPQ6010's own (AHB) radio - the 2.4 GHz and 5.8 GHz
 # pdevs of wifi@c000000 - driven by ath11k.
 #
-# This is not the PCIe QCN9024; that is the separate 5.2 GHz radio N5
-# phase 2 starts. What is here:
+## What is here:
 #
 #   * the WCSS remoteproc, driven by the fork's own secure-PIL driver
 #     (qcom_q6v5_wcss_sec): the Q6 is authenticated and released through
@@ -13,11 +12,12 @@
 #   * the firmware the Q6 and ath11k request, embedded in the initramfs:
 #     a fullSystem image loads its modules from preinit, before activate
 #     has created /lib/firmware;
-#   * two hostapd configurations and two scripts that start them.
+#   * one script per band that starts a hostapd AP, building its hostapd
+#     config at start time from the deployment's wifi values.
 #
 # Nothing here autostarts the APs - BRINGUP N5 asks for the radios to be
 # brought up by hand. The modules are in preloadModules, so the radio
-# and its netdevs are up once the system is, and `wlan-2g` / `wlan-5g`
+# and its netdevs are up once the system is, and `wlan-24g` / `wlan-58g`
 # do the rest. Which wlanN each pdev gets is registration order, which
 # is why the scripts look the interface up by band, not by name.
 #
@@ -106,44 +106,42 @@ let
     "ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin"
   ];
 
+  # --- deployment ---------------------------------------------------
+  #
+  # the values in `bands`below are only the build-time fallback for an older config.nix.
+  deployment =
+    let
+      lookup = builtins.tryEval <liminix-deployment>;
+    in
+    if lookup.success && builtins.pathExists (toString lookup.value) then
+      import lookup.value
+    else
+      import ../config.nix;
+
+  runtime = config.services.runtime-config;
+
+  wifi = deployment.wifi or { };
+  wifiBand = name: defaults: defaults // ((wifi.bands or { }).${name} or { });
+  countryCode = wifi.countryCode or "CN";
+
   # --- hostapd ------------------------------------------------------
   #
   # SSIDs and channels per BRINGUP N5: CHEN on 2.4 GHz, CHEN_5g on
   # 5.8 GHz. ch6 is the conventional 2.4 GHz channel; ch149 is
   # DFS-free and inside what the AHB 5G pdev tunes to.
-  password = "88888888";
-  conf = name: params: pkgs.writeText "hostapd-${name}.conf" ''
-    driver=nl80211
-    logger_syslog=-1
-    logger_syslog_level=1
-    ctrl_interface=/run/hostapd-${name}
-    ctrl_interface_group=0
-    ssid=${params.ssid}
-    wpa_passphrase=${password}
-    country_code=CN
-    hw_mode=${params.hw_mode}
-    channel=${params.channel}
-    wmm_enabled=1
-    ieee80211n=1
-    auth_algs=1
-    wpa=2
-    wpa_key_mgmt=WPA-PSK
-    wpa_pairwise=CCMP
-    rsn_pairwise=CCMP
-  '';
 
   # The 2.4 and 5 GHz pdevs of the one AHB phy are separate netdevs whose
   # names follow registration order, so the interface is found by the
   # band it supports: `iw phy` prints frequencies as "2412.0 MHz", and
   # each band's first channel is enough to tell the two apart.
   #
-  # Usage: wlan-2g [start|stop|status]. No argument starts it, in the
+  # Usage: wlan-24g [start|stop|status]. No argument starts it, in the
   # background with a pidfile under /run - hostapd's own -B, so nothing
   # here has to keep running. It is a writeShellScriptBin rather than a
   # writeShellScript because defaultProfile.packages puts these on the
   # login PATH as <package>/bin: a bare writeShellScript is one file at
   # the store root, so PATH points at a directory that does not exist and
-  # `wlan-2g` is simply not found.
+  # `wlan-24g` is simply not found.
   #
   # `start` reports the state hostapd ends in: -B daemonises while the
   # interface is still in COUNTRY_UPDATE, and this build has no log sink
@@ -190,8 +188,41 @@ let
           echo "wlan-${name}: already running, pid $(cat /run/hostapd-${name}.pid)"
           exit 0
         fi
+        # Each knob is the runtime tree's value when it has one and the
+        # build-time value otherwise: a key absent from
+        # /persist/config.json is an absent file, so the read may fail.
+        cfg() {
+          v=$(cat ${runtime}/.outputs/wifi/$1 2>/dev/null || true)
+          test -n "$v" || v=$2
+          echo "$v"
+        }
+        ssid=$(cfg bands/${name}/ssid ${lib.escapeShellArg params.ssid})
+        hw_mode=$(cfg bands/${name}/hw_mode ${lib.escapeShellArg params.hw_mode})
+        channel=$(cfg bands/${name}/channel ${lib.escapeShellArg params.channel})
+        pass=$(cfg password ${lib.escapeShellArg (wifi.password or "88888888")})
+        country=$(cfg countryCode ${lib.escapeShellArg countryCode})
+
+        cat > /run/hostapd-${name}.conf <<EOF
+driver=nl80211
+logger_syslog=-1
+logger_syslog_level=1
+ctrl_interface=/run/hostapd-${name}
+ctrl_interface_group=0
+ssid=$ssid
+wpa_passphrase=$pass
+country_code=$country
+hw_mode=$hw_mode
+channel=$channel
+wmm_enabled=1
+ieee80211n=1
+auth_algs=1
+wpa=2
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+EOF
         ${pkgs.hostapd}/bin/hostapd -B -P /run/hostapd-${name}.pid \
-          -S -i "$dev" ${conf name params}
+          -S -i "$dev" /run/hostapd-${name}.conf
 
         # country_code makes hostapd wait up to 5s for the channel list update, and -B
         # daemonises there, dropping stdout - so poll the control interface for post-fork state
@@ -223,18 +254,21 @@ let
     esac
   '';
 
+  # `band` is the frequency each AHB pdev's first channel sits on, used to
+  # tell the two netdevs apart; it belongs to the radio, not the
+  # deployment, so it is not configurable.
   bands = {
-    "2g" = {
+    "24g" = {
       band = "2412";
-      params = {
+      params = wifiBand "24g" {
         ssid = "CHEN";
         hw_mode = "g";
         channel = "6";
       };
     };
-    "5g" = {
+    "58g" = {
       band = "5745";
-      params = {
+      params = wifiBand "58g" {
         ssid = "CHEN_5g";
         hw_mode = "a";
         channel = "149";
