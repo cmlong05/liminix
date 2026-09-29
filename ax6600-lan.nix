@@ -94,15 +94,55 @@ in
     down = "true";
   };
 
-  services.dhcpv4 = svc.dnsmasq.build {
-    interface = config.services.int;
-    domain = "lan";
-    ranges =
-      lib.optional (deployment.lan.dhcpRange != null)
-        "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})"
-      ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
-    resolvFile = "/run/resolv.conf";
-    dependencies = [ runtime ];
+  # Static leases live in the run-time config, so this service regenerates
+  # dnsmasq's host file whenever lan/dhcpHosts changes there.
+  services.dhcp-hosts =
+    let
+      generator = oneshot {
+        name = "dhcp-hosts";
+        dependencies = [ runtime ];
+        up = ''
+          ( in_outputs dhcp-hosts
+            hosts=$(output_path ${runtime} lan/dhcpHosts)
+            : > hosts
+            test -d "$hosts" || exit 0
+            for d in $hosts/* ; do
+              test -d "$d" || continue
+              mac=$(cat $d/mac 2>/dev/null)
+              ip=$(cat $d/ip 2>/dev/null)
+              test -n "$mac" -a -n "$ip" || continue
+              leasetime=$(cat $d/leasetime 2>/dev/null)
+              echo "$mac,$ip,$(basename $d),''${leasetime:-86400}"
+            done >> hosts
+            chmod 0644 hosts
+          )
+        '';
+        down = "true";
+      };
+    in
+    svc.secrets.subscriber.build {
+      service = generator;
+      watch = [ (outputRef runtime "lan/dhcpHosts") ];
+      action = "restart-all";
+    };
+
+  services.dhcpv4 = svc.secrets.subscriber.build {
+    service = svc.dnsmasq.build {
+      interface = config.services.int;
+      domain = "lan";
+      ranges =
+        lib.optional (deployment.lan.dhcpRange != null)
+          "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})"
+        ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
+      resolvFile = "/run/resolv.conf";
+      hostsFile = "$(output_path ${config.services.dhcp-hosts} hosts)";
+      dependencies = [
+        runtime
+        config.services.dhcp-hosts
+      ];
+    };
+    watch = [ (outputRef config.services.dhcp-hosts "hosts") ];
+    action = "restart-all";
   };
 
   # 2.5G WAN as a PPPoE client
