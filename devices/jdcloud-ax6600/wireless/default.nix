@@ -72,9 +72,6 @@ let
     ) sources.q6Firmware}
     install -m 0644 ${fetchFirmware (builtins.head sources.boardData)} \
       $out/ath11k/IPQ6018/hw1.0/board-2.bin
-    dd if=${../art/mmc_0-ART.bin} \
-       of=$out/ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin \
-       bs=1 skip=4096 count=131072 status=none
   '';
 
   # Both deliveries at the bottom of this file hand the kernel an attrsOf
@@ -106,7 +103,6 @@ let
     "IPQ6018/m3_fw.b01"
     "IPQ6018/m3_fw.b02"
     "ath11k/IPQ6018/hw1.0/board-2.bin"
-    "ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin"
   ];
 
   # --- deployment ---------------------------------------------------
@@ -234,11 +230,17 @@ in
 
     wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
 
-    # The AHB netdevs. `link` brings each up once ifwait sees it appear,
-    # which is what stops the boot racing ath11k.
+    # The AHB netdevs
+    # These are the names art-apply renames the AHB radios 
     hardware.networkInterfaces = {
-      wlan24g = svc.network.link.build { ifname = "wlan0"; };
-      wlan58g = svc.network.link.build { ifname = "wlan1"; };
+      wlan24g = svc.network.link.build {
+        ifname = "wlan24g";
+        dependencies = [ config.services.art-apply ];
+      };
+      wlan58g = svc.network.link.build {
+        ifname = "wlan58g";
+        dependencies = [ config.services.art-apply ];
+      };
     };
 
     # Unless wifi.autostart is false, one hostapd per band: a longrun
