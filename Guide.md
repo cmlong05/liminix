@@ -100,13 +100,14 @@ sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 # 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
 
 
-# 手动开wifi
-# wlan-24g status / wlan-24g stop 
-wlan-24g
-wlan-58g
-# 检查wifi状态
+# wifi 开机自动启动：由 s6 长驻的 hostapd 服务拉起，没有手动启动脚本。
+# SSID/密码/信道取自 /persist/config.json（改后会自动重启 hostapd）。
+# 检查状态：
 iw dev
-hostapd_cli -p /run/hostapd-24g status
+hostapd_cli -i wlan0 status    # wlan0=2.4G，wlan1=5.8G
+# 服务名形如 wlan0.link.hostapd / wlan1.link.hostapd，用 s6-rc list 查：
+#   s6-rc -d change wlan0.link.hostapd   # 停
+#   s6-rc -u change wlan0.link.hostapd   # 起
 
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
