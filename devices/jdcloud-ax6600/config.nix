@@ -17,6 +17,12 @@
   };
 
   wan = {
+    # IPv6 over the same PPPoE session: ask the BRAS for a delegated
+    # prefix (DHCPv6-PD), then hand it to the LAN by SLAAC.
+    ipv6 = {
+      enable = true;
+    };
+
     pppoe = {
       username = "xga102782536";
       password = "443508";
