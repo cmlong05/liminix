@@ -12,15 +12,13 @@
 #   * the firmware the Q6 and ath11k request, embedded in the initramfs:
 #     a fullSystem image loads its modules from preinit, before activate
 #     has created /lib/firmware;
-#   * one script per band that starts a hostapd AP, building its hostapd
-#     config at start time from the deployment's wifi values.
+#   * a hostapd AP per band, an ordinary s6 longrun service: ssid,
+#     passphrase and channel come from the deployment and can be changed
+#     at run time via /persist/config.json.
 #
-# The APs come up at boot unless wifi.autostart is false: a oneshot per
-# band waits for the AHB netdev to be registered and then runs the
-# `wlan-24g` / `wlan-58g` script. Those scripts are also on the login
-# PATH, so an AP can still be stopped and started by hand. Which wlanN
-# each pdev gets is registration order, which is why the scripts look
-# the interface up by band, not by name.
+# wlan0 is the 2.4 GHz pdev and wlan1 the 5.8 GHz one; `link` waits for
+# each netdev with ifwait, so ath11k registering them asynchronously
+# after the Q6 boots is not a problem.
 #
 # `qcom,ath11k-fw-memory-mode = <1>`, which the fork's board dts sets on
 # both wifi nodes, IS read here: patch 903 is applied (see ./SOURCES.nix),
@@ -31,7 +29,9 @@
 # 1" disproves. There is therefore no override of it anywhere.
 { pkgs, lib, config, ... }:
 let
-  inherit (pkgs.liminix.services) oneshot;
+  inherit (pkgs.liminix) outputRef;
+
+  svc = config.system.service;
 
   # --- firmware -----------------------------------------------------
   #
@@ -111,7 +111,11 @@ let
 
   # --- deployment ---------------------------------------------------
   #
-  # the values in `bands`below are only the build-time fallback for an older config.nix.
+  # The AP values are not read here at all: ax6600-lan.nix seeds the
+  # deployment into /persist/config.json and publishes it as a service
+  # output tree, and the hostapd services below read ssid, passphrase
+  # and channel out of that tree. Only the build-time autostart switch
+  # is read directly.
   deployment =
     let
       lookup = builtins.tryEval <liminix-deployment>;
@@ -122,170 +126,22 @@ let
       import ../config.nix;
 
   runtime = config.services.runtime-config;
+  wifiAutostart = (deployment.wifi or { }).autostart or true;
 
-  wifi = deployment.wifi or { };
-  wifiBand = name: defaults: defaults // ((wifi.bands or { }).${name} or { });
-  countryCode = wifi.countryCode or "CN";
-  wifiAutostart = wifi.autostart or true;
-
-  # --- hostapd ------------------------------------------------------
-  #
-  # SSIDs and channels per BRINGUP N5: CHEN on 2.4 GHz, CHEN_5g on
-  # 5.8 GHz. ch6 is the conventional 2.4 GHz channel; ch149 is
-  # DFS-free and inside what the AHB 5G pdev tunes to.
-
-  # The 2.4 and 5 GHz pdevs of the one AHB phy are separate netdevs whose
-  # names follow registration order, so the interface is found by the
-  # band it supports: `iw phy` prints frequencies as "2412.0 MHz", and
-  # each band's first channel is enough to tell the two apart.
-  #
-  # Usage: wlan-24g [start|stop|status]. No argument starts it, in the
-  # background with a pidfile under /run - hostapd's own -B, so nothing
-  # here has to keep running. It is a writeShellScriptBin rather than a
-  # writeShellScript because defaultProfile.packages puts these on the
-  # login PATH as <package>/bin: a bare writeShellScript is one file at
-  # the store root, so PATH points at a directory that does not exist and
-  # `wlan-24g` is simply not found.
-  #
-  # `start` reports the state hostapd ends in: -B daemonises while the
-  # interface is still in COUNTRY_UPDATE, and this build has no log sink
-  # after the fork, so the console shows the same two lines whether the AP
-  # came up or died. The comment in the `start` branch has the details.
-  #
-  # Each AP joins the LAN bridge once hostapd has its netdev in AP mode.
-  # dnsmasq is bound to that bridge only, so an AP left outside it gives
-  # an associated client no lease. The name is read from the service
-  # (`ax6600-lan.nix` builds it) instead of repeating the literal here.
-  bridge = "${config.services.int}/.outputs/ifname";
-  ap = name: band: params: pkgs.writeShellScriptBin "wlan-${name}" ''
-    set -eu
-
-    dev=
-    set +e
-    for phy in /sys/class/ieee80211/phy*; do
-      [ -e "$phy/device" ] || continue
-      [ "$(basename "$(readlink "$phy/device")")" = c000000.wifi ] || continue
-      ${pkgs.iw}/bin/iw phy "$(basename "$phy")" info 2>/dev/null | grep -q ${band} || continue
-      for w in /sys/class/net/*/phy80211; do
-        [ -e "$w" ] || continue
-        [ "$(basename "$(readlink "$w")")" = "$(basename "$phy")" ] || continue
-        dev=$(basename "$(dirname "$w")")
-        break 2
-      done
-    done
-    set -e
-    [ -n "$dev" ] || {
-      echo "no AHB ${band} netdev; is the Q6 up? try: dmesg | grep -iE 'wcss|ath11k'" >&2
-      exit 1
-    }
-
-    case "''${1:-start}" in
-      start)
-        mkdir -p /run/hostapd-${name}
-        # Starting on top of a running hostapd is not harmless (BRINGUP N5):
-        # the second one is refused by NL80211_CMD_SET_INTERFACE with
-        # -EALREADY and dies on the way out - and the poll below would then
-        # read the first one's ENABLED and call that a success. Refuse here
-        # instead, which also makes `start` idempotent.
-        if [ -f /run/hostapd-${name}.pid ] &&
-          kill -0 "$(cat /run/hostapd-${name}.pid)" 2>/dev/null; then
-          echo "wlan-${name}: already running, pid $(cat /run/hostapd-${name}.pid)"
-          exit 0
-        fi
-        # Each knob is the runtime tree's value when it has one and the
-        # build-time value otherwise: a key absent from
-        # /persist/config.json is an absent file, so the read may fail.
-        cfg() {
-          v=$(cat ${runtime}/.outputs/wifi/$1 2>/dev/null || true)
-          test -n "$v" || v=$2
-          echo "$v"
-        }
-        ssid=$(cfg bands/${name}/ssid ${lib.escapeShellArg params.ssid})
-        hw_mode=$(cfg bands/${name}/hw_mode ${lib.escapeShellArg params.hw_mode})
-        channel=$(cfg bands/${name}/channel ${lib.escapeShellArg params.channel})
-        pass=$(cfg password ${lib.escapeShellArg (wifi.password or "88888888")})
-        country=$(cfg countryCode ${lib.escapeShellArg countryCode})
-
-        cat > /run/hostapd-${name}.conf <<EOF
-driver=nl80211
-logger_syslog=-1
-logger_syslog_level=1
-ctrl_interface=/run/hostapd-${name}
-ctrl_interface_group=0
-ssid=$ssid
-wpa_passphrase=$pass
-country_code=$country
-hw_mode=$hw_mode
-channel=$channel
-wmm_enabled=1
-ieee80211n=1
-auth_algs=1
-wpa=2
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=CCMP
-rsn_pairwise=CCMP
-EOF
-        ${pkgs.hostapd}/bin/hostapd -B -P /run/hostapd-${name}.pid \
-          -S -i "$dev" /run/hostapd-${name}.conf
-
-        # country_code makes hostapd wait up to 5s for the channel list update, and -B
-        # daemonises there, dropping stdout - so poll the control interface for post-fork state
-        state=
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-          state=$(${pkgs.hostapd}/bin/hostapd_cli -p /run/hostapd-${name} \
-            status 2>/dev/null | sed -n 's/^state=//p' || true)
-          if [ "$state" = ENABLED ]; then
-            break
-          fi
-          sleep 1
-        done
-        echo "wlan-${name}: state=''${state:-none}"
-        if [ "$state" = ENABLED ]; then
-          ip link set dev "$dev" master "$(cat ${bridge})"
-          echo "wlan-${name}: joined $(cat ${bridge})"
-        fi
-        [ "$state" = ENABLED ]
-        ;;
-      stop)
-        ip link set dev "$dev" nomaster 2>/dev/null || true
-        kill "$(cat /run/hostapd-${name}.pid)"
-        ;;
-      status)
-        ${pkgs.iw}/bin/iw dev "$dev" info
-        ${pkgs.hostapd}/bin/hostapd_cli -p /run/hostapd-${name} status \
-          || echo "wlan-${name}: no hostapd on this radio"
-        ;;
-    esac
-  '';
-
-  # `band` is the frequency each AHB pdev's first channel sits on, used to
-  # tell the two netdevs apart; it belongs to the radio, not the
-  # deployment, so it is not configurable.
+  # Which AHB pdev serves which band, by the netdev name ath11k gives it:
+  # wlan0 is the 2.4 GHz pdev, wlan1 the 5.8 GHz one. Nothing in sysfs
+  # tells the two apart - both hang off the one AHB phy - so these names
+  # are what the services below are addressed by.
   bands = {
-    "24g" = {
-      band = "2412";
-      params = wifiBand "24g" {
-        ssid = "CHEN";
-        hw_mode = "g";
-        channel = "6";
-      };
-    };
-    "58g" = {
-      band = "5745";
-      params = wifiBand "58g" {
-        ssid = "CHEN_5g";
-        hw_mode = "a";
-        channel = "149";
-      };
-    };
+    "24g" = "wlan24g";
+    "58g" = "wlan58g";
   };
-
-  # One script per band, keyed by band: the login tool and the service
-  # below both come from these.
-  apPkgs = lib.mapAttrs (name: b: ap name b.band b.params) bands;
 in
 {
-  imports = [ ../../../modules/wlan.nix ];
+  imports = [
+    ../../../modules/wlan.nix
+    ../../../modules/hostapd
+  ];
 
   # The blobs, one package per name. How they reach the kernel is
   # ./rootfs-firmware.nix's business: it puts them under /lib/firmware for a
@@ -378,42 +234,42 @@ in
 
     wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
 
-    # Unless wifi.autostart is false, one oneshot per band brings its AP
-    # up at boot: the `wlan-24g` (or `wlan-58g`) script, run once the
-    # AHB netdev exists. ath11k registers that netdev only after the Q6
-    # firmware boots, well after this oneshot's dependencies are up, so
-    # the up script polls for it and gives up (successfully) rather than
-    # block the boot forever.
-    services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
-      name: pkg:
-      lib.nameValuePair "wlan-${name}" (oneshot {
-        name = "wlan-${name}";
-        dependencies = [
-          runtime
-          config.services.int
-        ];
-        timeout-up = 90000;
-        up = ''
-          i=0
-          until ${pkg}/bin/wlan-${name} status >/dev/null 2>&1; do
-            i=$((i + 1))
-            if test "$i" -ge 60 ; then
-              echo "wlan-${name}: no AHB netdev after 60s; start it by hand"
-              exit 0
-            fi
-            sleep 1
-          done
-          ${pkg}/bin/wlan-${name} start
-        '';
-        down = "${pkg}/bin/wlan-${name} stop >/dev/null 2>&1 || true";
-      })
-    ) apPkgs);
+    # The AHB netdevs. `link` brings each up once ifwait sees it appear,
+    # which is what stops the boot racing ath11k.
+    hardware.networkInterfaces = {
+      wlan24g = svc.network.link.build { ifname = "wlan0"; };
+      wlan58g = svc.network.link.build { ifname = "wlan1"; };
+    };
 
-    # The scripts stay on the login PATH so an AP can be cycled by hand.
+    # Unless wifi.autostart is false, one hostapd per band: a longrun
+    # service s6 starts at boot. ssid/passphrase/channel come from the
+    # runtime-config tree; modules/hostapd's secrets subscriber makes
+    # that service a dependency and restarts hostapd when it changes.
+    services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
+      name: netif:
+      lib.nameValuePair "hostap-${name}" (svc.hostapd.build {
+        interface = config.hardware.networkInterfaces.${netif};
+        params = {
+          ssid = outputRef runtime "wifi/bands/${name}/ssid";
+          wpa_passphrase = outputRef runtime "wifi/password";
+          country_code = outputRef runtime "wifi/countryCode";
+          hw_mode = outputRef runtime "wifi/bands/${name}/hw_mode";
+          channel = outputRef runtime "wifi/bands/${name}/channel";
+          wmm_enabled = 1;
+          ieee80211n = 1;
+          auth_algs = 1;
+          wpa = 2;
+          wpa_key_mgmt = "WPA-PSK";
+          wpa_pairwise = "CCMP";
+          rsn_pairwise = "CCMP";
+        };
+      })
+    ) bands);
+
+    # iw/hostapd stay on the login PATH for debugging.
     defaultProfile.packages = [
       pkgs.iw
       pkgs.hostapd
-    ]
-    ++ builtins.attrValues apPkgs;
+    ];
   };
 }
