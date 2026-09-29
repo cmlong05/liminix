@@ -9,7 +9,7 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
-  inherit (pkgs.liminix.services) longrun oneshot;
+  inherit (pkgs.liminix.services) bundle longrun oneshot;
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
 
@@ -25,6 +25,9 @@ let
 
   runtime = config.services.runtime-config;
   runtimeConfigFile = "/persist/config.json";
+
+  # A deployment config may turn IPv6 off; otherwise it is on
+  ipv6Enable = deployment.wan.ipv6.enable or true;
 
   seedValue =
     v:
@@ -71,6 +74,7 @@ in
   imports = [
     ./ax6600-dev.nix
     ./modules/network
+    ./modules/dhcp6c
     ./modules/dnsmasq
     ./modules/bridge
     ./modules/ppp
@@ -140,8 +144,10 @@ in
   services.dhcpv4 = svc.dnsmasq.build {
     interface = config.services.int;
     domain = "lan";
-    ranges = lib.optional (deployment.lan.dhcpRange != null)
-      "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})";
+    ranges =
+      lib.optional (deployment.lan.dhcpRange != null)
+        "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})"
+      ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
     resolvFile = "/run/resolv.conf";
     dependencies = [ runtime ];
   };
@@ -165,6 +171,40 @@ in
     target = "default";
     dependencies = [ config.services.wan ];
   };
+
+  services.defaultroute6 = lib.mkIf ipv6Enable (
+    svc.network.route.build {
+      via = "$(output ${config.services.wan} ipv6-peer-address)";
+      target = "default";
+      interface = config.services.wan;
+      dependencies = [ config.services.wan ];
+    }
+  );
+
+  # One DHCPv6 client on the WAN link, asking for both a lease and a
+  # delegated prefix: the prefix service puts <prefix>::1 on the LAN
+  # bridge, and dnsmasq advertises that prefix to the LAN by SLAAC.
+  services.dhcp6c =
+    lib.mkIf ipv6Enable (
+      let
+        client = svc.dhcp6c.client.build {
+          interface = config.services.wan;
+        };
+      in
+      bundle {
+        name = "dhcp6c";
+        contents = [
+          (svc.dhcp6c.prefix.build {
+            inherit client;
+            interface = config.services.int;
+          })
+          (svc.dhcp6c.address.build {
+            inherit client;
+            interface = config.services.wan;
+          })
+        ];
+      }
+    );
 
   services.wan-redial = longrun {
     name = "wan-redial";
@@ -214,7 +254,7 @@ in
   };
   services.packet_forwarding = svc.network.forward.build {
     enableIPv4 = true;
-    enableIPv6 = false;
+    enableIPv6 = ipv6Enable;
   };
 
   services.sshd = svc.ssh.build { };
