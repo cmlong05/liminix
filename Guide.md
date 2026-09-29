@@ -100,14 +100,22 @@ sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 # 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
 
 
+# per-unit 数据开机时从 0:ART 读出（devices/jdcloud-ax6600/art.nix）：
+#   art-extract（rc-init.d/05-art，先于 modules）：物化 /lib/firmware/ath11k 为
+#     可写目录、写入 cal-ahb-c000000.wifi.bin、导出本机 MAC 到 /run/art/。
+#   art-apply（s6 oneshot）：给 lan1..4/wan 设本机 MAC；按 MAC 把 AHB 两个 netdev
+#     改名成 wlan24g / wlan58g。
+# 因此接口名固定为 wlan24g(2.4G) / wlan58g(5.8G)，无线 MAC 由 ath11k 从 cal 自动设。
+
 # wifi 开机自动启动：由 s6 长驻的 hostapd 服务拉起，没有手动启动脚本。
 # SSID/密码/信道取自 /persist/config.json（改后会自动重启 hostapd）。
 # 检查状态：
 iw dev
-hostapd_cli -i wlan0 status    # wlan0=2.4G，wlan1=5.8G
-# 服务名形如 wlan0.link.hostapd / wlan1.link.hostapd，用 s6-rc list 查：
-#   s6-rc -d change wlan0.link.hostapd   # 停
-#   s6-rc -u change wlan0.link.hostapd   # 起
+hostapd_cli -i wlan24g status    # wlan24g=2.4G，wlan58g=5.8G
+cat /run/art/mac.24g /run/art/mac.58g
+# 服务名形如 wlan24g.link.hostapd / wlan58g.link.hostapd，用 s6-rc list 查：
+#   s6-rc -d change wlan24g.link.hostapd   # 停
+#   s6-rc -u change wlan24g.link.hostapd   # 起
 
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
