@@ -37,6 +37,9 @@
   # `bands` is keyed by which AHB pdev serves it: "24g" and "58g".
   wifi = {
     countryCode = "CN";
+    # Build-time switch (a rebuild is needed, unlike the run-time overrides
+    # above): false leaves the APs off at boot, to be started by hand.
+    autostart = true;
     password = "88888888!!";
     bands = {
       "24g" = {
