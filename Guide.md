@@ -101,12 +101,12 @@ sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 
 
 # 手动开wifi
-# wlan-2g status / wlan-2g stop 
-wlan-2g
-wlan-5g
+# wlan-24g status / wlan-24g stop 
+wlan-24g
+wlan-58g
 # 检查wifi状态
 iw dev
-hostapd_cli -p /run/hostapd-2g status
+hostapd_cli -p /run/hostapd-24g status
 
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
