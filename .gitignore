@@ -9,3 +9,4 @@ examples/static-leases.nix
 /doc/hardware.rst
 research/
 .nixcache
+/config.json
