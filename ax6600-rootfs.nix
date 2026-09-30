@@ -13,6 +13,9 @@ let
   inherit (pkgs.liminix.services) oneshot;
   inherit (pkgs.pseudofile) dir symlink;
 
+  # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
+  wanMtu = import ./devices/jdcloud-ax6600/wan-mtu.nix;
+
   nss = import ./devices/jdcloud-ax6600/nss {
     inherit pkgs;
     kernel = config.system.outputs.kernel;
@@ -88,10 +91,40 @@ in
     '';
   };
 
+  # A LAN host sizes its TCP segments from the 1500-byte bridge, but the
+  # PPPoE link carries less, so a server's full-size reply is dropped on
+  # the way in.  IPv4 recovers from the resulting ICMP frag-needed, IPv6
+  # does not, and the connection hangs in the TLS handshake: clamping the
+  # MSS in flight stops the servers sending what the WAN cannot carry.
   services.firewall = config.system.service.firewall.build {
     zones = {
       lan = [ config.services.int ];
       wan = [ config.services.wan ];
+    };
+    extraRules = {
+      # The tagged case is the smaller of the two, so clamping to it is
+      # right for an untagged WAN as well; MSS is that MTU less the
+      # IPv4/TCP (20+20) or IPv6/TCP (40+20) headers.
+      mss-ip4 = {
+        type = "filter";
+        family = "ip";
+        hook = "forward";
+        priority = "mangle";
+        policy = "accept";
+        rules = [
+          "iifname @lan oifname @wan tcp flags & (syn | rst) == syn tcp option maxseg size set ${toString (wanMtu.tagged - 40)}"
+        ];
+      };
+      mss-ip6 = {
+        type = "filter";
+        family = "ip6";
+        hook = "forward";
+        priority = "mangle";
+        policy = "accept";
+        rules = [
+          "iifname @lan oifname @wan tcp flags & (syn | rst) == syn tcp option maxseg size set ${toString (wanMtu.tagged - 60)}"
+        ];
+      };
     };
   };
 
