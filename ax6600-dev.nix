@@ -39,5 +39,7 @@ in
     util-linux
     iperf3
     vim
+    curl
+    nftables
   ];
 }
