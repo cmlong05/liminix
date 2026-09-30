@@ -22,6 +22,14 @@ let
 
   # A deployment config may turn IPv6 off; otherwise it is on
   ipv6Enable = deployment.wan.ipv6.enable or true;
+
+  # PPPoE costs the ethernet frame 8 bytes of header (6 ethernet + 2 PPPoE
+  # protocol), an 802.1Q tag another 4: what is left is what pppd may
+  # advertise as MTU/MRU on the link we picked.
+  wanMtu = {
+    tagged = 1500 - 4 - 8;
+    plain = 1500 - 8;
+  };
 in
 {
   imports = [
@@ -145,9 +153,44 @@ in
     action = "restart-all";
   };
 
-  # 2.5G WAN as a PPPoE client
+  # 2.5G WAN as a PPPoE client. Whether the session has to sit inside an
+  # 802.1Q tag is a per-network fact, read at run time (wan/vlan in
+  # /persist/config.json), so the interface it runs on is a service too.
+  services.wan-if = oneshot {
+    name = "wan-if";
+    dependencies = [
+      nifs.wan
+      runtime
+    ];
+    up = ''
+      base=$(output ${nifs.wan} ifname)
+      vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
+      ifname=$base
+      mtu=${toString wanMtu.plain}
+      if test -n "$vid" ; then
+        ifname=$base.$vid
+        ip link add link $base name $ifname type vlan id $vid
+        mtu=${toString wanMtu.tagged}
+        mkdir -p /run/wan-if
+        echo $ifname > /run/wan-if/vlan
+      fi
+      ip link set up dev $ifname
+      ( in_outputs wan-if
+        echo $ifname > ifname
+        echo $mtu > mtu
+      )
+    '';
+    down = ''
+      if test -e /run/wan-if/vlan ; then
+        ip link del dev $(cat /run/wan-if/vlan)
+        rm -f /run/wan-if/vlan
+      fi
+      true
+    '';
+  };
+
   services.wan = svc.pppoe.build {
-    interface = nifs.wan;
+    interface = config.services.wan-if;
     username =
       if deployment.wan.pppoe.username == null then
         null
@@ -158,6 +201,15 @@ in
         null
       else
         outputRef runtime "wan/pppoe/password";
+    # pppd's default is 1500, which is more than PPPoE can carry, so the
+    # big packets are the ones that get lost: take the MTU/MRU from the
+    # interface service, which knows whether it added a VLAN tag.
+    ppp-options = [
+      "mtu"
+      (outputRef config.services.wan-if "mtu")
+      "mru"
+      (outputRef config.services.wan-if "mtu")
+    ];
   };
   services.defaultroute4 = svc.network.route.build {
     via = "$(output ${config.services.wan} address)";
