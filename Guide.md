@@ -97,7 +97,14 @@ sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 # 不是合法 JSON 会整份回落到镜像里的种子并在日志里报错；
 # 少了某个键时，hostname/地址/DHCP/resolvers 各自回落到建构期默认值
 # PPPoE 账号则没有默认值可用、拨号服务起不来（LAN 和 ssh 不受影响，可以ssh进去改回来）
-# 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）。
+# 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）；
+# wan.vlan 同理（写成 "1510"）：不写这个键或写 null，就是该环境不做 VLAN。
+
+# WAN 侧：s6 oneshot wan-if 按 wan/vlan 决定 PPPoE 跑在 wan 还是新建的 wan.<vid> 上
+# （MTU/MRU 随之 1488 / 1492），所以 PPPoE 服务名是 wan-if.pppoe：
+#   s6-rc -d change wan-if.pppoe   # 停
+#   s6-rc -u change wan-if.pppoe   # 起
+# 改 wan/vlan 需要重启（或 s6-rc -d/-u change wan-if wan-if.pppoe）才生效。
 
 
 # per-unit 数据开机时从 0:ART 读出（devices/jdcloud-ax6600/art.nix）：
