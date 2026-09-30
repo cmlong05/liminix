@@ -77,8 +77,8 @@ in
         type = types.bool;
       };
       ppp-options = mkOption {
-        type = types.listOf types.str;
-        description = "options supplied on ppp command line";
+        type = types.listOf (liminix.lib.types.replacable types.str);
+        description = "options supplied on ppp command line. An option may also be an outputRef, to be read from the service's output at run time";
         default = [ ];
       };
     };
