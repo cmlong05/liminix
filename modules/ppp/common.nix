@@ -85,7 +85,7 @@ let
     "lcp-echo-failure"
     (toString lcpEcho.failure)
   ]
-  ++ ppp-options
+  ++ map (o: if isOutputRef o then literal_or_output o else o) ppp-options
   ++ [
     "ip-up-script"
     ip-up
@@ -120,9 +120,9 @@ let
   };
 in
 svc.secrets.subscriber.build {
-  watch = lib.filter isOutputRef [
+  watch = lib.filter isOutputRef (ppp-options ++ [
     username
     password
-  ];
+  ]);
   inherit service;
 }
