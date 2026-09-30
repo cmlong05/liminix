@@ -35,6 +35,11 @@
   };
 
   wan = {
+    # 802.1Q tag the WAN port needs in front of the PPPoE session (many
+    # ISPs hand the session out on a VLAN). null, or no key at all in the
+    # run-time /persist/config.json, means an untagged WAN.
+    vlan = 41;
+
     # IPv6 over the same PPPoE session: ask the BRAS for a delegated
     # prefix (DHCPv6-PD), then hand it to the LAN by SLAAC.
     ipv6 = {
