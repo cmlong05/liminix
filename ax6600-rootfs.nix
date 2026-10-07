@@ -12,6 +12,7 @@
 let
   inherit (pkgs.liminix.services) oneshot;
   inherit (pkgs.pseudofile) dir symlink;
+  nifs = config.hardware.networkInterfaces;
 
   # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
   wanMtu = import ./devices/jdcloud-ax6600/wan-mtu.nix;
@@ -119,7 +120,12 @@ in
   services.firewall = config.system.service.firewall.build {
     zones = {
       lan = [ config.services.int ];
-      wan = [ config.services.wan ];
+      # 物理 WAN 口也在这里：它的 untagged 侧通向光猫本身，nat-tx 的
+      # masquerade 因此也覆盖 LAN→光猫（ax6600-lan.nix 的 wan-ont）。
+      wan = [
+        config.services.wan
+        nifs.wan
+      ];
     };
     extraRules = {
       # The tagged case is the smaller of the two, so clamping to it is

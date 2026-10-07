@@ -187,6 +187,26 @@ in
     '';
   };
 
+  # 光猫的管理地址在 WAN 口的 untagged 侧，拨号用的 ppp0 到不了它：在
+  # wan-if 给出的接口上加一个同网段地址，路由器才有通往光猫的路由，防火墙
+  # wan zone 里的 masquerade 让 LAN 发出的包也走这条路（ax6600-rootfs.nix）。
+  # 光猫管理地址若在 wan/vlan 的 tag 内，这里加的就是那个子接口，无需改动。
+  services.wan-ont = oneshot {
+    name = "wan-ont";
+    dependencies = [
+      config.services.wan-if
+      runtime
+    ];
+    up = ''
+      address=$(output ${runtime} wan/ont/address 2>/dev/null || true)
+      test -n "$address" || exit 0
+      prefixLength=$(output ${runtime} wan/ont/prefixLength 2>/dev/null || true)
+      # replace 而非 add：wan-if 重启后地址可能还在，重加不能失败。
+      ip address replace "$address/''${prefixLength:-24}" dev "$(output ${config.services.wan-if} ifname)"
+    '';
+    down = "true";
+  };
+
   services.wan = svc.pppoe.build {
     interface = config.services.wan-if;
     username =
