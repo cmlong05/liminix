@@ -1,6 +1,9 @@
 #!/bin/sh
 # 更新已分区的 U 盘上 p1（内核 fit.itb）与 p2（rootfs）的数据。
 # 不分区、不 mkfs：GPT、p3/persist 和两个分区的现有文件系统都原样保留。
+# p3（卷标 liminix-persist，挂 /persist）上的 config.json 优先于镜像里的种子，
+# 与构建出的 config.json 不同就问一次是否替换（无 tty 时不替换，替换前备份为
+# config.json.bak）；p3 上没有就不动。
 # 用法：
 #   sh update-usb.sh /dev/sdc
 #   DRY_RUN=1 sh update-usb.sh /dev/sdc	# 只打印将执行的命令
@@ -10,6 +13,8 @@ cd "$(dirname "$0")"
 MAX_BYTES=33000000000	# 33 GB 上限，防止误刷到别的盘
 UIMAGE=result-usb-ext4-uimage
 ROOTFS=result-usb-ext4-rootfs
+CONFIG=config.json
+PERSIST_LABEL=liminix-persist
 
 die() { echo "update-usb.sh: $*" >&2; exit 1; }
 usage() { echo "usage: $0 /dev/sdX   (whole disk, < 33 GB)" >&2; exit 2; }
@@ -47,6 +52,7 @@ bytes=$(size_of "$dev")
 
 p1=$(part "$dev" 1)
 p2=$(part "$dev" 2)
+p3=$(part "$dev" 3)
 # 分区名必须对得上（p1=boot，p2=liminix-root），且两个分区都没被挂载
 check_part() {
 	[ "$(lsblk_field "$1" TYPE)" = part ] || die "$1 missing: the disk must already have p1 + p2"
@@ -57,6 +63,12 @@ check_part() {
 }
 check_part "$p1" boot
 check_part "$p2" liminix-root
+
+# p3 是可选的：没有 liminix-persist 就跳过下面 config.json 的比较
+have_p3=no
+if [ "$(lsblk_field "$p3" TYPE)" = part ] && [ "$(lsblk_field "$p3" PARTLABEL)" = "$PERSIST_LABEL" ]; then
+	have_p3=yes
+fi
 
 for f in "$UIMAGE" "$ROOTFS"; do
 	[ -e "$f" ] || die "$f not built (run sh build.sh)"
@@ -69,15 +81,52 @@ p1_bytes=$(size_of "$p1")
 
 m1=$(mktemp -d)
 m2=$(mktemp -d)
+m3=$(mktemp -d)
 mi=$(mktemp -d)
 # 失败或中断时兜底卸载并删掉挂载点
 cleanup() {
+	run umount "$m3" 2>/dev/null || true
 	run umount "$m2" 2>/dev/null || true
 	run umount "$m1" 2>/dev/null || true
 	run umount "$mi" 2>/dev/null || true
-	rmdir "$m1" "$m2" "$mi" 2>/dev/null || true
+	rmdir "$m1" "$m2" "$m3" "$mi" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+# p3：/persist/config.json 优先于镜像里的种子，可能被手工改过；与构建出的
+# config.json 不同就问一次是否替换，不做就等于沿用 U 盘那份
+if [ "$have_p3" = no ]; then
+	echo "p3 $p3: no $PERSIST_LABEL partition, skipping /persist/config.json"
+elif [ ! -e "$CONFIG" ]; then
+	echo "p3: $CONFIG not built, skipping /persist/config.json"
+elif [ "${DRY_RUN:-0}" = 1 ]; then
+	echo "p3: DRY_RUN, would compare /persist/config.json with $CONFIG"
+else
+	run mount "$p3" "$m3"
+	if [ ! -e "$m3/config.json" ]; then
+		echo "p3: no /persist/config.json, the image seed stays in charge"
+	elif cmp -s "$CONFIG" "$m3/config.json" 2>/dev/null; then
+		echo "p3: /persist/config.json already matches $CONFIG"
+	else
+		echo "p3: /persist/config.json differs from $CONFIG"
+		if [ -t 0 ]; then
+			printf 'p3: replace it on %s? [y/N] ' "$dev"
+			read -r ans || ans=
+		else
+			echo "p3: stdin is not a tty, keeping the U-disk copy"
+			ans=
+		fi
+		case "${ans:-}" in
+		[yY]*)
+			run cp -p "$m3/config.json" "$m3/config.json.bak"
+			run cp "$CONFIG" "$m3/config.json"
+			;;
+		*) echo "p3: kept the U-disk /persist/config.json" ;;
+		esac
+	fi
+	run sync
+	run umount "$m3"
+fi
 
 # p1：FAT 分区，只放 fit.itb；-c 按内容比较，内核没变就不重传
 echo "p1 $p1 <- $UIMAGE as fit.itb ($uimage_bytes bytes)"
@@ -95,6 +144,6 @@ run sync
 run umount "$m2"
 run umount "$mi"
 
-rmdir "$m1" "$m2" "$mi"
+rmdir "$m1" "$m2" "$m3" "$mi"
 trap - EXIT INT TERM
 echo "update-usb.sh: done, $dev p1 + p2 refreshed"
