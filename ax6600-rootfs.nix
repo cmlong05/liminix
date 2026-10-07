@@ -16,6 +16,26 @@ let
   # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
   wanMtu = import ./devices/jdcloud-ax6600/wan-mtu.nix;
 
+  # Site firewall policy: rules come from the file named by
+  # -I liminix-firewall=<file>, so an image not given one carries no site
+  # rules at all. See devices/jdcloud-ax6600/config_firewall.nix.
+  # The nixPath lookup is only there to tell "no -I" from "a -I that points
+  # nowhere": Nix silently drops a search path entry naming a missing file,
+  # so without it a typo would look like a deliberate "no rules". The <...>
+  # lookup is what actually resolves a relative entry, the way the search
+  # path does.
+  siteFirewall =
+    let
+      entry = lib.findFirst (e: e.prefix == "liminix-firewall") null builtins.nixPath;
+      resolved = builtins.tryEval <liminix-firewall>;
+    in
+    if entry == null then
+      { }
+    else if !resolved.success then
+      throw "liminix-firewall: cannot read ${entry.path}"
+    else
+      import resolved.value;
+
   nss = import ./devices/jdcloud-ax6600/nss {
     inherit pkgs;
     kernel = config.system.outputs.kernel;
@@ -124,6 +144,12 @@ in
         rules = [
           "iifname @lan oifname @wan tcp flags & (syn | rst) == syn tcp option maxseg size set ${toString (wanMtu.tagged - 60)}"
         ];
+      };
+
+      # 默认的 incoming-allowed-ip6 是空链，站点放行规则在这里注入，见
+      # siteFirewall：没有 -I liminix-firewall 就是空链。
+      incoming-allowed-ip6 = {
+        rules = siteFirewall.incomingAllowedIp6 or [ ];
       };
     };
   };
