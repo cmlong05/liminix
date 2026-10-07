@@ -40,6 +40,15 @@
     # run-time /persist/config.json, means an untagged WAN.
     vlan = 1510;
 
+    # The ONT keeps its management address (usually 192.168.1.1) on the
+    # untagged side of the WAN port, where the PPPoE session cannot reach
+    # it: the router takes an address in that subnet so both it and the
+    # LAN can get there (ax6600-lan.nix, service wan-ont).
+    ont = {
+      address = "192.168.1.2";
+      prefixLength = 24;
+    };
+
     # IPv6 over the same PPPoE session: ask the BRAS for a delegated
     # prefix (DHCPv6-PD), then hand it to the LAN by SLAAC.
     ipv6 = {
