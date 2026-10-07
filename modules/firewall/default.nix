@@ -78,6 +78,15 @@ in
           the targets of the service in firewall.kernelModules.
         '';
       };
+      appendRules = mkOption {
+        type = types.attrsOf (types.listOf types.str);
+        default = { };
+        description = ''
+          Rules appended to the end of a chain that already exists in the
+          ruleset, keyed by chain name. List values merge, so any number
+          of modules can contribute to the same chain.
+        '';
+      };
     };
   };
   config = {
@@ -89,6 +98,11 @@ in
           extraRules = mkOption {
             type = types.attrsOf types.attrs;
             description = "firewall ruleset";
+            default = { };
+          };
+          appendRules = mkOption {
+            type = types.attrsOf (types.listOf types.str);
+            description = "rules appended to existing chains";
             default = { };
           };
           zones = mkOption {
@@ -120,6 +134,7 @@ in
           let
             args' = args // {
               dependencies = (args.dependencies or [ ]) ++ [ moduleService ];
+              appendRules = config.firewall.appendRules;
             };
           in
           svc.build args';
