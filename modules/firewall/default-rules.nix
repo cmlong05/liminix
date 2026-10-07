@@ -215,6 +215,7 @@ in
       "iifname @wan jump input-ip4-wan"
       "iifname @wan jump incoming-allowed-ip4"
       "ct state established,related accept"
+      "jump input-ip4-modules"
       "log prefix \"DENIED CHAIN=input-ip4 \""
     ];
   };
@@ -228,8 +229,24 @@ in
       "iifname @lan accept"
       "ct state established,related accept"
       "oifname @lan iifname @wan jump incoming-allowed-ip4"
+      "jump forward-ip4-modules"
       "log prefix \"DENIED CHAIN=forward-ip4 \""
     ];
+  };
+
+  # Filled in by modules, which is why these jumps are not restricted to
+  # @wan the way incoming-allowed-ip4 is: an interface the ruleset knows
+  # nothing about (tailscale0) has to be nameable from outside it.
+  input-ip4-modules = {
+    type = "filter";
+    family = "ip";
+    rules = [ ];
+  };
+
+  forward-ip4-modules = {
+    type = "filter";
+    family = "ip";
+    rules = [ ];
   };
 
   incoming-allowed-ip4 = {

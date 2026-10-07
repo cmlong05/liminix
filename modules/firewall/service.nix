@@ -8,6 +8,7 @@
   output-template,
 }:
 {
+  appendRules,
   rules,
   extraRules,
   zones,
@@ -90,11 +91,23 @@ let
     };
 
   sets = (mapAttrs' (n: _: mkSet "ip" n) zones) // (mapAttrs' (n: _: mkSet "ip6" n) zones);
-  allRules = {
+  base = {
     icmp6-ratehook = rateHook6;
     icmp4-ratehook = rateHook4;
   }
   // (lib.recursiveUpdate (lib.recursiveUpdate sets rules) extraRules);
+
+  # appendRules is for the case extraRules cannot serve: several modules
+  # all wanting to add to the same chain, where "attrsOf (listOf str)"
+  # merges by concatenation and "attrsOf attrs" would have collided.
+  appended = lib.mapAttrs (
+    name: extra:
+    if base ? ${name} then
+      base.${name} // { rules = (base.${name}.rules or [ ]) ++ extra; }
+    else
+      throw "firewall.appendRules names a chain that is not in the ruleset: ${name}"
+  ) appendRules;
+  allRules = base // appended;
   script = firewallgen "firewall1.nft" allRules;
   name = "firewall";
   service = longrun {
