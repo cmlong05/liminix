@@ -1,5 +1,5 @@
 # The deployment as it appears in /persist/config.json: one definition
-# shared by the image seed (ax6600-lan.nix) and gen-config-json.sh.
+# shared by the image seed (ax6600-lan.nix) and build.sh.
 { lib }:
 let
   deployment =
