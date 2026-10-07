@@ -37,6 +37,7 @@ in
     ./modules/bridge
     ./modules/ppp
     ./modules/ssh
+    ./modules/tailscale
   ];
 
   services.runtime-config = svc.secrets.local.build {
@@ -300,5 +301,12 @@ in
   };
 
   services.sshd = svc.ssh.build { };
+
+  # No auth key: tailscaled comes up at boot, and the first `tailscale up`
+  # is run over ssh (it prints a URL to open elsewhere). What keeps that
+  # login across reboots is the node state under /persist/tailscale.
+  services.tailscale = svc.tailscale.build {
+    dependencies = [ config.services.wan ];
+  };
 
 }
