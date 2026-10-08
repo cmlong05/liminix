@@ -139,7 +139,7 @@ run umount "$m1"
 echo "p2 $p2 <- $ROOTFS"
 run mount -o loop,ro "$rootfs" "$mi"
 run mount "$p2" "$m2"
-run rsync -aHAX --numeric-ids --info=progress2 --delete --exclude=/lost+found "$mi/" "$m2/"
+run rsync -acHAX --numeric-ids --info=progress2 --delete --exclude=/lost+found "$mi/" "$m2/"
 run sync
 run umount "$m2"
 run umount "$mi"
