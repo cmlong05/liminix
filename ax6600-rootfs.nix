@@ -120,11 +120,13 @@ in
   services.firewall = config.system.service.firewall.build {
     zones = {
       lan = [ config.services.int ];
-      # 物理 WAN 口也在这里：它的 untagged 侧通向光猫本身，nat-tx 的
-      # masquerade 因此也覆盖 LAN→光猫（ax6600-lan.nix 的 wan-ont）。
+      # wan-if 给出实际承载 PPPoE 的链路接口（untagged 时是物理口，带 VLAN
+      # 时是 wan.<vid>）：光猫管理地址加在它上面，@wan 必须包含它，masquerade
+      # 与 mss 才会作用于 LAN→光猫的出口。物理口本身也保留。
       wan = [
         config.services.wan
         nifs.wan
+        config.services.wan-if
       ];
     };
     extraRules = {
