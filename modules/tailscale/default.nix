@@ -45,19 +45,6 @@ in
           type = types.str;
           default = "tailscale";
         };
-        tunMode = mkOption {
-          type = types.enum [
-            "kernel"
-            "userspace"
-          ];
-          default = "kernel";
-          description = ''
-            "kernel" gives tailscaled its own tailscale0 interface through
-            the TUN driver, which is what subnet routes and direct access
-            to tailnet addresses need. "userspace" keeps everything in the
-            daemon and only offers a SOCKS5/HTTP proxy to local processes.
-          '';
-        };
         stateDir = mkOption {
           type = types.path;
           default = "/persist/tailscale";
@@ -94,6 +81,13 @@ in
         ];
         forward-ip4-modules = [
           "iifname \"tailscale0\" ip saddr 100.64.0.0/10 accept"
+          "oifname \"tailscale0\" accept"
+        ];
+        input-ip6-modules = [
+          "iifname \"tailscale0\" ip6 saddr fd7a:115c:a1e0::/48 accept"
+        ];
+        forward-ip6-modules = [
+          "iifname \"tailscale0\" ip6 saddr fd7a:115c:a1e0::/48 accept"
           "oifname \"tailscale0\" accept"
         ];
       };
