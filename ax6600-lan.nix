@@ -35,6 +35,7 @@ in
     ./modules/dhcp6c
     ./modules/dnsmasq
     ./modules/bridge
+    ./modules/ntp
     ./modules/ppp
     ./modules/ssh
     ./modules/tailscale
@@ -44,26 +45,21 @@ in
   # fetch its login URL, every certificate being "not yet valid", and the
   # board has no RTC to fall back on.
   #
-  # A one-shot chronyd rather than modules/ntp, whose longrun only signals
-  # readiness once `chronyc waitsync` sees a sync - an unreachable NTP
-  # server leaves it hanging until timeout-up expires, and the default
-  # target then reports failure. -q steps the clock once and exits.
-  #
-  # Running as root is deliberate: liminix builds chrony without libcap,
-  # and a chronyd that has dropped privileges cannot keep CAP_SYS_TIME.
-  services.ntp = oneshot {
-    name = "ntp";
+  # user = "root" is not optional: liminix builds chrony without libcap (see
+  # -PRIVDROP in `chronyd --version`), and a chronyd that has dropped to the
+  # module's default "ntp" user cannot keep CAP_SYS_TIME - it runs, but
+  # silently fails to set the clock.
+  services.ntp = svc.ntp.build {
+    user = "root";
     dependencies = [ config.services.resolvconf ];
-    up = ''
-      ${pkgs.chrony}/bin/chronyd -q -t 15 -f ${
-        pkgs.writeText "chrony-step.conf" ''
-          pool ntp.aliyun.com iburst
-          pool cn.pool.ntp.org iburst
-          makestep 1.0 -1
-        ''
-      } || true
-    '';
-    down = "true";
+    pools = {
+      "ntp.aliyun.com" = [ "iburst" ];
+      "cn.pool.ntp.org" = [ "iburst" ];
+    };
+    makestep = {
+      threshold = 1.0;
+      limit = -1;
+    };
   };
 
   services.runtime-config = svc.secrets.local.build {
@@ -255,6 +251,22 @@ in
       (outputRef config.services.wan-if "mtu")
     ];
   };
+  # tailscale warns that UDP forwarding over the PPPoE device is left
+  # suboptimal by default. The interface is pppN with N picked by pppd, so
+  # find it instead of naming it.
+  services.wan-gro = oneshot {
+    name = "wan-gro";
+    dependencies = [ config.services.wan ];
+    up = ''
+      for d in /sys/class/net/ppp* ; do
+        test -e "$d" || continue
+        ${pkgs.ethtool}/bin/ethtool -K "$(basename "$d")" \
+          rx-udp-gro-forwarding on rx-gro-list off || true
+      done
+    '';
+    down = "true";
+  };
+
   services.defaultroute4 = svc.network.route.build {
     via = "$(output ${config.services.wan} address)";
     target = "default";
