@@ -104,6 +104,7 @@ in
       # recognised (outbound-initiated) flow
       (accept "oifname @lan iifname @wan ct state established,related")
       (accept "iifname @lan oifname @wan ")
+      "jump forward-ip6-modules"
 
       "log prefix \"DENIED CHAIN=forward-ip6 \""
     ];
@@ -142,8 +143,23 @@ in
       # how does this even make sense in an input chain?
       (accept "iifname @wan  ct state established,related")
       (accept "iifname @lan ")
+      "jump input-ip6-modules"
       "log prefix \"DENIED CHAIN=input-ip6 \""
     ];
+  };
+
+  # Same injection point as the ip4 pair: filled in by modules, so that an
+  # interface the ruleset knows nothing about can be accepted from outside
+  input-ip6-modules = {
+    type = "filter";
+    family = "ip6";
+    rules = [ ];
+  };
+
+  forward-ip6-modules = {
+    type = "filter";
+    family = "ip6";
+    rules = [ ];
   };
 
   incoming-allowed-ip6 = {

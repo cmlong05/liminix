@@ -30,7 +30,6 @@
     ./ppp
     ./ramdisk.nix
     ./ssh
-    ./tailscale
     ./users.nix
     ./vlan
     ./watchdog
