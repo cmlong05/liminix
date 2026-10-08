@@ -25,6 +25,7 @@
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
 | N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 进行中 | — |
 | N8 | 外挂 QCN9024 的 5.2G | 待办 | — |
+| N9 | 升级模式：`outputs.updater`（U 盘 ext4 主力） | 计划已定，未实施 | — |
 
 **NB**
 > 不要管实际的 eMMC GPT，各种机器有各种不同。
@@ -76,22 +77,32 @@
 * 参考 VIKINGYFY 6.18 NSS 栈
 
 
-
-### N7 产品化【进行中】
-
-* 内核和用户态软件是自动分区，还是分地方配置的？
-  比如，iperf3 在最终产品里，不应该在 rootfs/HLOS 里，而应该在用户态里。
-* **per-unit 数据统一从 `0:ART` 取**（已经实现）
-
 ### N8：QCN9024 外挂的 5.2G【待办】
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G。
 * 不要设置开机启动，由我手动开启。
 * **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联。
 
-### N9: outputs.updater
-* 升级模式
-* eMMC 可写 rootfs + `outputs.updater`（参考 `turris-omnia` 的 `/dev/mmcblk0p1` 形态，
-  本板 GPT：`0:HLOS` / `rootfs` / `0:ART`）；
+### N9: outputs.updater（升级模式）【计划已定，未实施】
+* 形态：主力就是 U 盘，eMMC 本轮不参与（不碰 eMMC、不碰 `0:HLOS`、无裸分区写入）。
+  root 在 U 盘 p2（可写 ext4，`ax6600-usb-ext4.nix`），单 rootfs、就地升级。
+* 升级链路：`-A outputs.updater` → `./result/bin/update.sh [--no-reboot|--fast] root@<device>`；
+  `min-copy-closure` 推送闭合集 → 设备上 `bin/install` → 回滚点 `/persist/<ts>.configuration`
+  （p3 `liminix-persist` 在时落真分区；缺 p3 时的行为待定）。
+* 内核槽：U 盘 p1（vfat，`PARTLABEL=boot`）。`update.sh` 顺带在线写 `fit.itb`，由设备侧完成
+  （同一物理盘的另一个分区，只有设备自己写得到）；`--no-kernel` 可跳过，回退上游行为。
+* 设备侧脚本：新增 `devices/jdcloud-ax6600/boot-slot.nix`（不给开机自启），
+  按 `PARTLABEL=boot` 定位 → 写 `fit.itb` → `sync` → 回读 sha256 校验 → `umount`，支持 `DRY_RUN`。
+* 不直接改上游 `modules/outputs/updater/update.sh`（AGENTS.md 第 2 条）：设备版 updater 由新增的
+  `devices/jdcloud-ax6600/updater.nix` 生成，复用其 `toplevel` / `min-copy-closure` 注入与
+  `--no-reboot` / `--fast` 语义，只追加内核步骤。
+* 边界：`update-usb.sh` = 构建机离线刷 p1/p2；`outputs.updater` = 设备运行中在线升级。
+* 分解：
+  1. 只读核实：`outputs.updater` 在 `ax6600-usb-ext4.nix` 下可求值、`cpio`/vfat applet、
+     缺 p3 `liminix-persist` 时回滚点的策略。
+  2. 设备侧 `boot-slot` 脚本 + 按需补 busybox vfat applet。
+  3. 设备版 updater（顺带写内核、`--no-kernel`）。
+  4. 验证（**需明示批准后才构建**）：`nix-build -A outputs.updater`、`DRY_RUN=1` 写 p1、
+     设备上 `update.sh --no-reboot` 试跑。
 ---
 
 ## 附录
