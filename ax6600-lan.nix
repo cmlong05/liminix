@@ -40,6 +40,32 @@ in
     ./modules/tailscale
   ];
 
+  # Nothing that speaks TLS works on a 1970 clock: tailscale cannot even
+  # fetch its login URL, every certificate being "not yet valid", and the
+  # board has no RTC to fall back on.
+  #
+  # A one-shot chronyd rather than modules/ntp, whose longrun only signals
+  # readiness once `chronyc waitsync` sees a sync - an unreachable NTP
+  # server leaves it hanging until timeout-up expires, and the default
+  # target then reports failure. -q steps the clock once and exits.
+  #
+  # Running as root is deliberate: liminix builds chrony without libcap,
+  # and a chronyd that has dropped privileges cannot keep CAP_SYS_TIME.
+  services.ntp = oneshot {
+    name = "ntp";
+    dependencies = [ config.services.resolvconf ];
+    up = ''
+      ${pkgs.chrony}/bin/chronyd -q -t 15 -f ${
+        pkgs.writeText "chrony-step.conf" ''
+          pool ntp.aliyun.com iburst
+          pool cn.pool.ntp.org iburst
+          makestep 1.0 -1
+        ''
+      } || true
+    '';
+    down = "true";
+  };
+
   services.runtime-config = svc.secrets.local.build {
     name = "runtime-config";
     path = runtimeConfigFile;
