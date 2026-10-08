@@ -10,3 +10,5 @@ examples/static-leases.nix
 research/
 .nixcache
 /config.json
+build-home.sh
+devices/jdcloud-ax6600/config-home.nix
