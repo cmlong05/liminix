@@ -2,27 +2,30 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 
-# config.json：从源码树的 deployment 生成 —— 与镜像里 /persist 的种子同一份文本
+device_dir="$here/devices/jdcloud-ax6600"
+deployment="$device_dir/config.nix"
+
+echo "==> config.json：从 deployment 生成，与镜像 /persist 的种子同一份文本" >&2
 nix-instantiate --eval --strict --raw \
-    -I "liminix-deployment=$here/devices/jdcloud-ax6600/config.nix" \
-    --expr "(import $here/devices/jdcloud-ax6600/deployment-json.nix { lib = import <nixpkgs/lib>; }).text" \
+    -I "liminix-deployment=$deployment" \
+    --expr "(import $device_dir/deployment-json.nix { lib = import <nixpkgs/lib>; }).text" \
     > "$here/config.json"
 
-# rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
-    -I liminix-firewall=./devices/jdcloud-ax6600/config_firewall.nix \
+set -- \
+    --arg device "import $device_dir" \
+    -I "liminix-config=$here/ax6600-usb-ext4.nix" \
+    -I "liminix-deployment=$deployment" \
+    -I "liminix-firewall=$device_dir/config_firewall.nix"
+
+echo "==> rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
+nix-build -Q "$@" \
     -A outputs.rootfs \
-    -o result-usb-ext4-rootfs
+    -o "$here/result-usb-ext4-rootfs"
 
-# Kernel
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
-    -I liminix-firewall=./devices/jdcloud-ax6600/config_firewall.nix \
+echo "==> kernel" >&2
+nix-build -Q "$@" \
     -A outputs.uimage \
-    -o result-usb-ext4-uimage
+    -o "$here/result-usb-ext4-uimage"
 
-# 再跑 md5
-sh md5_result.sh
+echo "==> md5" >&2
+sh "$here/md5_result.sh"
