@@ -27,6 +27,10 @@ in
       # tailscaled creates tailscale0 through /dev/net/tun
       kernel.config.TUN = "y";
 
+      # tailscaled cannot be driven from a shell without it; the list is
+      # a listOf, so this appends to whatever the composition sets
+      defaultProfile.packages = [ pkgs.tailscale ];
+
       # tailscale and tailscaled both default to
       # /var/run/tailscale/tailscaled.sock; /var/run pointing at /run is
       # what lets them agree on a root that is read-only apart from /run
