@@ -71,10 +71,20 @@ in
     ./devices/jdcloud-ax6600/art.nix
   ];
 
-  services.modules = pkgs.kmodloader.override {
-    inherit (config.system.outputs) kernel;
-    modules = moduleFiles;
-    targets = moduleTargets;
+  # 关机时不卸载模块。kmodloader 默认的 down 会跑 unload.sh，而卸载
+  # qca-ssdk/qca-nss-* 会在内核里挂住，加上 s6-rc 的 oneshot down 没有
+  # 超时（liminix 默认 timeout-down=0），reboot 就永久停在关机阶段。
+  # 重启时内核自己会重置，不需要卸载。
+  services.modules = oneshot {
+    name = "kmodloader-${lib.concatStringsSep "-" moduleTargets}";
+    # 模块已经由 rc-init.d 的 modules 加载（见下面的 filesystem.etc），这里
+    # 只是 firewall 的依赖锚点。load.sh 用的是 insmod，重复插入会以 EEXIST
+    # 失败并让 s6-rc 判服务 failed，所以先看 load-order 的最后一个模块在不在。
+    up = ''
+      last=$(basename "$(tail -n 1 ${moduleTree}/load-order)" .ko | tr '-' '_')
+      test -d "/sys/module/$last" || O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
+    '';
+    down = "true";
   };
 
   firewall.kernelModules = config.services.modules;
@@ -90,7 +100,7 @@ in
         modules = symlink (
           pkgs.writeAshScript "load-modules" { } ''
             echo "loading kernel modules from ${moduleTree}"
-            O=${moduleTree}/lib/modules sh ${moduleTree}/lib/modules/load.sh
+            O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
           ''
         );
       };
