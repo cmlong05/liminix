@@ -106,11 +106,11 @@ else
 	run mount "$p3" "$m3"
 	if [ ! -e "$m3/config.json" ]; then
 		echo "p3: no /persist/config.json, the image seed stays in charge"
-	elif cmp -s "$CONFIG" "$m3/config.json" 2>/dev/null; then
+	elif run cmp -s "$CONFIG" "$m3/config.json" 2>/dev/null; then
 		echo "p3: /persist/config.json already matches $CONFIG"
 	else
 		echo "p3: /persist/config.json (-) differs from $CONFIG (+)"
-		diff -u "$m3/config.json" "$CONFIG" || true
+		run diff -u "$m3/config.json" "$CONFIG" || true
 		printf 'p3: replace it on %s? [y/N] ' "$dev"
 		read -r ans || ans=
 		case "${ans:-}" in
