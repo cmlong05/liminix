@@ -113,10 +113,9 @@ sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
 # tailscale up 需要浏览器授权，在路由器上就跑成「打印链接」的形式
 # 因为镜像里没有 iptables（我特意去掉了那层 wrap），建议第一次就这么跑：
 
-tailscale up --force-reauth --netfilter-mode=off --accept-dns=false --accept-routes --advertise-routes=10.10.x.x/24
-
-  • --netfilter-mode=off：不让 tailscaled 去 fork iptables 管理 ts-input/ts-forward，防火墙交给 liminix 自己的 nftables。
-  • --accept-dns=false：/etc/resolv.conf 是软链到 /run/resolv.conf、由 WAN 的 resolvconf 服务在管，别让 tailscale 接管。
-
+tailscale up --netfilter-mode=off --accept-dns=false --accept-routes --advertise-routes=10.10.x.x/24
+    • --netfilter-mode=off：不让 tailscaled 去 fork iptables 管理 ts-input/ts-forward，防火墙交给 liminix 自己的 nftables。
+    • --accept-dns=false：/etc/resolv.conf 是软链到 /run/resolv.conf、由 WAN 的 resolvconf 服务在管，别让 tailscale 接管。
+    • --force-reauth #非必要
 tailscale status
 ip addr show tailscale0
