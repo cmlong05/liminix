@@ -32,6 +32,12 @@
         ip = "10.10.10.9";
       };
     };
+
+    # Local DNS records answered by dnsmasq itself instead of being
+    # forwarded upstream. Keyed by hostname, value is the address.
+    dnsHosts = {
+      "erp.bumooby.com" = "10.10.10.9";
+    };
   };
 
   wan = {
