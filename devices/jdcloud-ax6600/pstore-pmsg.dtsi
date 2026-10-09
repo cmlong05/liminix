@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * ImmortalWrt's 0103 patch gives ipq6018 a ramoops region with only
+ * record-size and console-size, so the kernel registers no /dev/pmsg0 -
+ * which is where the persistent log stream goes (modules/logging.nix).
+ */
+&ramoops_region {
+	pmsg-size = <0x10000>;
+};
