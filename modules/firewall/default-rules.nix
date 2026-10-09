@@ -58,6 +58,11 @@ in
       (drop "ip6 saddr 2001:10::/28") # ORCHID [RFC4843].
       (drop "ip6 daddr 2001:10::/28")
 
+      # ahead of the ULA drops below, not after: an overlay that is itself
+      # unique-local (tailscale hands out fd7a:115c:a1e0::/48, inside
+      # fc00::/7) only gets accepted if the module-injected rule comes first
+      "jump forward-ip6-modules"
+
       (drop "ip6 saddr fc00::/7") # unique local source
       (drop "ip6 daddr fc00::/7") # and/or dst addresses [RFC4193]
 
@@ -104,7 +109,6 @@ in
       # recognised (outbound-initiated) flow
       (accept "oifname @lan iifname @wan ct state established,related")
       (accept "iifname @lan oifname @wan ")
-      "jump forward-ip6-modules"
 
       "log prefix \"DENIED CHAIN=forward-ip6 \""
     ];
