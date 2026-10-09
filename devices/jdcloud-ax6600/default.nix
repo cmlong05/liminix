@@ -217,7 +217,8 @@
                 upstreamTree
                 "${config.system.outputs.kernel.modulesupport}/arch/arm64/boot/dts/qcom/"
               ];
-              includes = [ ./overrides.dtsi ];
+              includes = [ ./overrides.dtsi ]
+                ++ lib.optional config.logging.persistent.enable ./pstore-pmsg.dtsi;
             };
 
           networkInterfaces =

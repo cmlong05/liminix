@@ -83,6 +83,10 @@ in
 
   hostname = lib.mkDefault deployment.hostname;
 
+  # Build-time: mirrored into the s6 logger and the device tree by
+  # devices/jdcloud-ax6600/default.nix.
+  logging.persistent.enable = lib.mkDefault (deployment.persistentLogging or false);
+
   services.int = svc.bridge.primary.build {
     ifname = "int";
   };
