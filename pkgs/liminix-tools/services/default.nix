@@ -10,16 +10,34 @@ let
   output = service: name: "${prefix}/${service.name}/${name}";
   inherit (lib.attrsets) mapAttrsRecursive collect;
   inherit (lib.strings) concatStringsSep;
-  serviceScript = commands: ''
+  # The shell must exec the service command itself, or s6-supervise
+  # supervises a sh: a down then kills only the sh and the service keeps
+  # running as an orphan that still owns its listening sockets (dnsmasq
+  # never rebinds, every restart leaks another process). busybox ash only
+  # execs the last command of a `-c` string, never that of a script file,
+  # and only when the string ends right after the command - hence the
+  # trailing-whitespace strip.
+  trimRight =
+    s:
+    if s == "" then
+      ""
+    else if
+      lib.hasSuffix "\n" s || lib.hasSuffix "\r" s || lib.hasSuffix " " s || lib.hasSuffix "\t" s
+    then
+      trimRight (lib.substring 0 (lib.stringLength s - 1) s)
+    else
+      s;
+  serviceScript = body: ''
     #!/bin/sh
-    exec 2>&1
-    . ${serviceFns}
-    ${commands}
+    exec /bin/sh -c ${lib.escapeShellArg (trimRight body)} "$0" "$@"
+  '';
+  cleanupCommands = name: ''
+    if test -d ${prefix}/${name} ; then rm -rf ${prefix}/${name} ; fi
   '';
   cleanupScript = name: cmds: ''
     #!/bin/sh
     ${if cmds != null then cmds else ""}
-    if test -d ${prefix}/${name} ; then rm -rf ${prefix}/${name} ; fi
+    ${cleanupCommands name}
   '';
   service =
     {
@@ -117,7 +135,7 @@ let
       // {
         serviceType = "oneshot";
         up = writeScript "${name}-up" (serviceScript up);
-        down = writeScript "${name}-down" "${serviceScript down}\n${cleanupScript name null}";
+        down = writeScript "${name}-down" (serviceScript "${down}\n${cleanupCommands name}");
       }
     );
   bundle =
