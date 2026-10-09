@@ -2,7 +2,7 @@
 # 更新已分区的 U 盘上 p1（内核 fit.itb）与 p2（rootfs）的数据。
 # 不分区、不 mkfs：GPT、p3/persist 和两个分区的现有文件系统都原样保留。
 # p3（卷标 liminix-persist，挂 /persist）上的 config.json 优先于镜像里的种子，
-# 与构建出的 config.json 不同就问一次是否替换（无 tty 时不替换，替换前备份为
+# 与构建出的 config.json 不同就 diff 出差异并问一次是否替换（替换前备份为
 # config.json.bak）；p3 上没有就不动。
 # 用法：
 #   sh update-usb.sh /dev/sdc
@@ -44,6 +44,7 @@ size_of() {	# 取字节数；读不到就报错，别把 "14.8G" 当数字比
 
 command -v lsblk >/dev/null 2>&1 || die "lsblk not found"
 command -v rsync >/dev/null 2>&1 || die "rsync not found"
+command -v diff >/dev/null 2>&1 || die "diff not found"
 
 # 以下检查任一不过就退出，保证不去动写错的盘
 [ "$(lsblk_field "$dev" TYPE)" = disk ] || die "$dev is not a whole block device"
@@ -94,7 +95,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # p3：/persist/config.json 优先于镜像里的种子，可能被手工改过；与构建出的
-# config.json 不同就问一次是否替换，不做就等于沿用 U 盘那份
+# config.json 不同就 diff 出差异并问一次是否替换，不做就等于沿用 U 盘那份
 if [ "$have_p3" = no ]; then
 	echo "p3 $p3: no $PERSIST_LABEL partition, skipping /persist/config.json"
 elif [ ! -e "$CONFIG" ]; then
@@ -108,14 +109,10 @@ else
 	elif cmp -s "$CONFIG" "$m3/config.json" 2>/dev/null; then
 		echo "p3: /persist/config.json already matches $CONFIG"
 	else
-		echo "p3: /persist/config.json differs from $CONFIG"
-		if [ -t 0 ]; then
-			printf 'p3: replace it on %s? [y/N] ' "$dev"
-			read -r ans || ans=
-		else
-			echo "p3: stdin is not a tty, keeping the U-disk copy"
-			ans=
-		fi
+		echo "p3: /persist/config.json (-) differs from $CONFIG (+)"
+		diff -u "$m3/config.json" "$CONFIG" || true
+		printf 'p3: replace it on %s? [y/N] ' "$dev"
+		read -r ans || ans=
 		case "${ans:-}" in
 		[yY]*)
 			run cp -p "$m3/config.json" "$m3/config.json.bak"
@@ -128,10 +125,10 @@ else
 	run umount "$m3"
 fi
 
-# p1：FAT 分区，只放 fit.itb；-c 按内容比较，内核没变就不重传
+# p1：FAT 分区，只放 fit.itb；-c 按内容比较，-i 列出变更，内核没变就不重传
 echo "p1 $p1 <- $UIMAGE as fit.itb ($uimage_bytes bytes)"
 run mount "$p1" "$m1"
-run rsync -c --info=progress2 "$uimage" "$m1/fit.itb"
+run rsync -ci --info=progress2 "$uimage" "$m1/fit.itb"
 run sync
 run umount "$m1"
 
@@ -139,7 +136,7 @@ run umount "$m1"
 echo "p2 $p2 <- $ROOTFS"
 run mount -o loop,ro "$rootfs" "$mi"
 run mount "$p2" "$m2"
-run rsync -acHAX --numeric-ids --info=progress2 --delete --exclude=/lost+found "$mi/" "$m2/"
+run rsync -aAcHiX --numeric-ids --info=progress2 --delete --exclude=/lost+found "$mi/" "$m2/"
 run sync
 run umount "$m2"
 run umount "$mi"
