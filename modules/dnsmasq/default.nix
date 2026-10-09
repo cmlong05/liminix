@@ -59,6 +59,15 @@ in
         type = types.listOf types.str;
         default = [ ];
       };
+      addnHosts = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = ''
+          Paths of extra files in /etc/hosts format (`IP name`, one per
+          line) that dnsmasq answers from directly instead of forwarding
+          them upstream.
+        '';
+      };
       ranges = mkOption {
         type = types.listOf types.str;
       };
