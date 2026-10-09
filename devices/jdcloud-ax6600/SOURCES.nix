@@ -116,6 +116,8 @@ in
       verify = [
         { kind = "grep"; file = "arch/arm64/boot/dts/qcom/ipq6018.dtsi";
           needle = "nss_region: nss@"; label = "0103: nss_region for ipq6018-nss.dtsi"; }
+        { kind = "grep"; file = "arch/arm64/boot/dts/qcom/ipq6018.dtsi";
+          needle = "ramoops_region: ramoops@"; label = "0103: ramoops label pstore-pmsg.dtsi extends"; }
       ];
       blob = "8a7ef0da7d8519826d0192b0b2d4c116a4b37524";
       sha256 = "sha256-VkG0vzD8AfvQ46flpS03g/qUq6/a1G7ZZ2XADaCl8J4=";

@@ -8,7 +8,11 @@
 #
 # Without that argument the build uses this file.
 {
-  hostname = "ax6600";
+  hostname = "office-ax6600";
+
+  # Build-time only: also write the s6 log stream to the pstore pmsg
+  # device, so logs outlive a reboot. Needs a rebuild, not a config edit.
+  persistentLogging = true;
 
   lan = {
     address = "10.10.10.10";
