@@ -154,6 +154,36 @@ in
       action = "restart-all";
     };
 
+  # Local DNS records come from the run-time config too, so dnsmasq is
+  # restarted whenever lan/dnsHosts changes there.
+  services.dns-hosts =
+    let
+      generator = oneshot {
+        name = "dns-hosts";
+        dependencies = [ runtime ];
+        up = ''
+          ( in_outputs dns-hosts
+            : > hosts
+            dns=$(output_path ${runtime} lan/dnsHosts 2>/dev/null)
+            test -d "$dns" || exit 0
+            for f in $dns/* ; do
+              test -f "$f" || continue
+              ip=$(cat "$f" 2>/dev/null)
+              test -n "$ip" || continue
+              echo "$ip $(basename $f)"
+            done >> hosts
+            chmod 0644 hosts
+          )
+        '';
+        down = "true";
+      };
+    in
+    svc.secrets.subscriber.build {
+      service = generator;
+      watch = [ (outputRef runtime "lan/dnsHosts") ];
+      action = "restart-all";
+    };
+
   services.dhcpv4 = svc.secrets.subscriber.build {
     service = svc.dnsmasq.build {
       interface = config.services.int;
@@ -164,12 +194,17 @@ in
         ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
       resolvFile = "/run/resolv.conf";
       hostsFile = "$(output_path ${config.services.dhcp-hosts} hosts)";
+      addnHosts = [ "$(output_path ${config.services.dns-hosts} hosts)" ];
       dependencies = [
         runtime
         config.services.dhcp-hosts
+        config.services.dns-hosts
       ];
     };
-    watch = [ (outputRef config.services.dhcp-hosts "hosts") ];
+    watch = [
+      (outputRef config.services.dhcp-hosts "hosts")
+      (outputRef config.services.dns-hosts "hosts")
+    ];
     action = "restart-all";
   };
 
