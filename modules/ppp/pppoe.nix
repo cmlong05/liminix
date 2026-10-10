@@ -18,6 +18,7 @@
   password,
   debug,
   timeout-up ? 60 * 1000,
+  redial-interval ? 30,
 }:
 let
   name = "${interface.name}.pppoe";
@@ -36,6 +37,7 @@ common {
     bandwidth
     ppp-options
     timeout-up
+    redial-interval
     ;
   command = ''
     exec ${ppp}/bin/pppd pty "${pppoe}/bin/pppoe ${timeoutOpt}  -I $(output ${interface} ifname)" file /run/${name}/ppp-options

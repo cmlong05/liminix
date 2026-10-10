@@ -59,6 +59,11 @@ in
         default = 60 * 1000;
         description = "how long to wait for pppd to be ready, in milliseconds";
       };
+      redial-interval = mkOption {
+        type = types.int;
+        default = 30;
+        description = "how long to wait between attempts to start the service again after s6-rc has marked it down, in seconds";
+      };
       lcpEcho = {
         adaptive = mkOption {
           description = "send LCP echo-request frames only if no traffic was received from the peer since the last echo-request was sent";
@@ -133,6 +138,11 @@ in
         type = types.int;
         default = 60 * 1000;
         description = "how long to wait for the tunnel to be ready, in milliseconds";
+      };
+      redial-interval = mkOption {
+        type = types.int;
+        default = 30;
+        description = "how long to wait between attempts to start the service again after s6-rc has marked it down, in seconds";
       };
     };
 

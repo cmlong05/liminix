@@ -18,6 +18,7 @@
   password,
   debug,
   timeout-up ? 60 * 1000,
+  redial-interval ? 30,
 }:
 let
   name = "${lns}.l2tp";
@@ -45,6 +46,7 @@ common {
     bandwidth
     ppp-options
     timeout-up
+    redial-interval
     ;
   command = ''
     touch ${control}

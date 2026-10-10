@@ -18,6 +18,7 @@
   bandwidth,
   ppp-options,
   timeout-up ? 60 * 1000,
+  redial-interval ? 30,
   dependencies ? [ ],
 }:
 let
@@ -120,7 +121,7 @@ let
       while : ; do
         ${s6}/bin/s6-svwait -d $dir
         ${s6-rc}/bin/s6-rc -b -u change ${name} || true
-        sleep 30
+        sleep ${toString redial-interval}
       done
     '';
   };
