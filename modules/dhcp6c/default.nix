@@ -36,6 +36,21 @@ in
         type = liminix.lib.types.interface;
         description = "interface (usually WAN) to query for DHCP6";
       };
+      wait-for = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "pathname that must exist before the client is started, for interfaces whose IPv6 is only usable later";
+      };
+      wait-time = mkOption {
+        type = types.int;
+        default = 20;
+        description = "how long to wait for wait-for, in seconds";
+      };
+      timeout-up = mkOption {
+        type = types.int;
+        default = 60 * 1000;
+        description = "how long the client has to become ready, in milliseconds";
+      };
     };
     address = config.system.callService ./address.nix {
       client = mkOption {
