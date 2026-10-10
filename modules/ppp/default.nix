@@ -54,6 +54,11 @@ in
         default = null;
         description = "approximate bandwidth in bytes/second. Used to calculate rate limits for ICMP";
       };
+      timeout-up = mkOption {
+        type = types.int;
+        default = 60 * 1000;
+        description = "how long to wait for pppd to be ready, in milliseconds";
+      };
       lcpEcho = {
         adaptive = mkOption {
           description = "send LCP echo-request frames only if no traffic was received from the peer since the last echo-request was sent";
@@ -123,6 +128,11 @@ in
         type = types.listOf types.str;
         default = [ ];
         description = "options supplied on ppp command line";
+      };
+      timeout-up = mkOption {
+        type = types.int;
+        default = 60 * 1000;
+        description = "how long to wait for the tunnel to be ready, in milliseconds";
       };
     };
 
