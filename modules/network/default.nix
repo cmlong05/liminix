@@ -133,6 +133,16 @@ in
           description = "route metric";
           default = 100;
         };
+        wait-for = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "pathname that must exist before the route is installed, for next hops that are only known later";
+        };
+        wait-time = mkOption {
+          type = types.int;
+          default = 20;
+          description = "how long to wait for wait-for, in seconds";
+        };
       };
 
       forward = config.system.callService ./forward.nix {
