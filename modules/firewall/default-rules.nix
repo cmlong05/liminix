@@ -110,7 +110,7 @@ in
       (accept "oifname @lan iifname @wan ct state established,related")
       (accept "iifname @lan oifname @wan ")
 
-      "log prefix \"DENIED CHAIN=forward-ip6 \""
+      "log prefix \"DENIED CHAIN=forward-ip6 \" limit rate 5/minute burst 10 packets"
     ];
   };
 
@@ -121,6 +121,7 @@ in
     rules = [
       (accept "udp dport 547") # dhcp, could restrict to daddr ff02::1:2
       (accept "udp dport 53") # dns
+      (accept "tcp dport 53") # dns over tcp
       (accept "tcp dport 22")
     ];
   };
@@ -149,7 +150,7 @@ in
       (accept "iifname @wan  ct state established,related")
       (accept "iifname @lan ")
       "jump input-ip6-modules"
-      "log prefix \"DENIED CHAIN=input-ip6 \""
+      "log prefix \"DENIED CHAIN=input-ip6 \" limit rate 5/minute burst 10 packets"
     ];
   };
 
@@ -213,6 +214,7 @@ in
     rules = [
       (accept "udp dport 67") # dhcp
       (accept "udp dport 53") # dns
+      (accept "tcp dport 53") # dns over tcp
       (accept "tcp dport 22") # ssh
     ];
   };
@@ -237,7 +239,7 @@ in
       "iifname @wan jump incoming-allowed-ip4"
       "ct state established,related accept"
       "jump input-ip4-modules"
-      "log prefix \"DENIED CHAIN=input-ip4 \""
+      "log prefix \"DENIED CHAIN=input-ip4 \" limit rate 5/minute burst 10 packets"
     ];
   };
 
@@ -251,7 +253,7 @@ in
       "ct state established,related accept"
       "oifname @lan iifname @wan jump incoming-allowed-ip4"
       "jump forward-ip4-modules"
-      "log prefix \"DENIED CHAIN=forward-ip4 \""
+      "log prefix \"DENIED CHAIN=forward-ip4 \" limit rate 5/minute burst 10 packets"
     ];
   };
 
