@@ -3,6 +3,8 @@
   liminix,
   svc,
   lib,
+  s6,
+  s6-rc,
   serviceFns,
   output-template,
 }:
@@ -104,6 +106,24 @@ let
     "logfd"
     "2"
   ];
+  # 启动超时（或任何 up 转换失败）会让 s6-rc 把服务标 down，此后
+  # s6-supervise 不再拉起 pppd，线路恢复也没人管，所以挂一个长驻服务把
+  # 它 up 回来。用 s6-rc 而不是 s6-svc，依赖它的服务（默认路由、resolvconf、
+  # dhcp6c）才会跟着起来。
+  redial = longrun {
+    name = "${name}-redial";
+    run = ''
+      dir=/run/service/${name}
+      until test -d $dir/supervise ; do sleep 1 ; done
+      # 等 boot 的 up 序列交出 s6-rc 锁，否则会抢在 runlevel 前面启动服务
+      ${s6-rc}/bin/s6-rc -b -a list >/dev/null 2>&1 || true
+      while : ; do
+        ${s6}/bin/s6-svwait -d $dir
+        ${s6-rc}/bin/s6-rc -b -u change ${name} || true
+        sleep 30
+      done
+    '';
+  };
   service = longrun {
     inherit name;
     run = ''
@@ -117,7 +137,7 @@ let
     notification-fd = 10;
     properties.bandwidth = bandwidth;
     inherit timeout-up;
-    inherit dependencies;
+    dependencies = dependencies ++ [ redial ];
   };
 in
 svc.secrets.subscriber.build {
