@@ -9,7 +9,7 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
-  inherit (pkgs.liminix.services) bundle longrun oneshot;
+  inherit (pkgs.liminix.services) bundle oneshot;
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
 
@@ -347,20 +347,6 @@ in
         ];
       }
     );
-
-  services.wan-redial = longrun {
-    name = "wan-redial";
-    run = ''
-      until test -d /run/service/${config.services.wan.name}/supervise ; do
-        sleep 1
-      done
-      while : ; do
-        ${pkgs.s6}/bin/s6-svwait -d /run/service/${config.services.wan.name}
-        ${pkgs.s6-rc}/bin/s6-rc -b -u change ${config.services.wan.name} || true
-        sleep 30
-      done
-    '';
-  };
 
   services.resolvconf = oneshot {
     dependencies = [
