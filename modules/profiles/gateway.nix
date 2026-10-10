@@ -164,6 +164,7 @@ in
       via = "$(output ${config.services.wan} ipv6-peer-address)";
       target = "default";
       interface = config.services.wan;
+      wait-for = "$(output_path ${config.services.wan} ipv6-up)";
     };
 
     services.firewall = mkIf cfg.firewall.enable (
