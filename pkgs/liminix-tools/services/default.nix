@@ -27,9 +27,12 @@ let
       trimRight (lib.substring 0 (lib.stringLength s - 1) s)
     else
       s;
+  # output/in_outputs/output_path are shell functions from service-fns.sh,
+  # not executables, so every service script has to source it.
   serviceScript = body: ''
     #!/bin/sh
-    exec /bin/sh -c ${lib.escapeShellArg (trimRight body)} "$0" "$@"
+    exec 2>&1
+    exec /bin/sh -c ${lib.escapeShellArg (". ${serviceFns}\n" + trimRight body)} "$0" "$@"
   '';
   cleanupCommands = name: ''
     if test -d ${prefix}/${name} ; then rm -rf ${prefix}/${name} ; fi
