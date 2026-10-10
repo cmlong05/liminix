@@ -75,19 +75,26 @@ in
       # the firewall's default chains jump to these (see modules/firewall
       # /default-rules.nix), so importing this module is what brings the
       # rules in - and not importing it takes them out again
+      #
+      # keyed on the interface rather than on saddr: with
+      # --netfilter-mode=off tailscale installs no subnet-route SNAT, so
+      # traffic forwarded between two advertised subnets arrives sourced
+      # from the sender's LAN address and never matches 100.64.0.0/10.
+      # tailscale0 is an encrypted tunnel whose peers the tailnet ACL
+      # already gates, so the interface is the boundary to trust.
       firewall.appendRules = {
         input-ip4-modules = [
-          "iifname \"tailscale0\" ip saddr 100.64.0.0/10 accept"
+          "iifname \"tailscale0\" accept"
         ];
         forward-ip4-modules = [
-          "iifname \"tailscale0\" ip saddr 100.64.0.0/10 accept"
+          "iifname \"tailscale0\" accept"
           "oifname \"tailscale0\" accept"
         ];
         input-ip6-modules = [
-          "iifname \"tailscale0\" ip6 saddr fd7a:115c:a1e0::/48 accept"
+          "iifname \"tailscale0\" accept"
         ];
         forward-ip6-modules = [
-          "iifname \"tailscale0\" ip6 saddr fd7a:115c:a1e0::/48 accept"
+          "iifname \"tailscale0\" accept"
           "oifname \"tailscale0\" accept"
         ];
       };
