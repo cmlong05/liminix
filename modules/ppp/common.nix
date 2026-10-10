@@ -15,6 +15,7 @@
   lcpEcho,
   bandwidth,
   ppp-options,
+  timeout-up ? 60 * 1000,
   dependencies ? [ ],
 }:
 let
@@ -40,7 +41,8 @@ let
     if test -n "''${DNS1}" ;then echo ''${DNS1} > ns1 ; fi
     if test -n "''${DNS2}" ;then echo ''${DNS2} > ns2 ; fi
     touch ip-up
-    test -e ipv6-up && ( echo >/proc/self/fd/10 || true)
+    # IPv4 通了就算起来：ISP 不给 IPv6（或 IPv6 迟到）时不应该让 WAN 起不来
+    echo >/proc/self/fd/10 || true
   '';
   ip6-up = writeAshScript "ip6-up" { } ''
     exec >&5 2>&5
@@ -114,8 +116,7 @@ let
     '';
     notification-fd = 10;
     properties.bandwidth = bandwidth;
-    timeout-up =
-      if lcpEcho.failure != null then (10 + lcpEcho.failure * lcpEcho.interval) * 1000 else 60 * 1000;
+    inherit timeout-up;
     inherit dependencies;
   };
 in
