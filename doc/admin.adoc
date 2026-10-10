@@ -51,8 +51,9 @@ with a readiness notification won't be started until the service signals
 (by writing to a nominated file descriptor) that it's prepared to start
 work. Most services defined by Liminix also have a `+timeout-up+`
 parameter, which means that if a service has readiness notifications and
-doesn't become ready in the allotted time (defaults 20 seconds) it will
-be terminated and its state set to *down*.
+doesn't become ready in the allotted time (defaults 30 seconds; services
+whose startup is expected to take longer, such as `+pppoe+`, set their
+own) it will be terminated and its state set to *down*.
 
 If the process providing a service dies, it will be restarted
 automatically. Liminix does not automatically set it to *down*.

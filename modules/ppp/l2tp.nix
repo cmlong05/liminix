@@ -17,6 +17,7 @@
   username,
   password,
   debug,
+  timeout-up ? 60 * 1000,
 }:
 let
   name = "${lns}.l2tp";
@@ -43,6 +44,7 @@ common {
     lcpEcho
     bandwidth
     ppp-options
+    timeout-up
     ;
   command = ''
     touch ${control}
