@@ -317,6 +317,7 @@ in
       via = "$(output ${config.services.wan} ipv6-peer-address)";
       target = "default";
       interface = config.services.wan;
+      wait-for = "$(output_path ${config.services.wan} ipv6-up)";
       dependencies = [ config.services.wan ];
     }
   );
@@ -329,6 +330,7 @@ in
       let
         client = svc.dhcp6c.client.build {
           interface = config.services.wan;
+          wait-for = "$(output_path ${config.services.wan} ipv6-up)";
         };
       in
       bundle {
