@@ -62,6 +62,14 @@ automatically. Liminix does not automatically set it to *down*.
 readiness, Liminix will restart it as many times as it has to until the
 timeout period elapses, and then stop it and mark it down.)
 
+A service stopped this way stays down: s6-supervise is no longer
+instructed to start it, so nothing brings it back when the reason for
+the failure goes away. Services whose upstream comes and goes therefore
+carry a longrun that watches for them going down and asks s6-rc to start
+them again - `+pppoe+` and `+l2tp+`, for example, each start a
+`+<name>-redial+` service for this purpose (how often it retries is the
+`+redial-interval+` option).
+
 ==== Controlled services
 
 *Controlled* services are those which are started/stopped on demand by a
