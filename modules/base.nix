@@ -143,7 +143,7 @@ in
     ];
 
     boot.commandLine = [
-      "panic=10 oops=panic init=/bin/init loglevel=8"
+      "panic=10 oops=panic init=/bin/init loglevel=4"
       "root=${config.hardware.rootDevice}"
       "rootfstype=${config.rootfsType}"
       "fw_devlink=off"
