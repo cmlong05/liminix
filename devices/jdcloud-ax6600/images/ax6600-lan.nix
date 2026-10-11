@@ -92,16 +92,10 @@ in
     ifname = "int";
   };
 
+  # 成员列表与防火墙 @lan zone 共用一份，见 ../lan-interfaces.nix
   services.bridge = svc.bridge.members.build {
     primary = config.services.int;
-    members = [
-      nifs.lan1
-      nifs.lan2
-      nifs.lan3
-      nifs.lan4
-      nifs.wlan24g
-      nifs.wlan58g
-    ];
+    members = import ../lan-interfaces.nix nifs;
   };
 
   services.int-address = oneshot {
