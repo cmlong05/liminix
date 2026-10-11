@@ -118,6 +118,10 @@ in
     dependencies = [ config.services.modules ];
     up = ''
       echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_no_window_check
+      # ECM offload desyncs conntrack, so a retransmitted closing packet
+      # (FIN) is judged invalid and dropped by input-ip4/6 instead of
+      # matching established,related: accept out-of-window packets.
+      echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal
       echo 65535 > /proc/sys/net/netfilter/nf_conntrack_max
       echo 1 > /proc/sys/net/netfilter/nf_conntrack_events
     '';
