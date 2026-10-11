@@ -6,6 +6,7 @@
 {
   config,
   lib,
+  modulesPath,
   pkgs,
   ...
 }:
@@ -15,7 +16,7 @@ let
   nifs = config.hardware.networkInterfaces;
 
   # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
-  wanMtu = import ./devices/jdcloud-ax6600/wan-mtu.nix;
+  wanMtu = import ../wan-mtu.nix;
 
   # Site firewall policy: rules come from the file named by
   # -I liminix-firewall=<file>, so an image not given one carries no site
@@ -37,7 +38,7 @@ let
     else
       import resolved.value;
 
-  nss = import ./devices/jdcloud-ax6600/nss {
+  nss = import ../nss {
     inherit pkgs;
     kernel = config.system.outputs.kernel;
     inherit (config.kernel) version;
@@ -52,7 +53,7 @@ let
   ];
 
   moduleTargets =
-    (import ./devices/jdcloud-ax6600/nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
+    (import ../nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
 
   # The same tree pkgs/kmodloader builds for the service, asked for here as
   # well so the init phase can load it (see etc/rc-init.d/modules below).
@@ -64,11 +65,11 @@ in
 {
   imports = [
     ./ax6600-lan.nix
-    ./modules/early
-    ./modules/firewall
-    ./devices/jdcloud-ax6600/wireless
-    ./devices/jdcloud-ax6600/wireless/rootfs-firmware.nix
-    ./devices/jdcloud-ax6600/art.nix
+    "${modulesPath}/early"
+    "${modulesPath}/firewall"
+    ../wireless
+    ../wireless/rootfs-firmware.nix
+    ../art.nix
   ];
 
   # 关机时不卸载模块。kmodloader 默认的 down 会跑 unload.sh，而卸载
