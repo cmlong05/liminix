@@ -215,6 +215,7 @@ in
       (accept "udp dport 53") # dns
       (accept "tcp dport 53") # dns over tcp
       (accept "tcp dport 22") # ssh
+      (accept "udp dport 5684 meta pkttype broadcast") # coap
     ];
   };
 
