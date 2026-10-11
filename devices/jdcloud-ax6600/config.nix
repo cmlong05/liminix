@@ -68,8 +68,6 @@
     pppoe = {
       username = "xga102782536";
       password = "443508";
-      # username = "5260383575";
-      # password = "888888";
     };
 
     # Extra upstream resolvers
