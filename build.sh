@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
+uimage=result-usb-ext4-uimage
+rootfs=result-usb-ext4-rootfs
 
 device_dir="$here/devices/jdcloud-ax6600"
 deployment="$device_dir/config.nix"
@@ -20,12 +22,24 @@ set -- \
 echo "==> rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
 nix-build -Q "$@" \
     -A outputs.rootfs \
-    -o "$here/result-usb-ext4-rootfs"
+    -o "$here/$rootfs"
 
 echo "==> kernel" >&2
 nix-build -Q "$@" \
     -A outputs.uimage \
-    -o "$here/result-usb-ext4-uimage"
+    -o "$here/$uimage"
 
 echo "==> md5" >&2
-sh "$here/md5_result.sh"
+for r in "$uimage" "$rootfs"; do
+    real=$(readlink -f "$here/$r")
+    printf '%-24s -> %s\n' "$r" "$real"
+    if [ -f "$real" ]; then
+        printf '  size %s bytes\n  md5 %s\n' \
+            "$(stat -c%s "$real")" "$(md5sum < "$real" | cut -d' ' -f1)"
+    else
+        for p in "$real"/*; do
+            printf '  %-9s size %s  md5 %s\n' "$(basename "$p")" \
+                "$(stat -c%s "$p")" "$(md5sum < "$p" | cut -d' ' -f1)"
+        done
+    fi
+done
