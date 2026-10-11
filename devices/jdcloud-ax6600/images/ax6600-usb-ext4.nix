@@ -12,12 +12,13 @@
 
 {
   lib,
+  modulesPath,
   ...
 }:
 {
   imports = [
     ./ax6600-usb.nix
-    ./modules/outputs/ext4fs.nix
+    "${modulesPath}/outputs/ext4fs.nix"
   ];
 
   boot.rootfs.mount = "kernel";
