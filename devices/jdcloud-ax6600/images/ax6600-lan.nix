@@ -3,6 +3,7 @@
 {
   config,
   lib,
+  modulesPath,
   pkgs,
   ...
 }:
@@ -14,7 +15,7 @@ let
   inherit (pkgs.pseudofile) dir symlink;
 
   # Which network this image serves
-  deploymentJson = import ./devices/jdcloud-ax6600/deployment-json.nix { inherit lib; };
+  deploymentJson = import ../deployment-json.nix { inherit lib; };
   inherit (deploymentJson) deployment;
 
   runtime = config.services.runtime-config;
@@ -26,19 +27,19 @@ let
   # PPPoE costs the ethernet frame 8 bytes of header (6 ethernet + 2 PPPoE
   # protocol), an 802.1Q tag another 4: what is left is what pppd may
   # advertise as MTU/MRU on the link we picked.
-  wanMtu = import ./devices/jdcloud-ax6600/wan-mtu.nix;
+  wanMtu = import ../wan-mtu.nix;
 in
 {
   imports = [
     ./ax6600-dev.nix
-    ./modules/network
-    ./modules/dhcp6c
-    ./modules/dnsmasq
-    ./modules/bridge
-    ./modules/ntp
-    ./modules/ppp
-    ./modules/ssh
-    ./modules/tailscale
+    "${modulesPath}/network"
+    "${modulesPath}/dhcp6c"
+    "${modulesPath}/dnsmasq"
+    "${modulesPath}/bridge"
+    "${modulesPath}/ntp"
+    "${modulesPath}/ppp"
+    "${modulesPath}/ssh"
+    "${modulesPath}/tailscale"
   ];
 
   # Nothing that speaks TLS works on a 1970 clock: tailscale cannot even
