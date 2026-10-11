@@ -19,7 +19,7 @@ nix-build -Q \
     -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
     -A outputs.rootfs \
     -o result-rootfs \
-    && sh md5_result.sh
+    && md5sum result result-rootfs
 
 ### USB squashfs版
 nix-build -Q \
@@ -34,7 +34,7 @@ nix-build -Q \
     -A outputs.uimage \
     -o result-usb-uimage
 
-sh md5_result.sh
+md5sum result-usb-rootfs result-usb-uimage
 
 ### USB ext4 版
 # rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
@@ -50,7 +50,7 @@ nix-build -Q \
     -A outputs.uimage \
     -o result-usb-ext4-uimage \
 
-sh md5_result.sh
+md5sum result-usb-ext4-rootfs result-usb-ext4-uimage
 
 
 # U盘系统里的内容，三个分区（GPT 自己建，见下面"U 盘分区与刷写"）
