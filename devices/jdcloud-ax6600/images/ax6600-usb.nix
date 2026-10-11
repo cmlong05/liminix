@@ -7,6 +7,7 @@
 #
 {
   lib,
+  modulesPath,
   pkgs,
   ...
 }:
@@ -18,7 +19,7 @@ in
 {
   imports = [
     ./ax6600-rootfs.nix
-    ./modules/usb.nix
+    "${modulesPath}/usb.nix"
   ];
 
   hardware.rootDevice = lib.mkForce "PARTLABEL=liminix-root";

@@ -13,7 +13,7 @@ nix-instantiate --eval --strict --raw \
 
 set -- \
     --arg device "import $device_dir" \
-    -I "liminix-config=$here/ax6600-usb-ext4.nix" \
+    -I "liminix-config=$here/devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix" \
     -I "liminix-deployment=$deployment" \
     -I "liminix-firewall=$device_dir/config_firewall.nix"
 
