@@ -130,7 +130,9 @@ in
   # MSS in flight stops the servers sending what the WAN cannot carry.
   services.firewall = config.system.service.firewall.build {
     zones = {
-      lan = [ config.services.int ];
+      # int 是出向（oifname）看到的桥设备，成员口是入向（iifname）看到的
+      # 物理口：@lan 两者都要，见 ../lan-interfaces.nix。
+      lan = [ config.services.int ] ++ import ../lan-interfaces.nix nifs;
       # wan-if 给出实际承载 PPPoE 的链路接口（untagged 时是物理口，带 VLAN
       # 时是 wan.<vid>）：光猫管理地址加在它上面，@wan 必须包含它，masquerade
       # 与 mss 才会作用于 LAN→光猫的出口。物理口本身也保留。
