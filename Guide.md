@@ -12,11 +12,11 @@ reset
 ### 基础版 uimage rootfs
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-rootfs.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
     -A outputs.uimage \
 && nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-rootfs.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
     -A outputs.rootfs \
     -o result-rootfs \
     && sh md5_result.sh
@@ -24,13 +24,13 @@ nix-build -Q \
 ### USB squashfs版
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb.nix \
     -A outputs.rootfs \
     -o result-usb-rootfs
 
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb.nix \
     -A outputs.uimage \
     -o result-usb-uimage
 
@@ -40,13 +40,13 @@ sh md5_result.sh
 # rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
     -A outputs.rootfs \
     -o result-usb-ext4-rootfs \
 # Kernel
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./ax6600-usb-ext4.nix \
+    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
     -A outputs.uimage \
     -o result-usb-ext4-uimage \
 
@@ -58,13 +58,18 @@ sh md5_result.sh
 # p2: rootfs（squashfs），GPT 分区名必须是 liminix-root（root=PARTLABEL=liminix-root）
 # p3: 持续化存储，ext4，卷标 liminix-persist，挂 /persist
 
-### U 盘分区
+### U 盘分区 
 nix shell nixpkgs#gptfdisk
+# Use -g to override 强制重新分区
 sudo sgdisk -o \
     -n 1:0:+64M   -c 1:boot            -t 1:ef00 \
     -n 2:0:+6144M -c 2:liminix-root    -t 2:8300 \
     -n 3:0:0      -c 3:liminix-persist -t 3:8300 \
     /dev/sdX
+# 如果无法完成，可先清理擦除后再进行上一步
+# 谨慎使用
+sudo wipefs -a /dev/sd*
+# 
 sudo partprobe /dev/sdX
 
 # # 首次需要格式化p1 p2 p3 , 注意卷标，系统靠它挂载
