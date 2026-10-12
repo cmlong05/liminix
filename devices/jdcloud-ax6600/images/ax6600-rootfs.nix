@@ -90,6 +90,10 @@ in
 
   firewall.kernelModules = config.services.modules;
 
+  # 站点策略的第二个注入点：追加到规则集里已有的链末尾。tailscale 模块
+  # 也用这个选项，attrsOf (listOf str) 按键合并，互不干扰。
+  firewall.appendRules = siteFirewall.appendRules or { };
+
   filesystem = dir {
     etc = dir {
       "rc-init.d" = dir {
