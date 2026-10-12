@@ -5,8 +5,9 @@
 #   -I liminix-firewall=./devices/jdcloud-ax6600/config_firewall.nix
 #
 # 不带该参数时镜像不带任何站点放行规则（build.sh 已带上）。每条是 nft
-# 规则文本，追加进默认留空的 incoming-allowed-ip6（转发与到本机两条链
-# 都会跳进去）。
+# 规则文本：incomingAllowedIp6 追加进默认留空的 incoming-allowed-ip6
+# （转发与到本机两条链都会跳进去），appendRules 追加到规则集里已有的链
+# 末尾，链名见 modules/firewall/default-rules.nix。
 {
   # 公网 IPv6 访问 LAN 主机的入站连接。不限定 daddr：LAN 前缀来自
   # DHCPv6-PD、主机地址来自 SLAAC，写死会失效。
@@ -16,4 +17,11 @@
     "oifname @lan tcp dport 8444 accept" # allow_wuju
     "oifname @lan tcp dport 9443 accept" # allow_nextcloud
   ];
+
+  # allow NetBIOS 名字查询/浏览广播
+  appendRules = {
+    input-ip4-lan = [
+      "udp dport { 137, 138 } meta pkttype broadcast accept"
+    ];
+  };
 }
