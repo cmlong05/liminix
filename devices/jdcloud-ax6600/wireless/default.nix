@@ -205,6 +205,15 @@ in
     '';
   };
 
+  # wifi启动条件，见 ../images/ax6600-lan.nix。
+  options.wireless.apReadyDependencies = lib.mkOption {
+    type = lib.types.listOf pkgs.liminix.lib.types.service;
+    default = [ ];
+    description = ''
+      Services the APs wait for before they start beaconing.
+    '';
+  };
+
   config = {
     kernel.config = {
       # The AHB half of ath11k needs the remoteproc framework; the wcss
@@ -303,6 +312,7 @@ in
       name: netif:
       lib.nameValuePair "hostap-${name}" (svc.hostapd.build {
         interface = config.hardware.networkInterfaces.${netif};
+        dependencies = config.wireless.apReadyDependencies;
         params =
           {
             ssid = outputRef runtime "wifi/bands/${name}/ssid";
