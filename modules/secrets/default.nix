@@ -112,6 +112,11 @@ in
         description = "secrets paths to subscribe to";
         type = types.listOf (types.functionTo types.anything);
       };
+      dontWait = mkOption {
+        description = "watched services the service starts without waiting for: their outputs may be missing when it first starts";
+        type = types.listOf liminix.lib.types.service;
+        default = [ ];
+      };
       service = mkOption {
         description = "subscribing service that will receive notification";
         type = liminix.lib.types.service;
