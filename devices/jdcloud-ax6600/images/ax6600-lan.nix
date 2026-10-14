@@ -207,6 +207,12 @@ in
     action = "restart-all";
   };
 
+  # 无线 beacon 排在桥上的地址与 DHCP 就绪之后：SSID 早于它们可见，
+  wireless.apReadyDependencies = [
+    config.services.int-address
+    config.services.dhcpv4
+  ];
+
   # 2.5G WAN as a PPPoE client. Whether the session has to sit inside an
   # 802.1Q tag is a per-network fact, read at run time (wan/vlan in
   # /persist/config.json), so the interface it runs on is a service too.
