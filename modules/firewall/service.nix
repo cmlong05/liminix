@@ -12,6 +12,7 @@
   rules,
   extraRules,
   zones,
+  dontWait ? [ ],
 }:
 let
   inherit (liminix.services) longrun;
@@ -136,5 +137,5 @@ svc.secrets.subscriber.build {
     mapAttrsToList (_zone: services: map (s: outputRef s "ifname") services) zones
   );
 
-  inherit service;
+  inherit dontWait service;
 }
