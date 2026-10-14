@@ -11,11 +11,12 @@
   watch,
   service,
   action,
+  dontWait ? [ ],
 }:
 let
   inherit (liminix.services) longrun;
   inherit (builtins) map;
-  inherit (lib) optionals optional concatStringsSep;
+  inherit (lib) optional concatStringsSep;
   inherit (service) name;
 
   restart-flag =
@@ -60,5 +61,5 @@ service.overrideAttrs (o: {
   dependencies =
     (lim.orEmpty o.dependencies)
     ++ optional (watch != [ ]) watcher
-    ++ optionals (watch != [ ]) (map (s: s "service") watch);
+    ++ map (s: s "service") (builtins.filter (s: !(lib.elem (s "service") dontWait)) watch);
 })

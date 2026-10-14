@@ -120,6 +120,11 @@ in
             default = import ./default-rules.nix;
             description = "firewall ruleset";
           };
+          dontWait = mkOption {
+            type = types.listOf liminix.lib.types.service;
+            default = [ ];
+            description = "zone members the firewall does not wait for before starting: they are still watched, so an interface appearing later reloads the ruleset";
+          };
         };
 
         # the composition's tree when it has one, else the private tree above.
