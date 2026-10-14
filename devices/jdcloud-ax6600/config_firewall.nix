@@ -18,10 +18,11 @@
     "oifname @lan tcp dport 9443 accept" # allow_nextcloud
   ];
 
-  # allow NetBIOS 名字查询/浏览广播
+  # allow port
   appendRules = {
-    input-ip4-lan = [
-      "udp dport { 137, 138 } meta pkttype broadcast accept"
-    ];
-  };
+      input-ip4-lan = [
+        # 137/138 NetBIOS, 7083 海尔空调, 15000 美的洗衣机, 58866 石头扫地机
+        "udp dport { 137, 138, 7083, 15000, 58866 } meta pkttype broadcast accept"
+      ];
+    };
 }
