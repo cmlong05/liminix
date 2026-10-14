@@ -6,6 +6,7 @@ rootfs=result-usb-ext4-rootfs
 
 device_dir="$here/devices/jdcloud-ax6600"
 deployment="$device_dir/config.nix"
+firewall="$device_dir/config_firewall.nix"
 
 echo "==> config.json：从 deployment 生成，与镜像 /persist 的种子同一份文本" >&2
 nix-instantiate --eval --strict --raw \
@@ -17,8 +18,8 @@ set -- \
     --arg device "import $device_dir" \
     -I "liminix-config=$here/devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix" \
     -I "liminix-deployment=$deployment" \
-    -I "liminix-firewall=$device_dir/config_firewall.nix"
-
+    -I "liminix-firewall=$firewall"
+    
 echo "==> rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
 nix-build -Q "$@" \
     -A outputs.rootfs \
