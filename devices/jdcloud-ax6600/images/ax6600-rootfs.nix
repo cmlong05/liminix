@@ -150,6 +150,9 @@ in
         config.services.wan-if
       ];
     };
+    # PPPoE 的接口名要等拨号成功才有：规则集先不等它（@wan 里暂时少一个
+    # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。
+    dontWait = [ config.services.wan ];
     extraRules = {
       # The tagged case is the smaller of the two, so clamping to it is
       # right for an untagged WAN as well; MSS is that MTU less the
