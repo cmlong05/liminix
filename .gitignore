@@ -8,6 +8,7 @@ _build
 examples/static-leases.nix
 /doc/hardware.rst
 research/
+.reasonix
 .nixcache
 /config.json
 build-home.sh
