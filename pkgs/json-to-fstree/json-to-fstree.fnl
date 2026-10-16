@@ -19,7 +19,9 @@
             lock (.. dest "/.outputs/.lock")]
         (with-open [fout (io.open lock :w)] (fout:write ""))
         (service:output "." (json.decode body))
-        (with-open [fout (io.open state :w)] (fout:write "ok"))
+        ;; publish state through the service (which leaves an unchanged
+        ;; file alone) instead of rewriting it on every pass
+        (service:output "state" "ok")
         (utime state last-modified)
         (os.remove lock))
 
