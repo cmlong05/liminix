@@ -39,8 +39,14 @@ longrun {
     source=${path}
     ( in_outputs ${name}
       ${choose-source}
+      ready=
       while : ; do
-        ${json-to-fstree}/bin/json-to-fstree file://$source ${placeholder "out"} && echo ready >&10
+        if ${json-to-fstree}/bin/json-to-fstree file://$source ${placeholder "out"} ; then
+          # notify readiness exactly once: s6 closes the pipe behind the
+          # notification fd after it has seen the notification, so writing
+          # to it on a later pass raises SIGPIPE and kills the service
+          if test -z "$ready" ; then echo ready >&10 ; ready=1 ; fi
+        fi
         sleep ${builtins.toString (interval * 60)}
       done
     )
