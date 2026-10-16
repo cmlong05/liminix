@@ -9,6 +9,7 @@
 }:
 {
   appendRules,
+  appendRulesBeforeLog ? { },
   rules,
   extraRules,
   zones,
@@ -98,17 +99,44 @@ let
   }
   // (lib.recursiveUpdate (lib.recursiveUpdate sets rules) extraRules);
 
+  # A log rule has no verdict, so it does not end the chain: rules appended
+  # after it are still reached, but every packet they accept is logged as
+  # denied first. Insert such rules ahead of the first one instead.
+  insertBeforeLog =
+    rules: extra:
+    let
+      n = builtins.length rules;
+      # index of the chain's first log rule, or n if it has none
+      at =
+        let
+          logs = builtins.filter
+            (i: lib.hasPrefix "log " (lib.trim (builtins.elemAt rules i)))
+            (builtins.genList (i: i) n);
+        in
+        if logs == [ ] then n else builtins.head logs;
+    in
+    (lib.lists.sublist 0 at rules) ++ extra ++ (lib.lists.sublist at (n - at) rules);
+
+  inserted = lib.mapAttrs (
+    name: extra:
+    if base ? ${name} then
+      base.${name} // { rules = insertBeforeLog (base.${name}.rules or [ ]) extra; }
+    else
+      throw "firewall.appendRulesBeforeLog names a chain that is not in the ruleset: ${name}"
+  ) appendRulesBeforeLog;
+  withInserted = base // inserted;
+
   # appendRules is for the case extraRules cannot serve: several modules
   # all wanting to add to the same chain, where "attrsOf (listOf str)"
   # merges by concatenation and "attrsOf attrs" would have collided.
   appended = lib.mapAttrs (
     name: extra:
-    if base ? ${name} then
-      base.${name} // { rules = (base.${name}.rules or [ ]) ++ extra; }
+    if withInserted ? ${name} then
+      withInserted.${name} // { rules = (withInserted.${name}.rules or [ ]) ++ extra; }
     else
       throw "firewall.appendRules names a chain that is not in the ruleset: ${name}"
   ) appendRules;
-  allRules = base // appended;
+  allRules = withInserted // appended;
   script = firewallgen "firewall1.nft" allRules;
   name = "firewall";
   service = longrun {

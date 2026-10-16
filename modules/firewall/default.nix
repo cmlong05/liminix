@@ -87,6 +87,18 @@ in
           of modules can contribute to the same chain.
         '';
       };
+      appendRulesBeforeLog = mkOption {
+        type = types.attrsOf (types.listOf types.str);
+        default = { };
+        description = ''
+          Rules inserted into a chain ahead of its first "log" rule, keyed
+          by chain name. A chain typically ends with a log rule and a drop
+          policy; as a log rule has no verdict it does not end the chain,
+          so a packet accepted by an appended rule is logged as denied
+          first. Rules for something the chain is meant to allow belong
+          here. List values merge.
+        '';
+      };
     };
   };
   config = {
@@ -103,6 +115,11 @@ in
           appendRules = mkOption {
             type = types.attrsOf (types.listOf types.str);
             description = "rules appended to existing chains";
+            default = { };
+          };
+          appendRulesBeforeLog = mkOption {
+            type = types.attrsOf (types.listOf types.str);
+            description = "rules inserted into existing chains ahead of their log rule";
             default = { };
           };
           zones = mkOption {
@@ -140,6 +157,7 @@ in
             args' = args // {
               dependencies = (args.dependencies or [ ]) ++ [ moduleService ];
               appendRules = config.firewall.appendRules;
+              appendRulesBeforeLog = config.firewall.appendRulesBeforeLog;
             };
           in
           svc.build args';

@@ -94,6 +94,9 @@ in
   # 也用这个选项，attrsOf (listOf str) 按键合并，互不干扰。
   firewall.appendRules = siteFirewall.appendRules or { };
 
+  # 同上，但插到链的 log 规则之前，避免被放行的包先打一条 DENIED 日志。
+  firewall.appendRulesBeforeLog = siteFirewall.appendRulesBeforeLog or { };
+
   filesystem = dir {
     etc = dir {
       "rc-init.d" = dir {
