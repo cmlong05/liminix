@@ -56,24 +56,41 @@
   (mktree (dirname pathname))
   (match (type value)
     "string"
-    (with-open [f (assert (io.open pathname :w) (.. "can't open " pathname))]
-      (f:write value))
+    ;; leave an unchanged file alone, and write through a temporary name
+    ;; otherwise: a service that republishes its outputs on a timer (a
+    ;; secrets provider re-reading its source) would otherwise wake - and
+    ;; restart - its subscribers on every pass, and a reader must not see
+    ;; a truncated or half-written file either
+    (when (not (and (= :file (file-type pathname))
+                    (= (read-line pathname) value)))
+      (let [tmp (.. pathname ".new")]
+        (with-open [f (assert (io.open tmp :w) (.. "can't open " tmp))]
+          (f:write value))
+        (assert (os.rename tmp pathname) (.. "can't rename " tmp))))
     "table" (each [k v (pairs value)]
               (write-value (append-path pathname k) v))))
 
-(fn read-value [pathname]
+(fn read-value-raw [pathname]
   (case (file-type pathname)
     nil nil
     :directory
     (collect [f (fs.dir pathname)]
       (when (not (or (= f ".") (= f "..")))
-        (values f (read-value (append-path pathname f)))))
+        (values f (read-value-raw (append-path pathname f)))))
     :file
     (read-line pathname)
     :link
     (read-line pathname)
     unknown
     (error (.. "can't read " pathname " of kind \"" unknown.mode "\""))))
+
+;; A directory or file can be removed (or replaced) while we are walking the
+;; tree - wan-if's outputs go away whenever that service restarts, for
+;; instance - and losing a value is not worth killing the caller for: it
+;; simply has no value this time round
+(fn read-value [pathname]
+  (let [(ok result) (pcall read-value-raw pathname)]
+    (when ok result)))
 
 (fn events [self]
   (coroutine.wrap

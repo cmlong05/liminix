@@ -22,12 +22,45 @@
          )))
   new-addresses)
 
+;; The client's state directory is emptied whenever dhcp6c restarts, so a
+;; prefix we put on the LAN outlives any knowledge of it: the next client
+;; asks for a prefix, may well be given a different one, and nothing
+;; removes the old address - it stays until its valid lifetime (three
+;; days) expires. Keep our own record of the last set and start from it,
+;; so that a restart reconciles instead of accumulating.
+
+(fn read-snapshot [pathname]
+  (match (io.open pathname :r)
+    f (let [snapshot {}]
+        (each [line (f:lines)]
+          (let [(key address len) (string.match line "(%S+) (%S+)/(%d+)")]
+            (when key
+              (tset snapshot key { : address : len }))))
+        (f:close)
+        snapshot)
+    nil {}))
+
+(fn write-snapshot [pathname snapshot]
+  (match (io.open (.. pathname ".new") :w)
+    f (do
+        (each [key address (pairs snapshot)]
+          (f:write key " " address.address "/" address.len "\n"))
+        (f:close)
+        (os.rename (.. pathname ".new") pathname))
+    nil nil))
+
 (fn run []
-  (let [[state-directory lan-device] arg
-        dir (svc.open state-directory)]
-    (update-prefixes lan-device [] (or (dir:output "prefix") []) system)
-    (accumulate [addresses []
+  (let [[state-directory lan-device snapshot-directory] arg
+        dir (svc.open state-directory)
+        snapshot (.. (or snapshot-directory state-directory) "/pd-snapshot")
+        known (read-snapshot snapshot)
+        current (or (dir:output "prefix") [])]
+    (write-snapshot snapshot current)
+    (update-prefixes lan-device known current system)
+    (accumulate [addresses current
                  v (dir:events)]
-      (update-prefixes lan-device addresses (or (v:output "prefix") []) system))))
+      (let [new (or (v:output "prefix") [])]
+        (write-snapshot snapshot new)
+        (update-prefixes lan-device addresses new system)))))
 
 { : changes : run }
