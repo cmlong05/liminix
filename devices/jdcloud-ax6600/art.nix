@@ -3,14 +3,15 @@
 # know, so they are read at boot.
 #
 #   * art-extract runs from rc-init.d, before the module loader, so ath11k
-#     finds its cal file in /lib/firmware when it probes; it also publishes
-#     this unit's MACs under /run/art.
+#     finds a cal file when it probes: it writes one into its service outputs,
+#     and ./rootfs-firmware.nix links ath11k's name for it there. It also
+#     publishes this unit's MACs under /run/art.
 #   * art-apply runs as an s6 oneshot after that: it puts the wired MACs on
 #     lan1..4/wan and renames the two AHB netdevs to fixed names by the MAC
 #     ath11k took out of the cal data.
 #
-# Offsets are structural, never a MAC value. Everything is best-effort: a missing 0:ART leaves the built-in
-# firmware and default names in place rather than failing the boot.
+# Offsets are structural, never a MAC value. A missing 0:ART is reported and
+# leaves the built-in firmware and the default names in place.
 { pkgs, ... }:
 let
   inherit (pkgs.pseudofile) dir symlink;
@@ -19,6 +20,7 @@ let
   extract = pkgs.writeAshScript "art-extract" { } ''
     set -u
     export PATH=/bin:/sbin
+    . ${pkgs.serviceFns}
 
     part=
     for u in /sys/class/block/*/uevent; do
@@ -28,27 +30,14 @@ let
       fi
     done
     if test -z "$part" ; then
-      echo "art-extract: no 0:ART partition; radios keep the built-in firmware" >&2
-      exit 0
+      echo "art-extract: no 0:ART partition; the AHB radios cannot start" >&2
+      exit 1
     fi
 
-    # /lib/firmware/ath11k is a symlink into the read-only store, so it has
-    # to become a real directory before anything can be written under it.
-    if test -L /lib/firmware/ath11k ; then
-      tmp=/lib/firmware/.ath11k.new
-      rm -rf "$tmp"
-      mkdir -p "$tmp"
-      cp -a -L /lib/firmware/ath11k/. "$tmp"/ || true
-      rm -f /lib/firmware/ath11k
-      mv "$tmp" /lib/firmware/ath11k || true
-    fi
-
-    fw=/lib/firmware/ath11k/IPQ6018/hw1.0
-    mkdir -p "$fw"
     # AHB calibration, shared by the 2.4 and 5.8 GHz pdevs (one cal per AHB
     # device): offset 0x1000, length 0x20000
-    dd if="$part" of="$fw/cal-ahb-c000000.wifi.bin" \
-       bs=1 skip=$((0x1000)) count=$((0x20000)) 2>/dev/null
+    out=$(mkoutputs art-extract)
+    dd if="$part" of="$out/cal" bs=4096 skip=1 count=32 2>/dev/null
 
     # this unit's MACs, by role: wired in the 0:ART header, radios embedded
     # in the cal blobs (ath11k takes the radio MACs from the cal file itself)
@@ -120,6 +109,11 @@ let
   '';
 in
 {
+  # The one firmware name the build cannot fill: rootfs-firmware.nix links it
+  # to art-extract's output, which ath11k then opens like any other file.
+  wireless.runtimeFirmwareFiles."ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin" =
+    "/run/services/outputs/art-extract/cal";
+
   filesystem = dir {
     etc = dir {
       "rc-init.d" = dir {
