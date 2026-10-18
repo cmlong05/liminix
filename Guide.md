@@ -21,21 +21,6 @@ nix-build -Q \
     -o result-rootfs \
     && md5sum result result-rootfs
 
-### USB squashfs版
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb.nix \
-    -A outputs.rootfs \
-    -o result-usb-rootfs
-
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb.nix \
-    -A outputs.uimage \
-    -o result-usb-uimage
-
-md5sum result-usb-rootfs result-usb-uimage
-
 ### USB ext4 版
 # rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
 nix-build -Q \
@@ -55,7 +40,7 @@ md5sum result-usb-ext4-rootfs result-usb-ext4-uimage
 
 # U盘系统里的内容，三个分区（GPT 自己建，见下面"U 盘分区与刷写"）
 # p1: FAT，只放 fit.itb（内核 FIT = kernel + dtb，cmdline 内嵌，U-Boot 按这个名字 fatload）
-# p2: rootfs（squashfs），GPT 分区名必须是 liminix-root（root=PARTLABEL=liminix-root）
+# p2: rootfs（ext4），GPT 分区名必须是 liminix-root（root=PARTLABEL=liminix-root）
 # p3: 持续化存储，ext4，卷标 liminix-persist，挂 /persist
 
 ### U 盘分区 

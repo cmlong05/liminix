@@ -1,5 +1,6 @@
 # The mounted-root half of the radio's firmware delivery: images that have a
-# real filesystem when the drivers probe (ax6600-rootfs.nix and ax6600-usb.nix)
+# real filesystem when the drivers probe (ax6600-rootfs.nix and
+# ax6600-usb-ext4.nix)
 # get the same blobs as ordinary files under /lib/firmware, at the names the
 # kernel asks for, built from the per-name packages in ./default.nix.
 #
