@@ -51,15 +51,8 @@ let
   #       this unit's calibration. ath11k builds that name from the bus
   #       and the device name ("cal-%s-%s.bin") and only falls back to
   #       board-2.bin when it is missing, so without it the radio will
-  #       not associate.
-  #
-  # The calibration data is per-unit and comes from a dump of this board's
-  # 0:ART partition, kept (git-ignored, so absent from a fresh clone) in
-  # ../art/: offset 0x1000 + length 0x20000, as OpenWrt's
-  # 11-ath11k-caldata uses for ipq60xx. Embedding it is a RAM-image measure
-  # only - preinit insmods before activate creates /lib/firmware - and it
-  # makes the image valid for this unit alone. N7 moves this, with the MAC,
-  # to a boot-time read of 0:ART; see ../BRINGUP.md.
+  #       not associate. It is per-unit and not built here: ../art.nix
+  #       writes it from the 0:ART partition before the module loader runs.
   sources = import ./SOURCES.nix;
   fetchFirmware =
     p:
@@ -85,11 +78,11 @@ let
       install -D -m 0644 ${firmwarePkg}/${name} $out
     '';
 
-  # The names the drivers ask for, exactly as they ask: the Q6 and m3 images
-  # from the wcss remoteproc, board-2 from ath11k's board data lookup, and the
-  # per-unit calibration ath11k builds out of the bus and device name.
-  # ./rootfs-firmware.nix indexes firmwarePkg with this list, so a name that is
-  # not in the tree fails its build instead of shipping a dangling file.
+  # The names the drivers ask for that the build can supply: the Q6 and m3
+  # images from the wcss remoteproc, board-2 from ath11k's board data lookup.
+  # The per-unit calibration is the one name missing here: ../art.nix writes it
+  # at boot. ./rootfs-firmware.nix indexes firmwarePkg with this list, so a name
+  # that is not in the tree fails its build instead of shipping a dangling file.
   firmwareNames = [
     "IPQ6018/q6_fw.mdt"
     "IPQ6018/q6_fw.b00"
