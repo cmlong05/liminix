@@ -92,7 +92,7 @@
   （同一物理盘的另一个分区，只有设备自己写得到）；`--no-kernel` 可跳过，回退上游行为。
 * 设备侧脚本：新增 `devices/jdcloud-ax6600/boot-slot.nix`（不给开机自启），
   按 `PARTLABEL=boot` 定位 → 写 `fit.itb` → `sync` → 回读 sha256 校验 → `umount`，支持 `DRY_RUN`。
-* 不直接改上游 `modules/outputs/updater/update.sh`（AGENTS.md 第 2 条）：设备版 updater 由新增的
+* 不直接改上游 `modules/outputs/updater/update.sh`：设备版 updater 由新增的
   `devices/jdcloud-ax6600/updater.nix` 生成，复用其 `toplevel` / `min-copy-closure` 注入与
   `--no-reboot` / `--fast` 语义，只追加内核步骤。
 * 边界：`update-usb.sh` = 构建机离线刷 p1/p2；`outputs.updater` = 设备运行中在线升级。
