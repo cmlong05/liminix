@@ -107,4 +107,10 @@
 
 ## 附录
 
-### QEMU 这条验证路径正式关闭（不要再试）
+# per-unit 数据开机时从 0:ART 读出（devices/jdcloud-ax6600/art.nix）：
+#   art-extract（rc-init.d/05-art，先于 modules）：物化 /lib/firmware/ath11k 为
+#     可写目录、写入 cal-ahb-c000000.wifi.bin、导出本机 MAC 到 /run/art/。
+#   art-apply（s6 oneshot）：给 lan1..4/wan 设本机 MAC；按 MAC 把 AHB 两个 netdev
+#     改名成 wlan24g / wlan58g。
+# 因此接口名固定为 wlan24g(2.4G) / wlan58g(5.8G)，无线 MAC 由 ath11k 从 cal 自动设。
+

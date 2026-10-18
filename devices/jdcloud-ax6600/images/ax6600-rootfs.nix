@@ -2,7 +2,7 @@
 #
 # eMMC image:
 #   outputs.uimage  (kernel + dtb, cmdline embedded)  -> partition 0:HLOS
-#   outputs.rootfs  (squashfs)                        -> partition rootfs
+#   outputs.rootfs  (ext4, writable, kernel-mounted)  -> partition rootfs
 #
 
 {
@@ -108,6 +108,7 @@ in
     "${modulesPath}/ssh"
     "${modulesPath}/tailscale"
     "${modulesPath}/firewall"
+    "${modulesPath}/outputs/ext4fs.nix"
     ../wireless
     ../wireless/rootfs-firmware.nix
     ../art.nix
@@ -132,8 +133,7 @@ in
     passwd = "$6$uqFC7Xu7q2uWTquh$axLjr8YpuQE.dqHlgQTXaeglki/FLsaLMX6RyKHWbYUL2VA4FRFmd2N/MNrqdGaKfzDrdbFJUxnPrfmjIciP80";
   };
 
-  # 现场运维工具：分区与格式化持久分区（e2fsprogs、gptfdisk、util-linux），
-  # 以及换线、改规则后的连通性排查（iperf3、curl、nftables、vim）。
+  # 现场运维工具
   defaultProfile.packages = with pkgs; [
     e2fsprogs
     gptfdisk
@@ -144,10 +144,12 @@ in
     nftables
   ];
 
-  # Nothing that speaks TLS works on a 1970 clock: tailscale cannot even
-  # fetch its login URL, every certificate being "not yet valid", and the
-  # board has no RTC to fall back on.
-  #
+  # minimal busybox 默认关掉 ash 的 $((...))，dhcp6c/route 等服务脚本会语法错误退出
+  programs.busybox.options = {
+    FEATURE_SH_MATH = "y";
+    FEATURE_FANCY_PING = "y";
+  };
+  
   # user = "root" is not optional: liminix builds chrony without libcap (see
   # -PRIVDROP in `chronyd --version`), and a chronyd that has dropped to the
   # module's default "ntp" user cannot keep CAP_SYS_TIME - it runs, but
@@ -587,6 +589,7 @@ in
   };
 
   filesystem = dir {
+    persist = dir { };
     etc = dir {
       "resolv.conf" = symlink "/run/resolv.conf";
       "rc-init.d" = dir {
@@ -611,25 +614,24 @@ in
   };
 
   hardware.rootDevice = "PARTLABEL=rootfs";
-  rootfsType = "squashfs";
+  rootfsType = "ext4";
 
   boot = {
     imageFormat = "fit";
-    commandLine = lib.mkForce (
-      [
-        "panic=10 oops=panic loglevel=4"
-        "console=ttyMSM0,115200n8"
-        "fw_devlink=off"
-        "nokaslr"
-        "root=${config.hardware.rootDevice}"
-        "rootfstype=${config.rootfsType}"
-        "rootwait"
-        "init=/bin/init"
-      ]
-      # With the root mounted by the kernel there is no initramfs, so
-      # nothing remounts it: without this the root stays read-only.
-      ++ lib.optional (config.rootfsType == "ext4") "rw"
-    );
+    # The kernel mounts the root itself and no initramfs is left to remount
+    # it, so this is what leaves the root writable.
+    rootfs.mount = "kernel";
+    commandLine = lib.mkForce [
+      "panic=10 oops=panic loglevel=4"
+      "console=ttyMSM0,115200n8"
+      "fw_devlink=off"
+      "nokaslr"
+      "root=${config.hardware.rootDevice}"
+      "rootfstype=${config.rootfsType}"
+      "rootwait"
+      "rw"
+      "init=/bin/init"
+    ];
   };
 
   kernel.config = {
