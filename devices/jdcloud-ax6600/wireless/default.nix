@@ -198,6 +198,19 @@ in
     '';
   };
 
+  # Names whose content only exists at run time, as absolute paths. The tree
+  # ./rootfs-firmware.nix builds carries them as symlinks, so a driver probing
+  # before the data exists opens one file rather than a directory that would
+  # have to be replaced.
+  options.wireless.runtimeFirmwareFiles = lib.mkOption {
+    type = lib.types.attrsOf lib.types.str;
+    default = { };
+    description = ''
+      Firmware files, by name relative to /lib/firmware, whose content is
+      produced at run time; each value is the absolute path to link to.
+    '';
+  };
+
   # wifi启动条件，见 ../images/ax6600-rootfs.nix。
   options.wireless.apReadyDependencies = lib.mkOption {
     type = lib.types.listOf pkgs.liminix.lib.types.service;
