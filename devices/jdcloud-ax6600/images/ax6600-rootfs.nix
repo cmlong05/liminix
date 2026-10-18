@@ -1,4 +1,6 @@
-# eMMC image: 
+# JDCloud AX6600 (RE-CS-02): wired-LAN network and services on the eMMC image.
+#
+# eMMC image:
 #   outputs.uimage  (kernel + dtb, cmdline embedded)  -> partition 0:HLOS
 #   outputs.rootfs  (squashfs)                        -> partition rootfs
 #
@@ -11,9 +13,21 @@
   ...
 }:
 let
-  inherit (pkgs.liminix.services) oneshot;
-  inherit (pkgs.pseudofile) dir symlink;
+  svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
+  inherit (pkgs.liminix.services) bundle oneshot;
+  inherit (pkgs.liminix) outputRef;
+  inherit (pkgs.pseudofile) dir symlink;
+
+  # Which network this image serves
+  deploymentJson = import ../deployment-json.nix { inherit lib; };
+  inherit (deploymentJson) deployment;
+
+  runtime = config.services.runtime-config;
+  runtimeConfigFile = "/persist/config.json";
+
+  # A deployment config may turn IPv6 off; otherwise it is on
+  ipv6Enable = deployment.wan.ipv6.enable or true;
 
   # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
   wanMtu = import ../wan-mtu.nix;
@@ -64,13 +78,399 @@ let
 in
 {
   imports = [
-    ./ax6600-lan.nix
     "${modulesPath}/early"
+    "${modulesPath}/network"
+    "${modulesPath}/dhcp6c"
+    "${modulesPath}/dnsmasq"
+    "${modulesPath}/bridge"
+    "${modulesPath}/ntp"
+    "${modulesPath}/ppp"
+    "${modulesPath}/ssh"
+    "${modulesPath}/tailscale"
     "${modulesPath}/firewall"
     ../wireless
     ../wireless/rootfs-firmware.nix
     ../art.nix
   ];
+
+  # 无串口的判断依据：内核先按 default-state 点亮红灯，本 oneshot 起来后
+  # 熄红点绿，绿灯亮即代表 s6 与 userland 已经可用。
+  services.led-userland = oneshot {
+    name = "led-userland";
+    up = ''
+      for l in blue:status green:status red:status; do
+        test -e /sys/class/leds/$l/brightness || continue
+        echo 0 > /sys/class/leds/$l/brightness 2>/dev/null
+      done
+      echo 255 > /sys/class/leds/green:status/brightness 2>/dev/null || true
+    '';
+  };
+
+  users.root = {
+    # Use mkpasswd -m sha512crypt to create
+    # your own hashed password string.
+    passwd = "$6$uqFC7Xu7q2uWTquh$axLjr8YpuQE.dqHlgQTXaeglki/FLsaLMX6RyKHWbYUL2VA4FRFmd2N/MNrqdGaKfzDrdbFJUxnPrfmjIciP80";
+  };
+
+  # 现场运维工具：分区与格式化持久分区（e2fsprogs、gptfdisk、util-linux），
+  # 以及换线、改规则后的连通性排查（iperf3、curl、nftables、vim）。
+  defaultProfile.packages = with pkgs; [
+    e2fsprogs
+    gptfdisk
+    util-linux
+    iperf3
+    vim
+    curl
+    nftables
+  ];
+
+  # Nothing that speaks TLS works on a 1970 clock: tailscale cannot even
+  # fetch its login URL, every certificate being "not yet valid", and the
+  # board has no RTC to fall back on.
+  #
+  # user = "root" is not optional: liminix builds chrony without libcap (see
+  # -PRIVDROP in `chronyd --version`), and a chronyd that has dropped to the
+  # module's default "ntp" user cannot keep CAP_SYS_TIME - it runs, but
+  # silently fails to set the clock.
+  services.ntp = svc.ntp.build {
+    user = "root";
+    dependencies = [ config.services.resolvconf ];
+    pools = {
+      "ntp.aliyun.com" = [ "iburst" ];
+      "cn.pool.ntp.org" = [ "iburst" ];
+    };
+    makestep = {
+      threshold = 1.0;
+      limit = -1;
+    };
+  };
+
+  services.runtime-config = svc.secrets.local.build {
+    name = "runtime-config";
+    path = runtimeConfigFile;
+    seed = pkgs.writeText "runtime-config.json" deploymentJson.text;
+  };
+
+  services.hostname = lib.mkForce (
+    oneshot {
+      name = "hostname";
+      dependencies = [ runtime ];
+      up = ''
+        h=$(output ${runtime} hostname)
+        test -n "$h" || h=${lib.escapeShellArg deployment.hostname}
+        echo "$h" > /proc/sys/kernel/hostname
+      '';
+      down = "true";
+    }
+  );
+
+  hostname = lib.mkDefault deployment.hostname;
+
+  # Build-time: mirrored into the s6 logger and the device tree by
+  # devices/jdcloud-ax6600/default.nix.
+  logging.persistent.enable = lib.mkDefault (deployment.persistentLogging or false);
+
+  services.int = svc.bridge.primary.build {
+    ifname = "int";
+  };
+
+  # 成员列表与防火墙 @lan zone 共用一份，见 ../lan-interfaces.nix
+  services.bridge = svc.bridge.members.build {
+    primary = config.services.int;
+    members = import ../lan-interfaces.nix nifs;
+  };
+
+  services.int-address = oneshot {
+    name = "int-address";
+    dependencies = [
+      config.services.int
+      runtime
+    ];
+    up = ''
+      dev=$(output ${config.services.int} ifname)
+      address=$(output ${runtime} lan/address)
+      prefixLength=$(output ${runtime} lan/prefixLength)
+      test -n "$address" || address=${lib.escapeShellArg deployment.lan.address}
+      test -n "$prefixLength" || prefixLength=${toString deployment.lan.prefixLength}
+      ip address add $address/$prefixLength dev $dev
+      (in_outputs int-address
+       echo $address > address
+       echo $prefixLength > prefix-length
+       echo inet > family
+       echo $dev > ifname
+      )
+    '';
+    down = "true";
+  };
+
+  # Static leases live in the run-time config, so this service regenerates
+  # dnsmasq's host file whenever lan/dhcpHosts changes there.
+  services.dhcp-hosts =
+    let
+      generator = oneshot {
+        name = "dhcp-hosts";
+        dependencies = [ runtime ];
+        up = ''
+          ( in_outputs dhcp-hosts
+            hosts=$(output_path ${runtime} lan/dhcpHosts)
+            : > hosts
+            test -d "$hosts" || exit 0
+            for d in $hosts/* ; do
+              test -d "$d" || continue
+              mac=$(cat $d/mac 2>/dev/null)
+              ip=$(cat $d/ip 2>/dev/null)
+              test -n "$mac" -a -n "$ip" || continue
+              leasetime=$(cat $d/leasetime 2>/dev/null)
+              echo "$mac,$ip,$(basename $d),''${leasetime:-86400}"
+            done >> hosts
+            chmod 0644 hosts
+          )
+        '';
+        down = "true";
+      };
+    in
+    svc.secrets.subscriber.build {
+      service = generator;
+      watch = [ (outputRef runtime "lan/dhcpHosts") ];
+      action = "restart-all";
+    };
+
+  # Local DNS records come from the run-time config too, so dnsmasq is
+  # restarted whenever lan/dnsHosts changes there.
+  services.dns-hosts =
+    let
+      generator = oneshot {
+        name = "dns-hosts";
+        dependencies = [ runtime ];
+        up = ''
+          ( in_outputs dns-hosts
+            : > hosts
+            dns=$(output_path ${runtime} lan/dnsHosts 2>/dev/null)
+            test -d "$dns" || exit 0
+            for f in $dns/* ; do
+              test -f "$f" || continue
+              ip=$(cat "$f" 2>/dev/null)
+              test -n "$ip" || continue
+              echo "$ip $(basename $f)"
+            done >> hosts
+            chmod 0644 hosts
+          )
+        '';
+        down = "true";
+      };
+    in
+    svc.secrets.subscriber.build {
+      service = generator;
+      watch = [ (outputRef runtime "lan/dnsHosts") ];
+      action = "restart-all";
+    };
+
+  services.dhcpv4 = svc.secrets.subscriber.build {
+    service = svc.dnsmasq.build {
+      interface = config.services.int;
+      domain = "lan";
+      ranges =
+        lib.optional (deployment.lan.dhcpRange != null)
+          "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})"
+        ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
+      resolvFile = "/run/resolv.conf";
+      hostsFile = "$(output_path ${config.services.dhcp-hosts} hosts)";
+      addnHosts = [ "$(output_path ${config.services.dns-hosts} hosts)" ];
+      dependencies = [
+        runtime
+        config.services.dhcp-hosts
+        config.services.dns-hosts
+      ];
+    };
+    watch = [
+      (outputRef config.services.dhcp-hosts "hosts")
+      (outputRef config.services.dns-hosts "hosts")
+    ];
+    action = "restart-all";
+  };
+
+  # 无线 beacon 排在桥上的地址与 DHCP 就绪之后：SSID 早于它们可见，
+  wireless.apReadyDependencies = [
+    config.services.int-address
+    config.services.dhcpv4
+  ];
+
+  # 2.5G WAN as a PPPoE client. Whether the session has to sit inside an
+  # 802.1Q tag is a per-network fact, read at run time (wan/vlan in
+  # /persist/config.json), so the interface it runs on is a service too.
+  services.wan-if = oneshot {
+    name = "wan-if";
+    dependencies = [
+      nifs.wan
+      runtime
+    ];
+    up = ''
+      base=$(output ${nifs.wan} ifname)
+      vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
+      ifname=$base
+      mtu=${toString wanMtu.plain}
+      if test -n "$vid" ; then
+        ifname=$base.$vid
+        ip link add link $base name $ifname type vlan id $vid
+        mtu=${toString wanMtu.tagged}
+        mkdir -p /run/wan-if
+        echo $ifname > /run/wan-if/vlan
+      fi
+      ip link set up dev $ifname
+      ( in_outputs wan-if
+        echo $ifname > ifname
+        echo $mtu > mtu
+      )
+    '';
+    down = ''
+      if test -e /run/wan-if/vlan ; then
+        ip link del dev $(cat /run/wan-if/vlan)
+        rm -f /run/wan-if/vlan
+      fi
+      true
+    '';
+  };
+
+  # 光猫的管理地址在 WAN 口的 untagged 侧，拨号用的 ppp0 到不了它：在
+  # wan-if 给出的接口上加一个同网段地址，路由器才有通往光猫的路由。
+  # 光猫管理地址若在 wan/vlan 的 tag 内，这里加的就是那个子接口，无需改动。
+  # LAN 发出的包由下面 firewall 的 @wan masquerade 送上这条路。
+  services.wan-ont = oneshot {
+    name = "wan-ont";
+    dependencies = [
+      config.services.wan-if
+      runtime
+    ];
+    up = ''
+      address=$(output ${runtime} wan/ont/address 2>/dev/null || true)
+      test -n "$address" || exit 0
+      prefixLength=$(output ${runtime} wan/ont/prefixLength 2>/dev/null || true)
+      # replace 而非 add：wan-if 重启后地址可能还在，重加不能失败。
+      ip address replace "$address/''${prefixLength:-24}" dev "$(output ${config.services.wan-if} ifname)"
+    '';
+    down = "true";
+  };
+
+  services.wan = svc.pppoe.build {
+    interface = config.services.wan-if;
+    username =
+      if deployment.wan.pppoe.username == null then
+        null
+      else
+        outputRef runtime "wan/pppoe/username";
+    password =
+      if deployment.wan.pppoe.password == null then
+        null
+      else
+        outputRef runtime "wan/pppoe/password";
+    # pppd's default is 1500, which is more than PPPoE can carry, so the
+    # big packets are the ones that get lost: take the MTU/MRU from the
+    # interface service, which knows whether it added a VLAN tag.
+    ppp-options = [
+      "mtu"
+      (outputRef config.services.wan-if "mtu")
+      "mru"
+      (outputRef config.services.wan-if "mtu")
+    ];
+  };
+  # tailscale warns that UDP forwarding over the PPPoE device is left
+  # suboptimal by default. The interface is pppN with N picked by pppd, so
+  # find it instead of naming it.
+  services.wan-gro = oneshot {
+    name = "wan-gro";
+    dependencies = [ config.services.wan ];
+    up = ''
+      for d in /sys/class/net/ppp* ; do
+        test -e "$d" || continue
+        ${pkgs.ethtool}/bin/ethtool -K "$(basename "$d")" \
+          rx-udp-gro-forwarding on rx-gro-list off || true
+      done
+    '';
+    down = "true";
+  };
+
+  services.defaultroute4 = svc.network.route.build {
+    via = "$(output ${config.services.wan} address)";
+    target = "default";
+    dependencies = [ config.services.wan ];
+  };
+
+  services.defaultroute6 = lib.mkIf ipv6Enable (
+    svc.network.route.build {
+      via = "$(output ${config.services.wan} ipv6-peer-address)";
+      target = "default";
+      interface = config.services.wan;
+      wait-for = "$(output_path ${config.services.wan} ipv6-up)";
+      dependencies = [ config.services.wan ];
+    }
+  );
+
+  # One DHCPv6 client on the WAN link, asking for both a lease and a
+  # delegated prefix: the prefix service puts <prefix>::1 on the LAN
+  # bridge, and dnsmasq advertises that prefix to the LAN by SLAAC.
+  services.dhcp6c =
+    lib.mkIf ipv6Enable (
+      let
+        client = svc.dhcp6c.client.build {
+          interface = config.services.wan;
+          wait-for = "$(output_path ${config.services.wan} ipv6-up)";
+        };
+      in
+      bundle {
+        name = "dhcp6c";
+        contents = [
+          (svc.dhcp6c.prefix.build {
+            inherit client;
+            interface = config.services.int;
+          })
+          (svc.dhcp6c.address.build {
+            inherit client;
+            interface = config.services.wan;
+          })
+        ];
+      }
+    );
+
+  services.resolvconf = oneshot {
+    dependencies = [
+      config.services.wan
+      runtime
+    ];
+    name = "resolvconf";
+    up = ''
+      (
+        echo "nameserver $(output ${config.services.wan} ns1)"
+        echo "nameserver $(output ${config.services.wan} ns2)"
+        found=
+        for f in $(output_path ${runtime} wan/extraResolvers)/* ; do
+            test -f "$f" || continue
+            echo "nameserver $(cat $f)"
+            found=1
+        done
+        if test -z "$found" ; then
+          ${lib.concatMapStringsSep "\n" (r: "echo \"nameserver ${r}\"") (
+            deployment.wan.extraResolvers or [ ]
+          )}
+          :
+        fi
+      ) > /run/resolv.conf
+      chmod 0444 /run/resolv.conf
+    '';
+  };
+
+  services.packet_forwarding = svc.network.forward.build {
+    enableIPv4 = true;
+    enableIPv6 = ipv6Enable;
+  };
+
+  services.sshd = svc.ssh.build { };
+
+  # No auth key: tailscaled comes up at boot, and the first `tailscale up`
+  # is run over ssh (it prints a URL to open elsewhere). What keeps that
+  # login across reboots is the node state under /persist/tailscale.
+  services.tailscale = svc.tailscale.build {
+    dependencies = [ config.services.wan ];
+  };
 
   # 关机时不卸载模块。kmodloader 默认的 down 会跑 unload.sh，而卸载
   # qca-ssdk/qca-nss-* 会在内核里挂住，加上 s6-rc 的 oneshot down 没有
@@ -96,43 +496,6 @@ in
 
   # 同上，但插到链的 log 规则之前，避免被放行的包先打一条 DENIED 日志。
   firewall.appendRulesBeforeLog = siteFirewall.appendRulesBeforeLog or { };
-
-  filesystem = dir {
-    etc = dir {
-      "rc-init.d" = dir {
-        # Load the module tree from the init phase as well as from the
-        # kmodloader service: that service's output goes to the s6 logger,
-        # where a failure is invisible, whereas this runs with the root
-        # already mounted and /lib/firmware readable, before s6-rc, and
-        # prints to the console.
-        modules = symlink (
-          pkgs.writeAshScript "load-modules" { } ''
-            echo "loading kernel modules from ${moduleTree}"
-            O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
-          ''
-        );
-      };
-    };
-    lib = dir {
-      firmware = dir {
-        "qca-nss0.bin" = symlink "${nss.nss-firmware}";
-      };
-    };
-  };
-
-  services.netfilter-sysctls = oneshot {
-    name = "netfilter-sysctls";
-    dependencies = [ config.services.modules ];
-    up = ''
-      echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_no_window_check
-      # ECM offload desyncs conntrack, so a retransmitted closing packet
-      # (FIN) is judged invalid and dropped by input-ip4/6 instead of
-      # matching established,related: accept out-of-window packets.
-      echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal
-      echo 65535 > /proc/sys/net/netfilter/nf_conntrack_max
-      echo 1 > /proc/sys/net/netfilter/nf_conntrack_events
-    '';
-  };
 
   # A LAN host sizes its TCP segments from the 1500-byte bridge, but the
   # PPPoE link carries less, so a server's full-size reply is dropped on
@@ -185,6 +548,44 @@ in
       # siteFirewall：没有 -I liminix-firewall 就是空链。
       incoming-allowed-ip6 = {
         rules = siteFirewall.incomingAllowedIp6 or [ ];
+      };
+    };
+  };
+
+  services.netfilter-sysctls = oneshot {
+    name = "netfilter-sysctls";
+    dependencies = [ config.services.modules ];
+    up = ''
+      echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_no_window_check
+      # ECM offload desyncs conntrack, so a retransmitted closing packet
+      # (FIN) is judged invalid and dropped by input-ip4/6 instead of
+      # matching established,related: accept out-of-window packets.
+      echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal
+      echo 65535 > /proc/sys/net/netfilter/nf_conntrack_max
+      echo 1 > /proc/sys/net/netfilter/nf_conntrack_events
+    '';
+  };
+
+  filesystem = dir {
+    etc = dir {
+      "resolv.conf" = symlink "/run/resolv.conf";
+      "rc-init.d" = dir {
+        # Load the module tree from the init phase as well as from the
+        # kmodloader service: that service's output goes to the s6 logger,
+        # where a failure is invisible, whereas this runs with the root
+        # already mounted and /lib/firmware readable, before s6-rc, and
+        # prints to the console.
+        modules = symlink (
+          pkgs.writeAshScript "load-modules" { } ''
+            echo "loading kernel modules from ${moduleTree}"
+            O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
+          ''
+        );
+      };
+    };
+    lib = dir {
+      firmware = dir {
+        "qca-nss0.bin" = symlink "${nss.nss-firmware}";
       };
     };
   };
