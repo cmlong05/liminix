@@ -15,6 +15,19 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
+
+  # 桥的成员口，同时用作防火墙 @lan zone。nft 的 iifname 匹配报文到达的
+  # 物理口，oifname 匹配桥设备本身，所以 @lan 里这两类名字都要有，否则
+  # LAN 入向流量（DHCP/DNS/新连接）会被拒。
+  lanMembers = with nifs; [
+    lan1
+    lan2
+    lan3
+    lan4
+    wlan24g
+    wlan58g
+  ];
+
   inherit (pkgs.liminix.services) bundle oneshot;
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
@@ -30,7 +43,14 @@ let
   ipv6Enable = deployment.wan.ipv6.enable or true;
 
   # What the WAN link can carry, to clamp the MSS of what the LAN sends it.
-  wanMtu = import ../wan-mtu.nix;
+  # PPPoE costs the ethernet frame 8 bytes of header (6 ethernet + 2 PPPoE
+  # protocol), an 802.1Q tag another 4, so these are payload bytes: what pppd
+  # may advertise as MTU/MRU on the link we picked, and what the firewall may
+  # assume a LAN host can send.
+  wanMtu = {
+    tagged = 1500 - 4 - 8;
+    plain = 1500 - 8;
+  };
 
   # Site firewall policy: rules come from the file named by
   # -I liminix-firewall=<file>, so an image not given one carries no site
@@ -174,10 +194,10 @@ in
     ifname = "int";
   };
 
-  # 成员列表与防火墙 @lan zone 共用一份，见 ../lan-interfaces.nix
+  # 成员列表与防火墙 @lan zone 共用 lanMembers
   services.bridge = svc.bridge.members.build {
     primary = config.services.int;
-    members = import ../lan-interfaces.nix nifs;
+    members = lanMembers;
   };
 
   services.int-address = oneshot {
@@ -505,8 +525,8 @@ in
   services.firewall = config.system.service.firewall.build {
     zones = {
       # int 是出向（oifname）看到的桥设备，成员口是入向（iifname）看到的
-      # 物理口：@lan 两者都要，见 ../lan-interfaces.nix。
-      lan = [ config.services.int ] ++ import ../lan-interfaces.nix nifs;
+      # 物理口：@lan 两者都要。
+      lan = [ config.services.int ] ++ lanMembers;
       # wan-if 给出实际承载 PPPoE 的链路接口（untagged 时是物理口，带 VLAN
       # 时是 wan.<vid>）：光猫管理地址加在它上面，@wan 必须包含它，masquerade
       # 与 mss 才会作用于 LAN→光猫的出口。物理口本身也保留。
