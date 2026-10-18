@@ -43,8 +43,8 @@ let
     # in the cal blobs (ath11k takes the radio MACs from the cal file itself)
     mkdir -p /run/art
     mac() {
-      dd if="$part" bs=1 skip="$1" count=6 2>/dev/null \
-        | od -An -tx1 | tr -d ' \n' | sed 's/../&:/g;s/:$//'
+      dd if="$part" bs=1 skip="$1" count=6 2>/dev/null | xxd -p \
+        | sed 's/../&:/g;s/:$//'
     }
     echo "$(mac $((0x0)))"    > /run/art/mac.lan1
     echo "$(mac $((0x6)))"    > /run/art/mac.lan2
