@@ -4,6 +4,9 @@
 # get the same blobs as ordinary files under /lib/firmware, at the names the
 # kernel asks for, built from the per-name packages in ./default.nix.
 #
+# Names in config.wireless.runtimeFirmwareFiles have no build-time content, so
+# they go in as symlinks to the path the producing service writes later.
+#
 # Only the tree's top-level directories are symlinked, so /lib/firmware stays a
 # directory other modules can add to: modules/wlan.nix puts regulatory.db there
 # and ax6600-rootfs.nix the NSS firmware kmodloader's nss-drv asks for while it
@@ -16,6 +19,11 @@ let
     mkdir -p $out
     ${lib.concatStringsSep "\n" (
       lib.mapAttrsToList (name: file: "install -D -m 0644 ${file} $out/${name}") config.wireless.firmwareFiles
+    )}
+    ${lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (
+        name: target: "mkdir -p $out/$(dirname ${name}) && ln -s ${target} $out/${name}"
+      ) config.wireless.runtimeFirmwareFiles
     )}
   '';
 in
