@@ -461,8 +461,6 @@ in
     name = "resolvconf";
     up = ''
       (
-        echo "nameserver $(output ${config.services.wan} ns1)"
-        echo "nameserver $(output ${config.services.wan} ns2)"
         found=
         for f in $(output_path ${runtime} wan/extraResolvers)/* ; do
             test -f "$f" || continue
@@ -476,6 +474,11 @@ in
           :
         fi
       ) > /run/resolv.conf
+      # ISP 的解析器只做兜底：一个自定义解析器都没有时留着，免得 dnsmasq 没上游。
+      if ! test -s /run/resolv.conf ; then
+        echo "nameserver $(output ${config.services.wan} ns1)" > /run/resolv.conf
+        echo "nameserver $(output ${config.services.wan} ns2)" >> /run/resolv.conf
+      fi
       chmod 0444 /run/resolv.conf
     '';
   };
