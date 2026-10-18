@@ -109,7 +109,7 @@ let
 
   # --- deployment ---------------------------------------------------
   #
-  # The AP values are not read here at all: ax6600-lan.nix seeds the
+  # The AP values are not read here at all: ax6600-rootfs.nix seeds the
   # deployment into /persist/config.json and publishes it as a service
   # output tree, and the hostapd services below read ssid, passphrase
   # and channel out of that tree. Only the build-time autostart switch
@@ -205,7 +205,7 @@ in
     '';
   };
 
-  # wifi启动条件，见 ../images/ax6600-lan.nix。
+  # wifi启动条件，见 ../images/ax6600-rootfs.nix。
   options.wireless.apReadyDependencies = lib.mkOption {
     type = lib.types.listOf pkgs.liminix.lib.types.service;
     default = [ ];
