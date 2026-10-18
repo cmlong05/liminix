@@ -1,5 +1,4 @@
-# USB-root system, writable ext4 root instead of a read-only squashfs
-
+# USB-root system: the root is a writable ext4 on the stick
 #
 #   outputs.uimage  (kernel + dtb, cmdline embedded)  -> p1, FAT, as fit.itb
 #   outputs.rootfs  (ext4, no partition table)        -> p2, GPT name
@@ -8,8 +7,6 @@
 #                                                        the root is already
 #                                                        writable here
 #
-# The root is mounted by the kernel, not by preinit
-
 {
   lib,
   modulesPath,
@@ -25,17 +22,11 @@ in
   imports = [
     ./ax6600-rootfs.nix
     "${modulesPath}/usb.nix"
-    "${modulesPath}/outputs/ext4fs.nix"
   ];
-
-  boot.rootfs.mount = "kernel";
-
-  rootfsType = lib.mkForce "ext4";
 
   hardware.rootDevice = lib.mkForce "PARTLABEL=liminix-root";
 
   filesystem = dir {
-    persist = dir { };
     etc = dir {
       "rc-init.d" = dir {
         persist = symlink (
