@@ -47,7 +47,7 @@ in
         };
         stateDir = mkOption {
           type = types.path;
-          default = "/persist/tailscale";
+          default = "/var/lib/tailscale";
           description = "where the node key and the rest of tailscaled's state live";
         };
         socket = mkOption {

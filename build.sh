@@ -3,23 +3,38 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 uimage=result-usb-ext4-uimage
 rootfs=result-usb-ext4-rootfs
+updater=result-updater
 
 device_dir="$here/devices/jdcloud-ax6600"
 deployment="$device_dir/config.nix"
 firewall="$device_dir/config_firewall.nix"
 
-echo "==> config.json：从 deployment 生成，与镜像 /persist 的种子同一份文本" >&2
-nix-instantiate --eval --strict --raw \
-    -I "liminix-deployment=$deployment" \
-    --expr "(import $device_dir/deployment-json.nix { lib = import <nixpkgs/lib>; }).text" \
-    > "$here/config.json"
+with_updater=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -u) with_updater=1 ;;
+        *)
+            echo "usage: $0 [-u]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 set -- \
     --arg device "import $device_dir" \
     -I "liminix-config=$here/devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix" \
     -I "liminix-deployment=$deployment" \
     -I "liminix-firewall=$firewall"
-    
+
+if [ "$with_updater" -eq 1 ]; then
+    echo "==> updater" >&2
+    nix-build -Q "$@" \
+        -A outputs.updater \
+        -o "$here/$updater"
+    exit 0
+fi
+
 echo "==> rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
 nix-build -Q "$@" \
     -A outputs.rootfs \

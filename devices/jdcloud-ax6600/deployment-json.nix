@@ -1,5 +1,5 @@
-# The deployment as it appears in /persist/config.json: one definition
-# shared by the image seed (ax6600-rootfs.nix) and build.sh.
+# JSON rendering of the build-time deployment, used as the image seed in
+# ax6600-rootfs.nix.
 { lib }:
 let
   deployment =
@@ -25,8 +25,8 @@ let
     else
       toString v;
 
-  # builtins.toJSON writes the whole tree on one line; this indents it so
-  # the file dropped in /persist stays readable and hand-editable.
+  # builtins.toJSON writes the whole tree on one line; this indents it for
+  # easier inspection.
   prettyJson =
     let
       pad = n: lib.concatStringsSep "" (lib.genList (_: "  ") n);

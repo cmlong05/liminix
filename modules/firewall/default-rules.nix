@@ -145,8 +145,7 @@ in
       "iifname @lan jump input-ip6-lan"
       "iifname @wan jump input-ip6-wan"
       (if allow-incoming then accept "iifname @wan" else "iifname @wan jump incoming-allowed-ip6")
-      # how does this even make sense in an input chain?
-      (accept "iifname @wan  ct state established,related")
+      (accept "ct state established,related")
       (accept "iifname @lan ")
       "jump input-ip6-modules"
       "log prefix \"DENIED CHAIN=input-ip6 \" level notice limit rate 5/minute burst 10 packets"

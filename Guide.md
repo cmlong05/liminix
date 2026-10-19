@@ -25,30 +25,38 @@ nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
     -A outputs.rootfs \
-    -o result-usb-ext4-rootfs \
+    -o result-usb-ext4-rootfs
 # Kernel
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
     -A outputs.uimage \
-    -o result-usb-ext4-uimage \
+    -o result-usb-ext4-uimage
 
 # md5
 md5sum result-usb-ext4-rootfs result-usb-ext4-uimage
 
+# 在线 userspace 升级（在仓库 nix-shell 中执行；不更新 p1 内核）
+nix-build -Q \
+  --arg device 'import ./devices/jdcloud-ax6600' \
+  -I "liminix-config=$PWD/devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix" \
+  -I "liminix-deployment=$PWD/devices/jdcloud-ax6600/config.nix" \
+  -I "liminix-firewall=$PWD/devices/jdcloud-ax6600/config_firewall.nix" \
+  -A outputs.updater \
+  -o result-updater
 
-# U盘系统里的内容，三个分区（GPT 自己建，见下面"U 盘分区与刷写"）
+# --fast 通过 restart-services 执行 activate /，不重启设备
+./result-updater/bin/update.sh --fast root@<device>
+
+# U盘系统里的内容，两个分区（GPT 自己建，见下面"U 盘分区与刷写"）
 # p1: FAT，只放 fit.itb（内核 FIT = kernel + dtb，cmdline 内嵌，U-Boot 按这个名字 fatload）
 # p2: rootfs（ext4），GPT 分区名必须是 liminix-root（root=PARTLABEL=liminix-root）
-# p3: 持续化存储，ext4，卷标 liminix-persist，挂 /persist
-
 ### U 盘分区 
 nix shell nixpkgs#gptfdisk
 # Use -g to override 强制重新分区
 sudo sgdisk -o \
     -n 1:0:+64M   -c 1:boot            -t 1:ef00 \
-    -n 2:0:+6144M -c 2:liminix-root    -t 2:8300 \
-    -n 3:0:0      -c 3:liminix-persist -t 3:8300 \
+    -n 2:0:0      -c 2:liminix-root    -t 2:8300 \
     /dev/sdX
 # 如果无法完成，可先清理擦除后再进行上一步
 # 谨慎使用
@@ -56,24 +64,20 @@ sudo wipefs -a /dev/sd*
 # 
 sudo partprobe /dev/sdX
 
-# # 首次需要格式化p1 p2 p3 , 注意卷标，系统靠它挂载
+# # 首次需要格式化 p1 p2
 nix shell nixpkgs#e2fsprogs
 sudo mkfs.vfat -F 16 -n BOOT /dev/sdX1
 sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
-sudo mkfs.ext4 -m1 -L liminix-persist /dev/sdX3
 
-# p3会被挂载到/persist, 如果把其中的 config.json 删掉后重启即回到镜像里的默认值文件。 
-# 不是合法 JSON 会整份回落到镜像里的种子并在日志里报错；
-# 少了某个键时，hostname/地址/DHCP/resolvers 各自回落到建构期默认值
-# PPPoE 账号则没有默认值可用、拨号服务起不来。LAN 和 ssh 不受影响，可以ssh进去改回来
-# 值一律写成 JSON 字符串（prefixLength 要写成 "24"：读的那侧只认字符串和对象，数字/布尔等于没有这个键）
-# wan.vlan 同理（写成 "1510"）：不写这个键或写 null，就是该环境不做 VLAN
+# 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
+# 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。
+# update-usb.sh 全量同步 p2，/var/lib 下的状态会被镜像内容替换。
 
 # WAN 侧：s6 oneshot wan-if 按 wan/vlan 决定 PPPoE 跑在 wan 还是新建的 wan.<vid> 上
 # （MTU/MRU 随之 1488 / 1492），所以 PPPoE 服务名是 wan-if.pppoe：
 s6-rc -d change wan-if.pppoe   # 停
 s6-rc -u change wan-if.pppoe   # 起
-# 改 wan/vlan 需要重启才生效 或 如上停止再启动
+# wan/vlan 变更需要重新构建镜像
 
 # 检查wifi状态：
 iw dev
