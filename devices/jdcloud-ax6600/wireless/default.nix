@@ -13,10 +13,9 @@
 #     a fullSystem image loads its modules from preinit, before activate
 #     has created /lib/firmware;
 #   * a hostapd AP per band, an ordinary s6 longrun service: ssid,
-#     passphrase and channel come from the deployment and can be changed
-#     at run time via /persist/config.json. Encryption is the exception -
-#     each band names its own mode, read at build time only through
-#     `bandSecurity`, see `securityModes` below.
+#     passphrase, channel and encryption mode all come from the build-time
+#     deployment; each band sees only its own `securityModes` entry through
+#     `bandSecurity`.
 #
 # wlan0 is the 2.4 GHz pdev and wlan1 the 5.8 GHz one; `link` waits for
 # each netdev with ifwait, so ath11k registering them asynchronously
@@ -102,11 +101,9 @@ let
 
   # --- deployment ---------------------------------------------------
   #
-  # The AP values are not read here at all: ax6600-rootfs.nix seeds the
-  # deployment into /persist/config.json and publishes it as a service
-  # output tree, and the hostapd services below read ssid, passphrase
-  # and channel out of that tree. Only the build-time autostart switch
-  # is read directly.
+  # ax6600-rootfs.nix publishes the deployment as a service output tree, and
+  # the hostapd services below read ssid, passphrase and channel from it.
+  # Only the autostart switch is read directly.
   deployment =
     let
       lookup = builtins.tryEval <liminix-deployment>;
@@ -129,8 +126,8 @@ let
   };
 
   # Encryption, build-time only: modules/hostapd turns `params` into a
-  # static config file, so there is no way to leave a line out at run time
-  # and hence one entry per mode rather than independent knobs.
+  # static config file, so there is one entry per mode rather than
+  # independent knobs.
   # Every band names its own mode; there is no wifi-wide default.
   # wpa2-wpa3 needs hostapd built with CONFIG_SAE.
   securityModes =
@@ -169,7 +166,7 @@ let
 
   # There is no wifi-wide passphrase either: each band names its own, and
   # this fails at build time rather than leaving hostapd to read an empty
-  # file. The value itself is still read at run time, from the path below.
+  # file.
   bandPasswordPath =
     name:
     if (bandConf name) ? password then
@@ -311,8 +308,7 @@ in
 
     # Unless wifi.autostart is false, one hostapd per band: a longrun
     # service s6 starts at boot. ssid/passphrase/channel come from the
-    # runtime-config tree; modules/hostapd's secrets subscriber makes
-    # that service a dependency and restarts hostapd when it changes.
+    # runtime-config output tree generated from the build-time deployment.
     # Encryption comes from the per-band `securityFor` instead, see above.
     services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
       name: netif:

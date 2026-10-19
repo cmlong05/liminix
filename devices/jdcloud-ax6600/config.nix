@@ -11,7 +11,7 @@
   hostname = "office-ax6600";
 
   # Build-time only: also write the s6 log stream to the pstore pmsg
-  # device, so logs outlive a reboot. Needs a rebuild, not a config edit.
+  # device, so logs outlive a reboot. Requires a rebuild.
   persistentLogging = true;
 
   lan = {
@@ -19,7 +19,7 @@
     prefixLength = 24;
     dhcpRange = "10.10.10.50,10.10.10.200,255.255.255.0,12h";
 
-    # Static leases keyed by hostname, applied at run time: `mac` and `ip`
+    # Static leases keyed by hostname: `mac` and `ip`
     # are required, `leasetime` optional (default 86400). Keep the
     # addresses outside dhcpRange.
     dhcpHosts = {
@@ -46,8 +46,8 @@
 
   wan = {
     # 802.1Q tag the WAN port needs in front of the PPPoE session (many
-    # ISPs hand the session out on a VLAN). null, or no key at all in the
-    # run-time /persist/config.json, means an untagged WAN.
+    # ISPs hand the session out on a VLAN). null, or no key at all, means an
+    # untagged WAN.
     vlan = 1510;
 
     # The ONT keeps its management address (usually 192.168.1.1) on the
@@ -77,20 +77,17 @@
     ];
   };
 
-  # APs. Read at build time by devices/jdcloud-ax6600/wireless/default.nix
-  # and again at run time from this file's seed in /persist/config.json, so
-  # changing an SSID, passphrase or channel needs no new image.
+  # APs. Read at build time by devices/jdcloud-ax6600/wireless/default.nix and
+  # published through the deployment seed.
   # `bands` is keyed by which AHB pdev serves it: "24g" and "58g".
   wifi = {
     countryCode = "CN";
-    # Build-time switch (a rebuild is needed, unlike the run-time overrides
-    # above): false leaves the APs off at boot, to be started by hand.
+    # Build-time switch: false leaves the APs off at boot, to be started by
+    # hand.
     autostart = true;
     # Each band names its own passphrase and encryption mode: there is no
     # wifi-wide one of either, so two SSIDs cannot share a secret by
-    # accident. Passphrases are read at run time; the mode is build-time
-    # only, because hostapd's config is a static file that run time cannot
-    # rewrite.
+    # accident. Both passphrase and mode are build-time values.
     # Mode: "wpa2" | "wpa2-wpa3" (needs hostapd built with SAE) | "open".
     bands = {
       "24g" = {
