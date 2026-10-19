@@ -636,6 +636,7 @@ in
   };
 
   kernel.config = {
+    BLK_DEV_LOOP = "y";
     CMDLINE = lib.mkForce "\"${lib.concatStringsSep " " config.boot.commandLine}\"";
     CMDLINE_FROM_BOOTLOADER = lib.mkForce "n";
     CMDLINE_FORCE = "y";
