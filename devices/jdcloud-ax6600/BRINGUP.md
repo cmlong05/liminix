@@ -25,7 +25,7 @@
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
 | N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 进行中 | — |
 | N8 | 外挂 QCN9024 的 5.2G | 待办 | — |
-| N9 | 升级模式：`outputs.updater`（U 盘 ext4 主力） | 计划已定，未实施 | — |
+| N9 | 升级模式：离线全量 + 在线 userspace | 代码已实现，待构建与设备验证 | — |
 
 **NB**
 > 不要管实际的 eMMC GPT，各种机器有各种不同。
@@ -82,27 +82,29 @@
 * 不要设置开机启动，由我手动开启。
 * **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联。
 
-### N9: outputs.updater（升级模式）【计划已定，未实施】
-* 形态：主力就是 U 盘，eMMC 本轮不参与（不碰 eMMC、不碰 `0:HLOS`、无裸分区写入）。
-  root 在 U 盘 p2（可写 ext4，`ax6600-usb-ext4.nix`），单 rootfs、就地升级。
-* 升级链路：`-A outputs.updater` → `./result/bin/update.sh [--no-reboot|--fast] root@<device>`；
-  `min-copy-closure` 推送闭合集 → 设备上 `bin/install` → 回滚点 `/persist/<ts>.configuration`
-  （p3 `liminix-persist` 在时落真分区；缺 p3 时的行为待定）。
-* 内核槽：U 盘 p1（vfat，`PARTLABEL=boot`）。`update.sh` 顺带在线写 `fit.itb`，由设备侧完成
-  （同一物理盘的另一个分区，只有设备自己写得到）；`--no-kernel` 可跳过，回退上游行为。
-* 设备侧脚本：新增 `devices/jdcloud-ax6600/boot-slot.nix`（不给开机自启），
-  按 `PARTLABEL=boot` 定位 → 写 `fit.itb` → `sync` → 回读 sha256 校验 → `umount`，支持 `DRY_RUN`。
-* 不直接改上游 `modules/outputs/updater/update.sh`：设备版 updater 由新增的
-  `devices/jdcloud-ax6600/updater.nix` 生成，复用其 `toplevel` / `min-copy-closure` 注入与
-  `--no-reboot` / `--fast` 语义，只追加内核步骤。
-* 边界：`update-usb.sh` = 构建机离线刷 p1/p2；`outputs.updater` = 设备运行中在线升级。
-* 分解：
-  1. 只读核实：`outputs.updater` 在 `ax6600-usb-ext4.nix` 下可求值、`cpio`/vfat applet、
-     缺 p3 `liminix-persist` 时回滚点的策略。
-  2. 设备侧 `boot-slot` 脚本 + 按需补 busybox vfat applet。
-  3. 设备版 updater（顺带写内核、`--no-kernel`）。
-  4. 验证（**需明示批准后才构建**）：`nix-build -A outputs.updater`、`DRY_RUN=1` 写 p1、
-     设备上 `update.sh --no-reboot` 试跑。
+### N9：U 盘升级（离线全量 + 在线 userspace）【代码已实现，待构建验证】
+
+* 主力路径：内核或 rootfs 变化时，关机后由构建机执行 `update-usb.sh` 刷新 p1/p2。
+  eMMC 保持不动；这与其他设备的“内核单独手工刷写”边界一致。
+* 在线路径：构建 `outputs.updater` 后运行 `result-updater/bin/update.sh`，只更新 p2
+  上的 userspace，不传输、不写入 `fit.itb`。内核变化必须回到离线全量升级。
+* p2 是唯一持久化层。Tailscale 状态位于 `/var/lib/tailscale`。部署配置在建构时
+  固定；离线 `update-usb.sh` 全量同步 p2，因此 `/var/lib` 状态会回到镜像内容。
+* 在线只使用 `result-updater/bin/update.sh --fast`：设备侧 `restart-services` 会执行
+  `activate /`、更新 s6 数据库并重启受影响的服务。
+* 默认重启和 `--no-reboot` 在线路径不在 N9 范围；完整重启使用 `update-usb.sh`。
+* 恢复：重新构建旧 configuration 的 `outputs.updater` 后执行
+  `result-updater/bin/update.sh`；kernel 恢复使用 `update-usb.sh`。
+
+#### 边界与验证
+
+* 不在线升级 kernel，因此不需要 VFAT kernel 支持、boot-slot、内核备份、pending 状态或
+  分区标签定位脚本。
+* 在线 updater 只适用于同一 kernel 下的 userspace 变化；需要 new kernel/modules 时使用
+  `update-usb.sh`。
+* 不新增设备专用 updater；通用 `outputs.updater` 负责传输，设备侧由
+  `systemConfiguration/bin/install` 完成安装。
+* 待明示批准后验证：`result-updater/bin/update.sh --fast` userspace 更新及一次服务回滚演练。
 ---
 
 ## 附录
@@ -113,4 +115,3 @@
 #   art-apply（s6 oneshot）：给 lan1..4/wan 设本机 MAC；按 MAC 把 AHB 两个 netdev
 #     改名成 wlan24g / wlan58g。
 # 因此接口名固定为 wlan24g(2.4G) / wlan58g(5.8G)，无线 MAC 由 ath11k 从 cal 自动设。
-
