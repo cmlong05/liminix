@@ -1,4 +1,4 @@
-# JDCloud AX6600 (RE-CS-02): wired-LAN network and services on the eMMC image.
+# JDCloud AX6600 (RE-CS-02): network and services on the eMMC image.
 #
 # eMMC image:
 #   outputs.uimage  (kernel + dtb, cmdline embedded)  -> partition 0:HLOS
@@ -37,7 +37,7 @@ let
   inherit (deploymentJson) deployment;
 
   runtime = config.services.runtime-config;
-  runtimeConfigFile = "/persist/config.json";
+  runtimeConfigSeed = pkgs.writeText "runtime-config.json" deploymentJson.text;
 
   # A deployment config may turn IPv6 off; otherwise it is on
   ipv6Enable = deployment.wan.ipv6.enable or true;
@@ -169,8 +169,7 @@ in
 
   services.runtime-config = svc.secrets.local.build {
     name = "runtime-config";
-    path = runtimeConfigFile;
-    seed = pkgs.writeText "runtime-config.json" deploymentJson.text;
+    path = "${runtimeConfigSeed}";
   };
 
   services.hostname = lib.mkForce (
@@ -225,8 +224,8 @@ in
     down = "true";
   };
 
-  # Static leases live in the run-time config, so this service regenerates
-  # dnsmasq's host file whenever lan/dhcpHosts changes there.
+  # Static leases come from the deployment, so this renders dnsmasq's host
+  # file from the runtime-config output tree.
   services.dhcp-hosts =
     let
       generator = oneshot {
@@ -257,8 +256,8 @@ in
       action = "restart-all";
     };
 
-  # Local DNS records come from the run-time config too, so dnsmasq is
-  # restarted whenever lan/dnsHosts changes there.
+  # Local DNS records come from the deployment and are rendered into
+  # dnsmasq's additional hosts file.
   services.dns-hosts =
     let
       generator = oneshot {
@@ -318,8 +317,8 @@ in
   ];
 
   # 2.5G WAN as a PPPoE client. Whether the session has to sit inside an
-  # 802.1Q tag is a per-network fact, read at run time (wan/vlan in
-  # /persist/config.json), so the interface it runs on is a service too.
+  # 802.1Q tag is a per-network fact, so the interface it runs on is a
+  # service too.
   services.wan-if = oneshot {
     name = "wan-if";
     dependencies = [
@@ -492,7 +491,7 @@ in
 
   # No auth key: tailscaled comes up at boot, and the first `tailscale up`
   # is run over ssh (it prints a URL to open elsewhere). What keeps that
-  # login across reboots is the node state under /persist/tailscale.
+  # login across reboots is the node state under /var/lib/tailscale.
   services.tailscale = svc.tailscale.build {
     dependencies = [ config.services.wan ];
   };
@@ -592,7 +591,6 @@ in
   };
 
   filesystem = dir {
-    persist = dir { };
     etc = dir {
       "resolv.conf" = symlink "/run/resolv.conf";
       "rc-init.d" = dir {
