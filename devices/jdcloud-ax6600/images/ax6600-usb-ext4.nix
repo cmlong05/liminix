@@ -3,21 +3,13 @@
 #   outputs.uimage  (kernel + dtb, cmdline embedded)  -> p1, FAT, as fit.itb
 #   outputs.rootfs  (ext4, no partition table)        -> p2, GPT name
 #                                                        liminix-root
-#   (p3, ext4, volume label liminix-persist)          -> /persist, optional:
-#                                                        the root is already
-#                                                        writable here
-#
+
 {
   lib,
   modulesPath,
   pkgs,
   ...
 }:
-let
-  inherit (pkgs.pseudofile) dir symlink;
-  persistLabel = "liminix-persist";
-  persistMountpoint = "/persist";
-in
 {
   imports = [
     ./ax6600-rootfs.nix
@@ -25,34 +17,6 @@ in
   ];
 
   hardware.rootDevice = lib.mkForce "PARTLABEL=liminix-root";
-
-  filesystem = dir {
-    etc = dir {
-      "rc-init.d" = dir {
-        persist = symlink (
-          pkgs.writeAshScript "mount-persist" { } ''
-            # A bounded wait, because a missing partition should mean no
-            # persistence rather than a machine that will not boot.
-            i=0
-            while test "$i" -lt 10 ; do
-                if mount -t ext4 LABEL=${persistLabel} ${persistMountpoint} 2>/dev/null ; then
-                    echo ${persistMountpoint} > /run/state-mountpoint
-                    exit 0
-                fi
-                i=$((i + 1))
-                sleep 1
-            done
-            echo "no ${persistLabel} filesystem: service state stays on tmpfs"
-          ''
-        );
-      };
-    };
-  };
-
-  programs.busybox.options = {
-    FEATURE_MOUNT_LABEL = "y";
-    FEATURE_VOLUMEID_EXT = "y";
-  };
 
   kernel.config = {
     PARTITION_ADVANCED = "y";
