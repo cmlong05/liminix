@@ -619,7 +619,7 @@ in
     };
   };
 
-  hardware.rootDevice = "PARTLABEL=rootfs";
+  hardware.rootDevice = deployment.hardware.rootDevice;
   rootfsType = "ext4";
 
   boot = {
