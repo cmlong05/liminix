@@ -142,6 +142,7 @@ in
     vim
     curl
     nftables
+    libubootenv
   ];
 
   # minimal busybox 默认关掉 ash 的 $((...))，dhcp6c/route 等服务脚本会语法错误退出
@@ -597,8 +598,26 @@ in
 
   filesystem = dir {
     etc = dir {
+      "fw_env.config" = symlink "/run/fw_env.config";
       "resolv.conf" = symlink "/run/resolv.conf";
       "rc-init.d" = dir {
+        fw-env-config = symlink (
+          pkgs.writeAshScript "fw-env-config" { } ''
+            export PATH=/bin:/sbin
+            part=
+            for u in /sys/class/block/*/uevent; do
+              if grep -q '^PARTNAME=0:APPSBLENV$' "$u" 2>/dev/null; then
+                part=/dev/$(basename "$(dirname "$u")")
+                break
+              fi
+            done
+            test -n "$part" || {
+              echo "fw-env-config: no APPSBLENV partition" >&2
+              exit 0
+            }
+            echo "$part 0x0 0x40000 0x20000" > /run/fw_env.config
+          ''
+        );
         # Load the module tree from the init phase as well as from the
         # kmodloader service: that service's output goes to the s6 logger,
         # where a failure is invisible, whereas this runs with the root
