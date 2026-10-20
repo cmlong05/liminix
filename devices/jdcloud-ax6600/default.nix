@@ -187,9 +187,7 @@
 
           defaultOutput = "uimage";
 
-          # A placeholder, not a fact about the board: the fullSystem image
-          # never mounts a root device, and ax6600-rootfs.nix names the real
-          # partition. mkDefault so that composition can just say so.
+          # Fallback for configurations without a deployment profile.
           rootDevice = lib.mkDefault "/dev/mtdblock0";
           loadAddress = lim.parseInt "0x41000000";
           entryPoint = lim.parseInt "0x41000000";
