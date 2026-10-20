@@ -1,23 +1,34 @@
 # 构建命令
 
 # uboot设置env从U盘启动，未插U盘，检测不到则从默认内部启动
-setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; fi; bootipq'
+# IPQ60XX DRAM地址映射从0x40000000起，再留部分余量给NSS和其他关键保留区
+setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
 saveenv
 printenv bootcmd
 reset
 
 ### 基础版 uimage rootfs
+### eMMC 固定布局
+# p16: 0:HLOS，只放 fit.itb（kernel + dtb + initramfs，cmdline 内嵌）
+# p18: rootfs，ext4，initramfs 启动后挂载到 /persist
 # -Q 不把各 derivation 的构建日志转发到终端
 nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
     -A outputs.uimage \
+    -o result-uimage \
 && nix-build -Q \
     --arg device "import ./devices/jdcloud-ax6600" \
     -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
     -A outputs.rootfs \
     -o result-rootfs \
-    && md5sum result result-rootfs
+    && md5sum result-uimage result-rootfs
+
+# 刷写
+scp result-uimage root@<device>:/tmp/fit.itb
+dd if=/tmp/fit.itb of=/dev/mmcblk0p16 bs=4M conv=fsync
+sync
+# 测试 eMMC 启动前拔掉 U 盘，U-Boot 会优先从 U 盘加载 fit.itb
 
 ### USB ext4 版
 # rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
@@ -36,10 +47,10 @@ nix-build -Q \
 # md5
 md5sum result-usb-ext4-rootfs result-usb-ext4-uimage
 
-# 在线 userspace 升级（在仓库 nix-shell 中执行；不更新 p1 内核）
+# 在线 userspace 升级（在仓库 nix-shell 中执行；不更新 p16 内核）
 nix-build -Q \
   --arg device 'import ./devices/jdcloud-ax6600' \
-  -I "liminix-config=$PWD/devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix" \
+  -I "liminix-config=$PWD/devices/jdcloud-ax6600/images/ax6600-rootfs.nix" \
   -I "liminix-deployment=$PWD/devices/jdcloud-ax6600/config.nix" \
   -I "liminix-firewall=$PWD/devices/jdcloud-ax6600/config_firewall.nix" \
   -A outputs.updater \
@@ -72,6 +83,8 @@ sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
 # 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
 # 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。
 # update-usb.sh 全量同步 p2，/var/lib 下的状态会被镜像内容替换。
+# kernel/initramfs 变化刷新 p16；完整 rootfs 镜像变化刷新 p18；仅 userspace
+# 变化可使用 updater。
 
 # WAN 侧：s6 oneshot wan-if 按 wan/vlan 决定 PPPoE 跑在 wan 还是新建的 wan.<vid> 上
 # （MTU/MRU 随之 1488 / 1492），所以 PPPoE 服务名是 wan-if.pppoe：
