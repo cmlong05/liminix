@@ -60,6 +60,9 @@
       MMC_SDHCI_PLTFM = "y";
       MMC_SDHCI_MSM = "y";
       MMC_BLOCK = "y";
+      PARTITION_ADVANCED = "y";
+      MSDOS_PARTITION = "y";
+      EFI_PARTITION = "y";
 
       # --- watchdog (qcom,kpss-wdt): U-Boot enables it, we must feed it ---
       WATCHDOG = "y";
