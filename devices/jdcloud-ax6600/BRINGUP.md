@@ -19,8 +19,6 @@
 | 前置 | NSS 有线满血 | 已落地 | `6bcfb24` |
 | 前置 | AHB 2.4G / 5.8G 无线 | 已落地 | `1413f8a` |
 | 前置 | eMMC 挂根：uimage + squashfs rootfs | 已落地 | `8ec44be`、`ad4f4c0` |
-| 前置 | USB 挂根：uimage + squashfs rootfs | 已落地 | `04229a7` |
-| 前置 | USB 挂根：ext4 可写 root | 已落地 | `234723e`、`63bf2e4` |
 | 前置 | AHB 2.4G/5.8G AP 走标准 hostapd 服务（s6 长驻，`wifi.autostart` 可关） | 已落地 | — |
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
 | N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 已落地 | — |
@@ -29,8 +27,9 @@
 | N10 | 单 ext4 分区启动：kernel + rootfs 同分区，FIT 优先 | 已落地 | — |
 
 **NB**
-> 不要管实际的 eMMC GPT，各种机器有各种不同。
-> 块设备编号有个坑：分区号 ≥8 的走扩展主设备号，所以 `rootfs`(p18) 是 **259:10**——日志里`Mounted root … on device 259:10` 指的就是它，不是 p10。
+> 固定布局：`0:HLOS` 是 p16（`/dev/mmcblk0p16`），`rootfs` 是 p18
+> （`/dev/mmcblk0p18`）。分区号 ≥8 的走扩展主设备号，所以 rootfs 的
+> `dev_t` 是 **259:10**，不是 p10。
 
 ---
 
