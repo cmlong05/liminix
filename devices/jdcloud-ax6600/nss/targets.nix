@@ -12,9 +12,6 @@
 #     wireless/default.nix build these, since that module is what sets
 #     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB in the kernel config.
 #
-# `all` is both groups: ax6600-rootfs.nix (and ax6600-usb-ext4.nix on top of it)
-# imports wireless/default.nix, so both take it.
-#
 # Not here: the nft_* modules. The rootfs image gets them from
 # modules/firewall's own kmodloader instead.
 let
