@@ -9,9 +9,6 @@
 #     from the device tree. Mainline's qcom_q6v5_wcss is not involved -
 #     see ./SOURCES.nix for why that route is the one to take;
 #   * the AHB half of ath11k, plus the AHB fixes this bring-up needed;
-#   * the firmware the Q6 and ath11k request, embedded in the initramfs:
-#     a fullSystem image loads its modules from preinit, before activate
-#     has created /lib/firmware;
 #   * a hostapd AP per band, an ordinary s6 longrun service: ssid,
 #     passphrase, channel and encryption mode all come from the build-time
 #     deployment; each band sees only its own `securityModes` entry through
