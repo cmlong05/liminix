@@ -10,13 +10,17 @@
   pkgs,
   ...
 }:
+let
+  deploymentJson = import ../deployment-json.nix { inherit lib; };
+  inherit (deploymentJson) deployment;
+in
 {
   imports = [
     ./ax6600-rootfs.nix
     "${modulesPath}/usb.nix"
   ];
 
-  hardware.rootDevice = lib.mkForce "PARTLABEL=liminix-root";
+  hardware.rootDevice = lib.mkForce deployment.hardware.usbRootDevice;
 
   kernel.config = {
     PARTITION_ADVANCED = "y";
