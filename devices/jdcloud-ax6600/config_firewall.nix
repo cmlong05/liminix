@@ -21,11 +21,22 @@
 
   # allow port
   appendRules = {
-      input-ip4-lan = [
-        # 137/138 NetBIOS, 7083 海尔空调, 15000 美的洗衣机, 58866 石头扫地机
-        "udp dport { 137, 138, 7083, 15000, 58866 } meta pkttype broadcast accept"
-      ];
-    };
+    input-ip4-lan = [
+      ''
+        udp dport {
+          137 comment "NetBIOS-NS",
+          138 comment "NetBIOS-DGM",
+          5353 comment "TV-cast",
+          7083 comment "海尔空调",
+          15000 comment "美的洗衣机",
+          58866 comment "石头扫地机"
+        } meta pkttype broadcast accept
+      ''
+    ];
+    input-ip6-lan = [
+      "udp dport 5353 accept" # mDNS
+    ];
+  };
 
   # input-ip6 以 log 规则收尾，而 log 没有 verdict、不会结束链：追加到末尾
   # 虽然仍然生效，每个匹配的包却会先被打一条 DENIED 日志，所以走这里。
