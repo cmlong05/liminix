@@ -1,26 +1,39 @@
 #!/bin/sh
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-uimage=result-uimage
-rootfs=result-rootfs
 updater=result-updater
 
 device_dir="$here/devices/jdcloud-ax6600"
-config="$device_dir/images/ax6600-rootfs.nix"
 deployment="$device_dir/config.nix"
 firewall="$device_dir/config_firewall.nix"
 
+target=emmc
 with_updater=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        -u) with_updater=1 ;;
+        -e | e) target=emmc ;;
+        -u | u) target=usb ;;
+        --updater | -U) with_updater=1 ;;
         *)
-            echo "usage: $0 [-u]" >&2
+            echo "usage: $0 [-e|-u] [--updater]" >&2
             exit 2
             ;;
     esac
     shift
 done
+
+case "$target" in
+    emmc)
+        config="$device_dir/images/ax6600-rootfs.nix"
+        uimage=result-uimage
+        rootfs=result-rootfs
+        ;;
+    usb)
+        config="$device_dir/images/ax6600-usb-ext4.nix"
+        uimage=result-usb-ext4-uimage
+        rootfs=result-usb-ext4-rootfs
+        ;;
+esac
 
 set -- \
     --arg device "import $device_dir" \
@@ -36,7 +49,7 @@ if [ "$with_updater" -eq 1 ]; then
     exit 0
 fi
 
-echo "==> rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
+echo "==> rootfs ($target)：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
 nix-build -Q "$@" \
 -A outputs.rootfs \
 -o "$here/$rootfs"
