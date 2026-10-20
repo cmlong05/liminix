@@ -89,8 +89,7 @@
   eMMC 保持不动；这与其他设备的“内核单独手工刷写”边界一致。
 * 在线路径：构建 `outputs.updater` 后运行 `result-updater/bin/update.sh`，只更新 p2
   上的 userspace，不传输、不写入 `fit.itb`。内核变化必须回到离线全量升级。
-* p2 是唯一持久化层。Tailscale 状态位于 `/var/lib/tailscale`。部署配置在建构时
-  固定；离线 `update-usb.sh` 全量同步 p2，因此 `/var/lib` 状态会回到镜像内容。
+* p2 是唯一持久化层。服务状态位于 `/var/lib/liminix会排除同步
 * 在线只使用 `result-updater/bin/update.sh --fast`：设备侧 `restart-services` 会执行
   `activate /`、更新 s6 数据库并重启受影响的服务。
 * 默认重启和 `--no-reboot` 在线路径不在 N9 范围；完整重启使用 `update-usb.sh`。

@@ -32,6 +32,8 @@ let
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
 
+  stateRoot = "/var/lib/liminix";
+
   # Which network this image serves
   deploymentJson = import ../deployment-json.nix { inherit lib; };
   inherit (deploymentJson) deployment;
@@ -496,9 +498,9 @@ in
   services.sshd = svc.ssh.build { };
 
   # No auth key: tailscaled comes up at boot, and the first `tailscale up`
-  # is run over ssh (it prints a URL to open elsewhere). What keeps that
-  # login across reboots is the node state under /var/lib/tailscale.
+  # is run over ssh (it prints a URL to open elsewhere).
   services.tailscale = svc.tailscale.build {
+    stateDir = "${stateRoot}/tailscale";
     dependencies = [ config.services.wan ];
   };
 
@@ -601,6 +603,13 @@ in
       "fw_env.config" = symlink "/run/fw_env.config";
       "resolv.conf" = symlink "/run/resolv.conf";
       "rc-init.d" = dir {
+        state-dir = symlink (
+          pkgs.writeAshScript "state-dir" { } ''
+            state=${stateRoot}
+            mkdir -m 0751 -p "$state"
+            echo "$state" > /run/state-mountpoint
+          ''
+        );
         fw-env-config = symlink (
           pkgs.writeAshScript "fw-env-config" { } ''
             export PATH=/bin:/sbin
@@ -629,6 +638,11 @@ in
             O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
           ''
         );
+      };
+    };
+    var = dir {
+      lib = dir {
+        liminix = dir { };
       };
     };
     lib = dir {
