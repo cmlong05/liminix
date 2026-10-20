@@ -11,7 +11,5 @@ research/
 .reasonix
 .nixcache
 /config.json
-build-home.sh
-build-wuhan.sh
 devices/jdcloud-ax6600/config-home.nix
 devices/jdcloud-ax6600/config-wuhan.nix
