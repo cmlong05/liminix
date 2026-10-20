@@ -145,6 +145,11 @@ in
   ];
 
   # minimal busybox 默认关掉 ash 的 $((...))，dhcp6c/route 等服务脚本会语法错误退出
+  programs.busybox.applets = [
+    "mountpoint"
+    "nslookup"
+    "scp"
+  ];
   programs.busybox.options = {
     FEATURE_SH_MATH = "y";
     FEATURE_FANCY_PING = "y";
