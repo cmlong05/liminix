@@ -15,6 +15,9 @@
 let
   svc = config.system.service;
   nifs = config.hardware.networkInterfaces;
+  dropbear = pkgs.dropbear.override {
+    enableSCP = true;
+  };
 
   # 桥的成员口，同时用作防火墙 @lan zone。nft 的 iifname 匹配报文到达的
   # 物理口，oifname 匹配桥设备本身，所以 @lan 里这两类名字都要有，否则
@@ -137,6 +140,7 @@ in
 
   # 现场运维工具
   defaultProfile.packages = with pkgs; [
+    dropbear
     e2fsprogs
     gptfdisk
     util-linux
@@ -151,7 +155,6 @@ in
   programs.busybox.applets = [
     "mountpoint"
     "nslookup"
-    "scp"
   ];
   programs.busybox.options = {
     FEATURE_SH_MATH = "y";
