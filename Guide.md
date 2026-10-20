@@ -82,7 +82,7 @@ sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
 
 # 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
 # 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。
-# update-usb.sh 全量同步 p2，/var/lib 下的状态会被镜像内容替换。
+# update-usb.sh 全量同步 p2，但保留 /var/lib/liminix 状态。
 # kernel/initramfs 变化刷新 p16；完整 rootfs 镜像变化刷新 p18；仅 userspace
 # 变化可使用 updater。
 
