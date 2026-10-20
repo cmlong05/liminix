@@ -1,8 +1,8 @@
 # JDCloud AX6600 (RE-CS-02): network and services on the eMMC image.
 #
 # eMMC image:
-#   outputs.uimage  (kernel + dtb, cmdline embedded)  -> partition 0:HLOS
-#   outputs.rootfs  (ext4, writable, kernel-mounted)  -> partition rootfs
+#   outputs.uimage  (kernel + dtb + initramfs) -> /dev/mmcblk0p16 (0:HLOS)
+#   outputs.rootfs  (ext4, mounted by initramfs) -> /dev/mmcblk0p18 (rootfs)
 #
 
 {
@@ -643,9 +643,8 @@ in
 
   boot = {
     imageFormat = "fit";
-    # The kernel mounts the root itself and no initramfs is left to remount
-    # it, so this is what leaves the root writable.
-    rootfs.mount = "kernel";
+
+    rootfs.mount = "initramfs";
     commandLine = lib.mkForce [
       "panic=10 oops=panic loglevel=4"
       "console=ttyMSM0,115200n8"

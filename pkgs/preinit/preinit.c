@@ -107,6 +107,22 @@ static int fork_exec(char * command, char *args[])
 	return execve(command, args, NULL);
 }
 
+/* Block devices such as eMMC partitions may appear after preinit starts. */
+static int mount_root(char *source, char *target, char *fstype, char *data)
+{
+    for (int i = 0; i < 5; i++) {
+	if(mount(source, target, fstype, 0, data) == 0)
+	    return 0;
+	if(errno != ENOENT && errno != ENODEV)
+	    return -1;
+	if(i == 0)
+	    write(1, "root device not ready, waiting\n", 31);
+	if(i < 4)
+	    sleep(1);
+    }
+    return -1;
+}
+
 char banner[]  = "Running pre-init...\n";
 char buf[COMMAND_LINE_SIZE];
 
@@ -158,7 +174,7 @@ int main(int argc, char *argv[], char *envp[])
 	    write(1, opts.mount_opts, strlen(opts.mount_opts));
 	}
 	write(1, ")\n", 2);
-	AVER(mount(opts.device, "/target/persist", opts.fstype, 0, opts.mount_opts));
+	AVER(mount_root(opts.device, "/target/persist", opts.fstype, opts.mount_opts));
 	AVER(mount("/target/persist/nix", "/target/nix",
 		   "bind", MS_BIND, NULL));
 
