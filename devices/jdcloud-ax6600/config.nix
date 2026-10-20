@@ -9,6 +9,7 @@
 # Without that argument the build uses this file.
 {
   hostname = "office-ax6600";
+  hardware.rootDevice = "PARTLABEL=rootfs";
 
   # Build-time only: also write the s6 log stream to the pstore pmsg
   # device, so logs outlive a reboot. Requires a rebuild.
