@@ -4,12 +4,15 @@
 # IPQ60XX DRAM地址映射从0x40000000起，再留部分余量给NSS和其他关键保留区
 # uboot下
 setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
-# openwrt 或 liminix 下使用 fw_setenv
-fw_setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
-
 saveenv
 printenv bootcmd
 reset
+
+# openwrt 或 liminix 下使用 fw_setenv,先验证
+fw_printenv
+fw_setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
+fw_printenv
+
 
 ### 基础版 uimage rootfs
 ### eMMC 固定布局
@@ -35,17 +38,17 @@ scp -O result-uimage root@<device>:/tmp/fit.itb
 scp -O result-rootfs root@<device>:/tmp/root.ext4
 
 # 刷写Kernel
-uimage=/tmp/fit.itb
+uimage=/tmp/result-uimage
+md5sum $uimage
 size=$(wc -c < "$uimage")
 dd if="$uimage" of=/dev/mmcblk0p16 bs=1M
 
 # 验证
-md5sum $uimage
 dd if=/dev/mmcblk0p16 bs="$size" count=1 | md5sum
 dd if=/dev/mmcblk0p17 bs="$size" count=1 | md5sum
 
-# 确保 PARTLABEL 正确与config.nix中保持一致
-PARTLABEL=rootfs
+# 确保 mmcblk0p18 的 PARTLABEL 正确与config.nix中保持一致 PARTLABEL=rootfs
+blkid | grep /dev/mmcblk0p18
 # 刷写rootfs
 image=/tmp/root.ext4
 # 先部分验证
@@ -134,6 +137,82 @@ cat /run/art/mac.24g /run/art/mac.58g
 s6-rc -d change wlan24g.link.hostapd   # 停
 s6-rc -u change wlan24g.link.hostapd   # 起
 
+### sing-box 透明分流与 LAN SOCKS5
+
+规则完全由运行时文件提供，不需要写入部署配置或在构建时下载。首次启动时
+配置模板复制到：
+
+```sh
+/etc/sing-box/config.json.template
+/var/lib/liminix/sing-box/config.json
+```
+
+手动提供两份 source rule-set JSON：
+
+```text
+/var/lib/liminix/sing-box/proxy.json
+/var/lib/liminix/sing-box/bypass.json
+```
+
+文件格式：
+
+```json
+{
+  "version": 1,
+  "rules": [
+    {
+      "domain_suffix": [
+        ".example.com"
+      ]
+    }
+  ]
+}
+```
+
+编辑运行时配置，将 `proxy` 出站骨架改成实际代理，保持 tag 为 `proxy`：
+
+```sh
+vi /var/lib/liminix/sing-box/config.json
+sing-box check -c /var/lib/liminix/sing-box/config.json
+s6-rc -d change sing-box
+s6-rc -u change sing-box
+```
+
+已有 `config.json` 不会随镜像覆盖。两份规则文件缺失或配置校验失败时，
+服务不安装透明路由，LAN 保持直连。
+
+透明流量中的 DNS 固定直连，之后按 `bypass` 规则直连、私网直连、`proxy`
+规则走代理，其余直连。LAN 可使用两个无认证 SOCKS5 入口：
+
+```text
+<router-lan-ip>:1080  TCP/UDP 固定走 proxy，不受 rule-set 影响
+<router-lan-ip>:1081  TCP/UDP 固定走 direct，不受 rule-set 影响
+```
+
+两个入口只从 `@lan` 入方向放行，WAN 地址不能访问。`1080` 的域名解析和
+DNS 流量随该入口走 `proxy`；`1081` 与透明流量不经过代理 DNS。dnsmasq
+继续直接使用 WAN DNS。
+
+查看状态和日志：
+
+```sh
+s6-rc -a list | grep sing-box
+ip rule show
+ip route show table 233
+ip -6 route show table 233
+tail -Fn 100 /run/service/sing-box-log/psing-box/current
+```
+
+故障旁路：停止服务会幂等删除策略规则和表 233 的路由，LAN 恢复直连。
+dnsmasq 不受 sing-box 状态影响。配置缺失或 `sing-box check` 失败时服务
+不安装透明路由。
+
+```sh
+s6-rc -d change sing-box
+ip rule show
+ip route show table 233
+```
+
 # ttl 命令
 sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
 
@@ -147,3 +226,44 @@ sudo nix-shell -p picocom --run "picocom -b 115200 /dev/ttyUSB0"
 tailscale up --netfilter-mode=off --accept-dns=false --accept-routes --advertise-routes=10.10.x.x/24
 tailscale status
 ip addr show tailscale0
+
+
+# 内核Kernal和用户态同时更新的升级方式：
+update.sh 里的选项说明：
+--no-reboot
+  = 复制新 closure
+  + 执行 /bin/install
+  + 建立时间戳配置链接
+  + 不 activate、不重启
+
+--no-reboot + /activate /
+  = 上面全部
+  + 更新 /etc、/bin 等 FHS 文件
+  + 把 /etc/s6-rc/compiled 指向新服务数据库
+  + 但不切换当前运行中的 s6 数据库，也不重启服务
+
+--fast
+  = 上面的“安装 + activate”
+  + s6-rc-update 切换到新数据库
+  + 重启发生变化的服务
+  + 启动 default 服务集合
+  + 不重启设备
+
+## 修复updator bug后
+直接不带参数，会自动完成所有任务
+install + activate / + reboot
+  = --no-reboot
+  + 重启
+
+
+# 内核和用户态同时更新
+## 旧方式
+./result-updater/bin/update.sh --no-reboot root@<device>
+ssh root@<device> '/activate /'
+# 手动刷入同一配置构建的 fit.itb 到 p16
+ssh root@<device> 'sync; reboot'
+
+## 更新bug后的方式
+# 先手动刷入同一配置构建的 fit.itb
+./result-updater/bin/update.sh root@<device>
+
