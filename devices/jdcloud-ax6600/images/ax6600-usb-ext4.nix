@@ -17,23 +17,11 @@ in
 {
   imports = [
     ./ax6600-rootfs.nix
-    "${modulesPath}/usb.nix"
   ];
 
   hardware.rootDevice = lib.mkForce deployment.hardware.usbRootDevice;
 
   kernel.config = {
     PARTITION_ADVANCED = "y";
-
-    USB_XHCI_HCD = "y";
-    USB_XHCI_PLATFORM = "y";
-    USB_DWC3 = "y";
-    USB_DWC3_HOST = "y";
-    USB_DWC3_QCOM = "y";
-    PHY_QCOM_QMP = "y";
-    PHY_QCOM_QMP_USB = "y";
-    PHY_QCOM_QUSB2 = "y";
-    REGULATOR = "y";
-    REGULATOR_FIXED_VOLTAGE = "y";
   };
 }
