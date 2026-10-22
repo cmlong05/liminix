@@ -7,6 +7,21 @@ let
     inherit nixpkgs;
   };
   inherit (final) fetchpatch lib;
+  # buildGoModule's fixed-output module fetch does not receive the caller's GOPROXY.
+  goProxy =
+    pkg:
+    pkg.overrideAttrs (o: {
+      passthru = o.passthru // {
+        overrideModAttrs = lib.composeExtensions o.passthru.overrideModAttrs (
+          _finalModAttrs: previousModAttrs: {
+            preBuild = ''
+              export GOPROXY=https://goproxy.cn,direct
+            ''
+            + (previousModAttrs.preBuild or "");
+          }
+        );
+      };
+    });
   luaHost =
     let
       l = prev.lua5_3.overrideAttrs (o: {
@@ -410,36 +425,20 @@ extraPkgs
 
   strace = prev.strace.override { libunwind = null; };
 
+  sing-box = crossOnly prev.sing-box goProxy;
+
   # nixpkgs wraps tailscaled with a PATH of tools built against glibc
   # (getent, shadow, iptables) - pointless for a musl target - and the
   # `tailscale` CLI only exists as the symlink that same step creates
   tailscale =
-    let
-      # buildGoModule fetches the module cache in its own fixed-output
-      # derivation, which reaches for proxy.golang.org. GOPROXY is listed
-      # in that derivation's impureEnvVars, so setting it there is
-      # discarded and only the client environment's value counts: it has
-      # to be exported from the build script instead.
-      goproxy = "https://goproxy.cn,direct";
-    in
     crossOnly prev.tailscale (
-      t: t.overrideAttrs (o: {
-        passthru = o.passthru // {
-          overrideModAttrs = lib.composeExtensions o.passthru.overrideModAttrs (
-            _finalModAttrs: previousModAttrs: {
-              preBuild = ''
-                export GOPROXY=${goproxy}
-              ''
-              + (previousModAttrs.preBuild or "");
-            }
-          );
-        };
+      t: goProxy (t.overrideAttrs (o: {
         postInstall = ''
           ln -s $out/bin/tailscaled $out/bin/tailscale
           moveToOutput "bin/derper" "$derper"
           moveToOutput "bin/derpprobe" "$derper"
         '';
-      })
+      }))
     );
 
   ubootQemuAarch64 = final.buildUBoot {
