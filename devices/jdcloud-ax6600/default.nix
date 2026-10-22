@@ -149,6 +149,17 @@
           PPPOE = "y";
           VLAN_8021Q = "y";
 
+          USB_XHCI_HCD = "y";
+          USB_XHCI_PLATFORM = "y";
+          USB_DWC3 = "y";
+          USB_DWC3_HOST = "y";
+          USB_DWC3_QCOM = "y";
+          PHY_QCOM_QMP = "y";
+          PHY_QCOM_QMP_USB = "y";
+          PHY_QCOM_QUSB2 = "y";
+          REGULATOR = "y";
+          REGULATOR_FIXED_VOLTAGE = "y";
+
           NETFILTER = "y";
           NETFILTER_ADVANCED = "y";
           NF_CONNTRACK = "m";
