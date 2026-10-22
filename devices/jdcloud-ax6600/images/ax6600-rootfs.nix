@@ -41,6 +41,8 @@ let
   deploymentJson = import ../deployment-json.nix { inherit lib; };
   inherit (deploymentJson) deployment;
 
+  singBox = config.jdcloudAx6600.singBox;
+
   runtime = config.services.runtime-config;
   runtimeConfigSeed = pkgs.writeText "runtime-config.json" deploymentJson.text;
 
@@ -114,6 +116,8 @@ in
     "${modulesPath}/tailscale"
     "${modulesPath}/firewall"
     "${modulesPath}/outputs/ext4fs.nix"
+    "${modulesPath}/usb.nix"
+    ../sing-box.nix
     ../wireless
     ../wireless/rootfs-firmware.nix
     ../art.nix
@@ -525,8 +529,6 @@ in
 
   firewall.kernelModules = config.services.modules;
 
-  # 站点策略的第二个注入点：追加到规则集里已有的链末尾。tailscale 模块
-  # 也用这个选项，attrsOf (listOf str) 按键合并，互不干扰。
   firewall.appendRules = siteFirewall.appendRules or { };
 
   # 同上，但插到链的 log 规则之前，避免被放行的包先打一条 DENIED 日志。
@@ -554,7 +556,7 @@ in
     # PPPoE 的接口名要等拨号成功才有：规则集先不等它（@wan 里暂时少一个
     # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。
     dontWait = [ config.services.wan ];
-    extraRules = {
+    extraRules = singBox.policyRoutingRules // {
       # The tagged case is the smaller of the two, so clamping to it is
       # right for an untagged WAN as well; MSS is that MTU less the
       # IPv4/TCP (20+20) or IPv6/TCP (40+20) headers.
@@ -681,6 +683,10 @@ in
     CMDLINE = lib.mkForce "\"${lib.concatStringsSep " " config.boot.commandLine}\"";
     CMDLINE_FROM_BOOTLOADER = lib.mkForce "n";
     CMDLINE_FORCE = "y";
+    FAT_FS = "y";
+    VFAT_FS = "y";
+    EXFAT_FS = "y";
+    NTFS3_FS = "y";
     # s6-linux-init mounts devtmpfs on /dev itself: if the kernel got
     # there first (DEVTMPFS_MOUNT=y) it dies with EBUSY and panics.
     DEVTMPFS_MOUNT = lib.mkForce "n";
