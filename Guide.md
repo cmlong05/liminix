@@ -2,7 +2,11 @@
 
 # uboot设置env从U盘启动，未插U盘，检测不到则从默认内部启动
 # IPQ60XX DRAM地址映射从0x40000000起，再留部分余量给NSS和其他关键保留区
+# uboot下
 setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
+# openwrt 或 liminix 下使用 fw_setenv
+fw_setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
+
 saveenv
 printenv bootcmd
 reset
@@ -23,11 +27,41 @@ nix-build -Q \
     -A outputs.rootfs \
     -o result-rootfs \
     && md5sum result-uimage result-rootfs
+# 虽然三个config设置不同，但是当前阶段构建出的kernel相同-20261021
+### 修改分区名字后验证，确定与config.nix中的相同
 
+### 上传
+scp -O result-uimage root@<device>:/tmp/fit.itb
+scp -O result-rootfs root@<device>:/tmp/root.ext4
+
+# 刷写Kernel
+uimage=/tmp/fit.itb
+size=$(wc -c < "$uimage")
+dd if="$uimage" of=/dev/mmcblk0p16 bs=1M
+
+# 验证
+md5sum $uimage
+dd if=/dev/mmcblk0p16 bs="$size" count=1 | md5sum
+dd if=/dev/mmcblk0p17 bs="$size" count=1 | md5sum
+
+# 确保 PARTLABEL 正确与config.nix中保持一致
+PARTLABEL=rootfs
+# 刷写rootfs
+image=/tmp/root.ext4
+# 先部分验证
+dd if="$image" bs=4M count=10 | md5sum
+dd if=/dev/mmcblk0p18 bs=4M count=10 | md5sum
 # 刷写
-scp result-uimage root@<device>:/tmp/fit.itb
-dd if=/tmp/fit.itb of=/dev/mmcblk0p16 bs=4M conv=fsync
+dd if="$image" of=/dev/mmcblk0p18 bs=4M
+# 再同上部分验证一次
+
+# 扩容到实际大小
+e2fsck -f /dev/mmcblk0p18
+resize2fs /dev/mmcblk0p18
+e2fsck -f /dev/mmcblk0p18
 sync
+
+
 # 测试 eMMC 启动前拔掉 U 盘，U-Boot 会优先从 U 盘加载 fit.itb
 
 ### USB ext4 版
@@ -72,10 +106,10 @@ sudo sgdisk -o \
 # 如果无法完成，可先清理擦除后再进行上一步
 # 谨慎使用
 sudo wipefs -a /dev/sd*
-# 
+# 重新探测
 sudo partprobe /dev/sdX
 
-# # 首次需要格式化 p1 p2
+# # 首次需要格式化 p1 p2 （下面设置的是LABEL，区别于sgdisk的PARTLABEL）
 nix shell nixpkgs#e2fsprogs
 sudo mkfs.vfat -F 16 -n BOOT /dev/sdX1
 sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
