@@ -34,7 +34,7 @@
   (write-restarts (.. old-compiled "hashes") (.. new-compiled "hashes"))
 
   (exec "updating service database"
-        (.. "s6-rc-update -f /tmp/restarts " new-compiled))
+        (.. "s6-rc-update -b -f /tmp/restarts " new-compiled))
 
-  (exec "starting services" (.. "s6-rc -u -p change default"))
+  (exec "starting services" "s6-rc -b -u -p change default")
   )

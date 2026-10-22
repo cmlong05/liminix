@@ -43,7 +43,8 @@ $ssh_command $target_host "$toplevel/bin/install && { test ! -d /persist || dest
     || die "Failed to install $toplevel on $target_host"
 case "$reboot" in
     reboot)
-	$ssh_command $target_host "sync; source /etc/profile; reboot"
+	# Direct-root systems have no preinit to activate the new configuration.
+	$ssh_command $target_host "if test ! -d /persist; then $toplevel/bin/activate / || exit; fi; sync; source /etc/profile; reboot"
 	;;
     soft)
 	$ssh_command $target_host $toplevel/bin/restart-services
