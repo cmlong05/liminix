@@ -41,8 +41,6 @@ let
   deploymentJson = import ../deployment-json.nix { inherit lib; };
   inherit (deploymentJson) deployment;
 
-  singBox = config.jdcloudAx6600.singBox;
-
   runtime = config.services.runtime-config;
   runtimeConfigSeed = pkgs.writeText "runtime-config.json" deploymentJson.text;
 
@@ -556,7 +554,9 @@ in
     # PPPoE 的接口名要等拨号成功才有：规则集先不等它（@wan 里暂时少一个
     # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。
     dontWait = [ config.services.wan ];
-    extraRules = singBox.policyRoutingRules // {
+    # 全量重载会清掉 auto_redirect 的 nft 表。
+    restartAfterReload = [ config.services.sing-box ];
+    extraRules = {
       # The tagged case is the smaller of the two, so clamping to it is
       # right for an untagged WAN as well; MSS is that MTU less the
       # IPv4/TCP (20+20) or IPv6/TCP (40+20) headers.

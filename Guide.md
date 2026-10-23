@@ -139,12 +139,14 @@ s6-rc -u change wlan24g.link.hostapd   # 起
 
 ### sing-box 透明分流与 LAN SOCKS5
 
-规则完全由运行时文件提供，不需要写入部署配置或在构建时下载。首次启动时
-配置模板复制到：
+规则完全由运行时文件提供，不需要写入部署配置或在构建时下载。镜像提供
+配置模板，运行时配置需要手动复制并修改：
+
 
 ```sh
-/etc/sing-box/config.json.template
-/var/lib/liminix/sing-box/config.json
+mkdir -m 0700 -p /var/lib/liminix/sing-box
+cp /etc/sing-box/config.json.template /var/lib/liminix/sing-box/config.json
+chmod 0600 /var/lib/liminix/sing-box/config.json
 ```
 
 手动提供两份 source rule-set JSON：
