@@ -21,9 +21,6 @@ in
         type = types.str;
         default = "/var/lib/liminix/sing-box/config.json";
       };
-      templateFile = mkOption {
-        type = types.path;
-      };
       stateDir = mkOption {
         type = types.str;
         default = "/var/lib/liminix/sing-box";
@@ -31,18 +28,6 @@ in
       tunName = mkOption {
         type = types.str;
         default = "sing-box0";
-      };
-      routingMark = mkOption {
-        type = types.ints.unsigned;
-        default = 9011;
-      };
-      routingTable = mkOption {
-        type = types.ints.positive;
-        default = 233;
-      };
-      routingRulePriority = mkOption {
-        type = types.ints.between 1 32765;
-        default = 18000;
       };
     };
   };

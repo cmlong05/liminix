@@ -10,13 +10,7 @@ let
   inherit (pkgs.pseudofile) dir symlink;
 
   cfg = config.jdcloudAx6600.singBox;
-  template = pkgs.writeText "sing-box-config.template.json" (
-    import "${modulesPath}/sing-box/config.nix" {
-      inherit (cfg) tunName;
-      proxyRuleFile = "${cfg.stateDir}/proxy.json";
-      bypassRuleFile = "${cfg.stateDir}/bypass.json";
-    }
-  );
+  template = ./sing-box/config_temp.json;
 in
 {
   imports = [ "${modulesPath}/sing-box" ];
@@ -30,36 +24,28 @@ in
       type = types.str;
       default = "sing-box0";
     };
-    routingMark = mkOption {
-      type = types.ints.unsigned;
-      default = 9011;
-    };
-    routingTable = mkOption {
-      type = types.ints.positive;
-      default = 233;
-    };
-    routingRulePriority = mkOption {
-      type = types.ints.between 1 32765;
-      default = 18000;
-    };
-    policyRoutingRules = mkOption {
-      type = types.attrsOf types.attrs;
-      readOnly = true;
-    };
   };
 
   config = {
     defaultProfile.packages = [ pkgs.sing-box ];
 
+    kernel.config = {
+      NETFILTER_NETLINK_QUEUE = "m";
+      NFT_QUEUE = "m";
+      NFT_REDIR = "m";
+    };
+
+    firewall.kernelModuleTargets = [
+      "nfnetlink_queue"
+      "nft_queue"
+      "nft_redir"
+    ];
+
     services.sing-box = config.system.service.singBox.build {
       configFile = "${cfg.stateDir}/config.json";
-      templateFile = template;
       inherit (cfg)
         stateDir
         tunName
-        routingMark
-        routingTable
-        routingRulePriority
         ;
     };
 
@@ -94,30 +80,5 @@ in
       };
     };
 
-    jdcloudAx6600.singBox = {
-      # WAN 出向在 prerouting 标记；FIB 判断避免 LAN 互访进入 TUN。
-      policyRoutingRules = {
-        sing-box-mark-ip4 = {
-          type = "filter";
-          family = "ip";
-          hook = "prerouting";
-          priority = "mangle";
-          policy = "accept";
-          rules = [
-            "iifname @lan fib daddr oifname @wan meta mark set ${toString cfg.routingMark}"
-          ];
-        };
-        sing-box-mark-ip6 = {
-          type = "filter";
-          family = "ip6";
-          hook = "prerouting";
-          priority = "mangle";
-          policy = "accept";
-          rules = [
-            "iifname @lan fib daddr oifname @wan meta mark set ${toString cfg.routingMark}"
-          ];
-        };
-      };
-    };
   };
 }

@@ -3,6 +3,7 @@
   lib,
   firewallgen,
   nftables,
+  s6,
   svc,
   lua,
   output-template,
@@ -14,11 +15,12 @@
   extraRules,
   zones,
   dontWait ? [ ],
+  restartAfterReload ? [ ],
 }:
 let
   inherit (liminix.services) longrun;
   inherit (lib.attrsets) mapAttrs' nameValuePair mapAttrsToList;
-  inherit (lib.strings) concatStringsSep;
+  inherit (lib.strings) concatStringsSep escapeShellArg;
   inherit (builtins) concatLists toJSON attrValues;
   inherit (liminix) outputRef;
   mkSet =
@@ -139,14 +141,30 @@ let
   allRules = withInserted // appended;
   script = firewallgen "firewall1.nft" allRules;
   name = "firewall";
+  restartServices = concatStringsSep "\n" (
+    map (
+      service:
+      let
+        dir = "/run/service/${service.name}";
+      in
+      ''
+        if test -d ${escapeShellArg dir} && test "$(${s6}/bin/s6-svstat -o up ${escapeShellArg dir})" = true ; then
+          ${s6}/bin/s6-svc -r ${escapeShellArg dir}
+        fi
+      ''
+    ) restartAfterReload
+  );
   service = longrun {
     inherit name;
     run = ''
       PATH=${nftables}/bin:${lua}/bin:$PATH
       reload() {
          echo reloading firewall
-         ${output-template}/bin/output-template '{{' '}}' < ${script}  > /run/${name}/fw.nft;
-         nft -f /run/${name}/fw.nft ;
+         ${output-template}/bin/output-template '{{' '}}' < ${script} > /run/${name}/fw.nft
+         if ! nft -f /run/${name}/fw.nft ; then
+           return 1
+         fi
+         ${restartServices}
       }
       trap reload SIGUSR1
       mkdir -p /run/${name}; in_outputs ${name}
