@@ -122,6 +122,11 @@ in
             description = "rules inserted into existing chains ahead of their log rule";
             default = { };
           };
+          restartAfterReload = mkOption {
+            type = types.listOf liminix.lib.types.service;
+            description = "services restarted after the ruleset is successfully loaded";
+            default = [ ];
+          };
           zones = mkOption {
             type = types.attrsOf (types.listOf liminix.lib.types.service);
             default = { };
