@@ -34,8 +34,8 @@ nix-build -Q \
 ### 修改分区名字后验证，确定与config.nix中的相同
 
 ### 上传
-scp -O result-uimage root@<device>:/tmp/fit.itb
-scp -O result-rootfs root@<device>:/tmp/root.ext4
+scp -O result-uimage root@<device>:/tmp/
+scp -O result-rootfs root@<device>:/tmp/
 
 # 刷写Kernel
 uimage=/tmp/result-uimage
