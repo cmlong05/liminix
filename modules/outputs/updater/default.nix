@@ -29,7 +29,8 @@ in
     cp ${o.kernel.config} $out/etc/kconfig
     substitute ${./update.sh} $out/bin/update.sh \
        --subst-var-by toplevel ${o.systemConfiguration} \
-       --subst-var-by min_copy_closure ${min-copy-closure}
+       --subst-var-by min_copy_closure ${min-copy-closure} \
+       --subst-var-by hostname ${lib.escapeShellArg config.hostname}
     chmod +x  $out/bin/update.sh
   '';
 }

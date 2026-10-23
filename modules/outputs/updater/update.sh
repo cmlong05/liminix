@@ -12,6 +12,7 @@ die() {
 
 PATH=@min_copy_closure@/bin:$PATH
 ssh_command=${SSH_COMMAND-ssh}
+expected_hostname=@hostname@
 
 reboot="reboot"
 case "$1" in
@@ -33,9 +34,12 @@ test -n "$target_host" || \
 
 toplevel=$(realpath @toplevel@)
 test -e $toplevel/etc/nix-store-paths || die "missing etc/nix-store-paths, is this really a system configuration?"
-echo installing from systemConfiguration $toplevel to host $target_host
+actual_hostname=$($ssh_command $target_host "cat /proc/sys/kernel/hostname") || \
+    die "Can't ssh to $target_host"
+test "$actual_hostname" = "$expected_hostname" || \
+    die "Refusing to update $target_host: expected hostname '$expected_hostname', got '$actual_hostname'"
 
-$ssh_command $target_host uname -a || die "Can't ssh to $target_host"
+echo installing from systemConfiguration $toplevel to host $target_host
 min-copy-closure $target_host $toplevel
 ts=$(date +%Y%m%dT%H%M%S)
 configuration=$(realpath --relative-to / $toplevel)
