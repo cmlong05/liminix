@@ -70,8 +70,8 @@ kernel-module {
   };
 
   # already fetched from the pinned fork (see ../PATCHES.nix), in the
-  # order they must be applied
-  inherit patches;
+  # order they must be applied, followed by the local 6.18.57 adaptation.
+  patches = patches ++ [ ./patches/016-fix-sockaddr-unsized-bind.patch ];
 
   # symvers only: the driver exports what this calls, ssdk what the
   # driver needs. The headers come in through EXTRA_CFLAGS above.
