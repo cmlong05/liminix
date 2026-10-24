@@ -200,19 +200,20 @@ DNS 流量随该入口走 `proxy`；`1081` 与透明流量不经过代理 DNS。
 ```sh
 s6-rc -a list | grep sing-box
 ip rule show
-ip route show table 233
-ip -6 route show table 233
+ip route show table 2022
+ip -6 route show table 2022
 tail -Fn 100 /run/service/sing-box-log/psing-box/current
 ```
 
-故障旁路：停止服务会幂等删除策略规则和表 233 的路由，LAN 恢复直连。
+`auto_route` 默认使用表 2022。故障旁路：停止服务会移除它创建的路由与
+策略规则，LAN 恢复直连。
 dnsmasq 不受 sing-box 状态影响。配置缺失或 `sing-box check` 失败时服务
 不安装透明路由。
 
 ```sh
 s6-rc -d change sing-box
 ip rule show
-ip route show table 233
+ip route show table 2022
 ```
 
 # ttl 命令
