@@ -27,6 +27,10 @@
       lim,
       ...
     }:
+    let
+      sources = import ./SOURCES.nix;
+      kernelSource = sources.kernelDts;
+    in
     {
       imports = [
         ../families/ipq6018.nix
@@ -34,18 +38,13 @@
       ];
 
       kernel = {
-        src =
-          let
-            kernelSource = (import ./SOURCES.nix).kernelDts;
-          in
-          pkgs.pkgsBuildBuild.fetchurl {
-            name = "linux-6.18.52.tar.gz";
-            inherit (kernelSource) url sha256;
-          };
-        version = "6.18.52";
+        src = pkgs.pkgsBuildBuild.fetchurl {
+          name = "linux-${kernelSource.version}.tar.gz";
+          inherit (kernelSource) url sha256;
+        };
+        inherit (kernelSource) version;
         extraPatchPhase =
           let
-            sources = import ./SOURCES.nix;
             upstreamFile =
               path: hash:
               pkgs.pkgsBuildBuild.fetchurl {
@@ -207,7 +206,6 @@
 
           dts =
             let
-              sources = import ./SOURCES.nix;
               upstreamFile = name: path: hash:
                 pkgs.pkgsBuildBuild.fetchurl {
                   inherit name hash;
