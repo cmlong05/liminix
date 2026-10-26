@@ -147,6 +147,9 @@
 
           PPPOE = "y";
           VLAN_8021Q = "y";
+          IP_ADVANCED_ROUTER = "y";
+          IP_MULTIPLE_TABLES = "y";
+          IPV6_MULTIPLE_TABLES = "y";
 
           USB_XHCI_HCD = "y";
           USB_XHCI_PLATFORM = "y";
