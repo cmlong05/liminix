@@ -55,12 +55,14 @@ in
         "udp dport 1080 accept"
         "tcp dport 1081 accept"
         "udp dport 1081 accept"
+        "ct status dnat accept"
       ];
       input-ip6-lan = [
         "tcp dport 1080 accept"
         "udp dport 1080 accept"
         "tcp dport 1081 accept"
         "udp dport 1081 accept"
+        "ct status dnat accept"
       ];
       forward-ip4-modules = [
         "iifname @lan oifname \"${cfg.tunName}\" accept"
@@ -69,6 +71,14 @@ in
       forward-ip6-modules = [
         "iifname @lan oifname \"${cfg.tunName}\" accept"
         "iifname \"${cfg.tunName}\" oifname @lan accept"
+      ];
+      input-ip4-modules = [
+        "iifname \"${cfg.tunName}\" accept"
+        "oifname \"${cfg.tunName}\" accept"
+      ];
+      input-ip6-modules = [
+        "iifname \"${cfg.tunName}\" accept"
+        "oifname \"${cfg.tunName}\" accept"
       ];
     };
 
