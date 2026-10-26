@@ -24,7 +24,19 @@
       "mtu": 9000,
       "auto_route": true,
       "auto_redirect": true,
-      "strict_route": false
+      "strict_route": false,
+      "route_exclude_address": [
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "fc00::/7",
+        "fe80::/10"
+      ],
+      "exclude_interface": [
+        "tailscale0"
+      ]
     },
     {
       "type": "socks",
@@ -45,10 +57,25 @@
       "tag": "direct"
     },
     {
-      "type": "socks",
+      "type": "vless",
       "tag": "proxy",
-      "server": "127.0.0.1",
-      "server_port": 7890
+      "server": "ajpd.bumooby.com",
+      "server_port": 60047,
+      "uuid": "dafe8349-32af-4e97-b923-dccbe1412418",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.amazon.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "LcUvj9mxul1Hmysdn-AjmAywYhh8QCJhjhb81G-EtG0"
+        }
+      }
     }
   ],
   "route": {
@@ -76,8 +103,7 @@
       },
       {
         "protocol": "dns",
-        "action": "route",
-        "outbound": "direct"
+        "action": "hijack-dns"
       },
       {
         "rule_set": "bypass",
