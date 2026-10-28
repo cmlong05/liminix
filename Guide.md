@@ -191,3 +191,10 @@ ssh root@<device> 'sync; reboot'
 # 先手动刷入同一配置构建的 fit.itb
 ./result-updater/bin/update.sh root@<device>
 
+
+## firewall 防火墙 排查
+# 首先检查对应IP是什么设备
+cat /run/services/state/int.link.dnsmasq/leases
+# 或者持久化位置
+cat /var/lib/liminix/services/state/int.link.dnsmasq/leases
+
