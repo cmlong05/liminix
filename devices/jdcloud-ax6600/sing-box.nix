@@ -87,6 +87,11 @@ in
         "sing-box" = dir {
           "config.json.template" = symlink "${template}";
         };
+        "ssl" = dir {
+          "certs" = dir {
+            "ca-certificates.crt" = symlink "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+          };
+        };
       };
     };
 
