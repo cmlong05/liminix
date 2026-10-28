@@ -81,6 +81,9 @@ stdenv.mkDerivation {
     closure=${closureInfo { rootPaths = [ activateScript ]; }}
     mkdir -p $out/bin $out/etc
     cp $closure/store-paths $out/etc/nix-store-paths
+    chmod u+w $out/etc/nix-store-paths
+    printf '%s\n' "$out" >> $out/etc/nix-store-paths
+    chmod u-w $out/etc/nix-store-paths
     $STRIP --remove-section=.note  --remove-section=.comment --strip-all activate -o $out/bin/activate
     ln -s ${s6-init-bin}/bin/init $out/bin/init
     cp -p ${writeFennel "restart-services" { } ./restart-services.fnl} $out/bin/restart-services
