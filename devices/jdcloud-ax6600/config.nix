@@ -39,6 +39,10 @@
         mac = "34:97:F6:BC:8D:AA";
         ip = "10.10.10.9";
       };
+      msi-wd = {
+        mac = "01:2c:f0:5d:e7:68:15";
+        ip = "10.10.10.107";
+      };
     };
 
     # Local DNS records answered by dnsmasq itself instead of being
