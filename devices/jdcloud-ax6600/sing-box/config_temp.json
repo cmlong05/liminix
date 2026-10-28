@@ -8,6 +8,23 @@
       {
         "tag": "dns-direct",
         "type": "local"
+      },
+      {
+        "tag": "dns-remote",
+        "type": "https",
+        "server": "1.1.1.1",
+        "path": "/dns-query",
+        "detour": "proxy",
+        "tls": {
+          "enabled": true,
+          "server_name": "cloudflare-dns.com"
+        }
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "server": "dns-remote"
       }
     ],
     "final": "dns-direct"
@@ -106,17 +123,17 @@
         "action": "hijack-dns"
       },
       {
-        "rule_set": "bypass",
-        "action": "route",
-        "outbound": "direct"
-      },
-      {
         "ip_is_private": true,
         "action": "route",
         "outbound": "direct"
       },
       {
-        "rule_set": "proxy",
+        "rule_set": "bypass",
+        "action": "route",
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
         "action": "route",
         "outbound": "proxy"
       }
@@ -129,10 +146,11 @@
         "path": "/var/lib/liminix/sing-box/bypass.json"
       },
       {
-        "tag": "proxy",
-        "type": "local",
-        "format": "source",
-        "path": "/var/lib/liminix/sing-box/proxy.json"
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "download_detour": "proxy",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs"
       }
     ],
     "final": "direct",
