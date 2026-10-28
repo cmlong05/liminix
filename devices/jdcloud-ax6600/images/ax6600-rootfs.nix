@@ -145,12 +145,13 @@ in
     dropbear
     e2fsprogs
     gptfdisk
+    libubootenv
+    min-collect-garbage
+    nftables
     util-linux
     iperf3
     vim
     curl
-    nftables
-    libubootenv
   ];
 
   # minimal busybox 默认关掉 ash 的 $((...))，dhcp6c/route 等服务脚本会语法错误退出
