@@ -607,6 +607,7 @@ in
   filesystem = dir {
     etc = dir {
       "fw_env.config" = symlink "/run/fw_env.config";
+      "localtime" = symlink "${pkgs.tzdata}/share/zoneinfo/Asia/Shanghai";
       "resolv.conf" = symlink "/run/resolv.conf";
       "rc-init.d" = dir {
         state-dir = symlink (
