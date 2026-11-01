@@ -14,23 +14,12 @@ fw_setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 
 fw_printenv
 
 
-### 基础版 uimage rootfs
+### eMMC版 uimage rootfs
+./build.sh
+
 ### eMMC 固定布局
 # p16: 0:HLOS，只放 fit.itb（kernel + dtb + initramfs，cmdline 内嵌）
-# p18: rootfs，ext4，initramfs 启动后挂载到 /persist
-# -Q 不把各 derivation 的构建日志转发到终端
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
-    -A outputs.uimage \
-    -o result-uimage \
-&& nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-rootfs.nix \
-    -A outputs.rootfs \
-    -o result-rootfs \
-    && md5sum result-uimage result-rootfs
-# 虽然三个config设置不同，但是当前阶段构建出的kernel相同-20261021
+# p18: rootfs，ext4
 ### 修改分区名字后验证，确定与config.nix中的相同
 
 ### 上传
@@ -46,17 +35,14 @@ dd if=/dev/mmcblk0p16 bs="$size" count=1 | md5sum
 # 刷写，之后再验证
 dd if="$uimage" of=/dev/mmcblk0p16 bs=1M
 
-
-# 确保 mmcblk0p18 的 PARTLABEL 正确与config.nix中保持一致 PARTLABEL=rootfs
-blkid | grep /dev/mmcblk0p18
 # 刷写rootfs
-image=/tmp/root.ext4
+image=/tmp/result-rootfs
 # 先部分验证
 dd if="$image" bs=4M count=10 | md5sum
-dd if=/dev/mmcblk0p18 bs=4M count=10 | md5sum
 # 刷写
 dd if="$image" of=/dev/mmcblk0p18 bs=4M
-# 再同上部分验证一次
+# 部分验证一次
+dd if=/dev/mmcblk0p18 bs=4M count=10 | md5sum
 
 # 扩容到实际大小
 e2fsck -f /dev/mmcblk0p18
@@ -64,37 +50,15 @@ resize2fs /dev/mmcblk0p18
 e2fsck -f /dev/mmcblk0p18
 sync
 
+# 确保 mmcblk0p18 的 PARTLABEL 正确与config.nix中保持一致 PARTLABEL=rootfs
+blkid | grep /dev/mmcblk0p18
+# 如果不同，修改
+sgdisk --change-name=18:rootfs /dev/mmcblk0
 
 # 测试 eMMC 启动前拔掉 U 盘，U-Boot 会优先从 U 盘加载 fit.itb
 
 ### USB ext4 版
-# rootfs：完整 ext4 镜像（自带 /bin、/etc、fifo）
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
-    -A outputs.rootfs \
-    -o result-usb-ext4-rootfs
-# Kernel
-nix-build -Q \
-    --arg device "import ./devices/jdcloud-ax6600" \
-    -I liminix-config=./devices/jdcloud-ax6600/images/ax6600-usb-ext4.nix \
-    -A outputs.uimage \
-    -o result-usb-ext4-uimage
-
-# md5
-md5sum result-usb-ext4-rootfs result-usb-ext4-uimage
-
-# 在线 userspace 升级（在仓库 nix-shell 中执行；不更新 p16 内核）
-nix-build -Q \
-  --arg device 'import ./devices/jdcloud-ax6600' \
-  -I "liminix-config=$PWD/devices/jdcloud-ax6600/images/ax6600-rootfs.nix" \
-  -I "liminix-deployment=$PWD/devices/jdcloud-ax6600/config.nix" \
-  -I "liminix-firewall=$PWD/devices/jdcloud-ax6600/config_firewall.nix" \
-  -A outputs.updater \
-  -o result-updater
-
-# --fast 通过 restart-services 执行 activate /，不重启设备
-./result-updater/bin/update.sh --fast root@<device>
+./build.sh -u
 
 # U盘系统里的内容，两个分区（GPT 自己建，见下面"U 盘分区与刷写"）
 # p1: FAT，只放 fit.itb（内核 FIT = kernel + dtb，cmdline 内嵌，U-Boot 按这个名字 fatload）
@@ -116,6 +80,12 @@ sudo partprobe /dev/sdX
 nix shell nixpkgs#e2fsprogs
 sudo mkfs.vfat -F 16 -n BOOT /dev/sdX1
 sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
+
+### 部分更新
+./build.sh -U
+# --fast 通过 restart-services 执行 activate /，不重启设备
+./result-updater/bin/update.sh --fast root@<device>
+
 
 # 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
 # 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。
