@@ -65,7 +65,7 @@ longrun {
         wait "$pid" 2>/dev/null || true
         exit 1
       fi
-      sleep 0.1
+      sleep 1
     done
 
     wait "$pid"
