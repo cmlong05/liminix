@@ -13,6 +13,7 @@ fw_printenv
 fw_setenv bootcmd 'usb start; if fatload usb 0:1 0x44000000 fit.itb; then bootm 0x44000000; else mmc dev 0; mmc read 0x44000000 0x4222 0x3000; bootm 0x44000000; fi'
 fw_printenv
 
+## 如上设置，如果U盘中并无可启动内核，会返回mmc启动
 
 ### eMMC版 uimage rootfs
 ./build.sh
@@ -23,8 +24,8 @@ fw_printenv
 ### 修改分区名字后验证，确定与config.nix中的相同
 
 ### 上传
-scp -O result-uimage root@<device>:/tmp/
-scp -O result-rootfs root@<device>:/tmp/
+scp -O result-uimage root@10.10.x.1:/tmp/
+scp -O result-rootfs root@10.10.x.1:/tmp/
 
 # 刷写Kernel
 uimage=/tmp/result-uimage
