@@ -91,6 +91,7 @@ let
     (toString lcpEcho.failure)
   ]
   ++ map (o: if isOutputRef o then literal_or_output o else o) ppp-options
+  ++ optional (!(builtins.elem "defaultroute" ppp-options)) "nodefaultroute"
   ++ [
     "ip-up-script"
     ip-up
@@ -103,7 +104,6 @@ let
     # then attempts to write them to /nix/store/xxxx/ppp/resolv.conf
     # which causes an unsightly but inconsequential error message
     "usepeerdns"
-    "nodefaultroute"
     "logfd"
     "2"
   ];
