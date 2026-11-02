@@ -403,6 +403,10 @@ in
     # big packets are the ones that get lost: take the MTU/MRU from the
     # interface service, which knows whether it added a VLAN tag.
     ppp-options = [
+      "defaultroute"
+      "defaultroute-metric"
+      "100"
+      "defaultroute6"
       "mtu"
       (outputRef config.services.wan-if "mtu")
       "mru"
@@ -424,22 +428,6 @@ in
     '';
     down = "true";
   };
-
-  services.defaultroute4 = svc.network.route.build {
-    via = "$(output ${config.services.wan} address)";
-    target = "default";
-    dependencies = [ config.services.wan ];
-  };
-
-  services.defaultroute6 = lib.mkIf ipv6Enable (
-    svc.network.route.build {
-      via = "$(output ${config.services.wan} ipv6-peer-address)";
-      target = "default";
-      interface = config.services.wan;
-      wait-for = "$(output_path ${config.services.wan} ipv6-up)";
-      dependencies = [ config.services.wan ];
-    }
-  );
 
   # One DHCPv6 client on the WAN link, asking for both a lease and a
   # delegated prefix: the prefix service puts <prefix>::1 on the LAN
