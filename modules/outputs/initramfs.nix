@@ -12,59 +12,12 @@ let
     types
     ;
   inherit (pkgs) runCommand;
-  cfg = config.boot.initramfs;
-  o = config.system.outputs;
-
-
-  firmwareDirs =
-    names:
-    let
-      ancestors =
-        name:
-        let
-          parts = lib.splitString "/" name;
-        in
-        # every prefix except the last, which is the file itself
-        lib.imap0 (i: _: lib.concatStringsSep "/" (lib.take (i + 1) parts)) (
-          lib.take (lib.length parts - 1) parts
-        );
-    in
-    lib.sort (a: b: a < b) (lib.unique (lib.concatMap ancestors names));
 in
 {
   imports = [ ./system-configuration.nix ];
   options = {
     boot.initramfs = {
-      enable = mkOption {
-        type = types.bool;
-        default = cfg.fullSystem;
-      };
-
-      fullSystem = mkEnableOption "embed the whole system in the initramfs";
-
-      preloadModules = mkOption {
-        type = types.nullOr types.package;
-        default = null;
-        description = ''
-          A module tree (see `liminix.modules.build`) whose modules
-          preinit loads before starting s6. Requires
-          `boot.initramfs.fullSystem`.
-        '';
-      };
-
-      preloadFirmware = mkOption {
-        type = types.attrsOf types.package;
-        default = { };
-        description = ''
-          Firmware files to embed at /lib/firmware/<name>, as an attrset
-          of file name to file. Requires `boot.initramfs.fullSystem`.
-
-          The kernel has no user-space firmware helper
-          (FW_LOADER_USER_HELPER is off), so a driver's
-          request_firmware() succeeds only if the exact name it asks for
-          is present: there is no hotplug/udev step to rename anything.
-        '';
-      };
+      enable = mkEnableOption "initramfs";
     };
     system.outputs = {
       initramfs = mkOption {
@@ -75,38 +28,14 @@ in
           filesystem
         '';
       };
-      fullinitramfs = mkOption {
-        type = types.package;
-        internal = true;
-        description = ''
-          Compressed cpio archive containing the whole system
-          (nix store, activate, s6 init), for use as an embedded
-          initramfs with no external root device.
-        '';
-      };
     };
   };
-  config = mkIf cfg.enable {
+  config = mkIf config.boot.initramfs.enable {
     kernel.config = {
       BLK_DEV_INITRD = "y";
-      # A constant, not the image itself: `kernel.config` is
-      # `attrsOf nonEmptyStr` and the option type checks every value, so an
-      # entry naming an image built from this same kernel's modulesupport
-      # would be forced at type-check time - a cycle. The image goes in
-      # through `kernel.initramfsSource` below instead.
-      INITRAMFS_SOURCE = "\"\"";
+      INITRAMFS_SOURCE = builtins.toJSON "${config.system.outputs.initramfs}";
+      #      INITRAMFS_COMPRESSION_LZO = "y";
     };
-
-    # The image to embed. It is a plain string option, deliberately not a
-    # `kernel.config` entry, and `pkgs/kernel` appends it after
-    # olddefconfig (see initramfsSource there).
-    kernel.initramfsSource = mkIf cfg.enable (
-      if cfg.fullSystem then "${o.fullinitramfs}" else "${o.initramfs}"
-    );
-
-    # The flag, not the path: modules-kernel.nix must be able to ask
-    # whether an image is embedded without forcing it.
-    kernel.embedsInitramfs = mkIf cfg.enable true;
 
     system.outputs = {
       initramfs =
@@ -124,88 +53,6 @@ in
           file /init ${pkgs.preinit}/bin/preinit 0755 0 0
           SPECIALS
         '';
-      fullinitramfs = mkIf cfg.fullSystem (
-        runCommand "fullinitramfs.cpio.gz"
-          {
-            nativeBuildInputs = with pkgs.pkgsBuildBuild; [
-              gzip
-            ];
-          }
-          ''
-            (
-              cd ${o.rootdir}
-              find . -mindepth 1 | sort | while read -r p; do
-                p=''${p#./}
-                if [ "$p" = "init" ]; then
-                  echo "slink /init.s6 $(readlink "$p") 0755 0 0"
-                  echo "file /init ${pkgs.preinit}/bin/preinit 0755 0 0"
-                elif [ -d "$p" ]; then
-                  echo "dir /$p 0755 0 0"
-                elif [ -L "$p" ]; then
-                  echo "slink /$p $(readlink "$p") 0755 0 0"
-                elif [ -f "$p" ]; then
-                  echo "file /$p $(pwd)/$p 0755 0 0"
-                fi
-              done
-              echo "dir /proc 0755 0 0"
-              echo "dir /dev 0755 0 0"
-              echo "nod /dev/console 0600 0 0 c 5 1"
-              ${
-                if cfg.preloadModules == null && cfg.preloadFirmware == { } then
-                  ""
-                else
-                  ''
-                    # Every directory has to be listed before the files in
-                    # it: gen_init_cpio does not imply parents, and the
-                    # kernel silently skips an entry whose parent is absent.
-                    echo "dir /lib 0755 0 0"
-                    ${lib.optionalString (cfg.preloadFirmware != { }) ''
-                      # Firmware for the modules loaded below, which ask for
-                      # it during their own init - before activate has run,
-                      # so it cannot come from filesystem.lib.firmware.
-                      #
-                      # A name may be a path ("IPQ6018/q6_fw.mdt"), and the
-                      # kernel does not create parents: do_name() opens a
-                      # regular file by its full path, so an entry whose
-                      # directory is missing is silently dropped. Hence
-                      # /lib/firmware itself first - a plain name
-                      # ("qca-nss0.bin") needs nothing more - then each
-                      # name's own parents, sorted so that each one precedes
-                      # its children (gen_init_cpio writes in the order
-                      # given, the kernel unpacks in that order).
-                      echo "dir /lib/firmware 0755 0 0"
-                      ${lib.concatStringsSep "\n" (
-                        map (d: ''echo "dir /lib/firmware/${d} 0755 0 0"'') (
-                          firmwareDirs (lib.attrNames cfg.preloadFirmware)
-                        )
-                      )}
-                      ${lib.concatStringsSep "\n" (
-                        lib.mapAttrsToList (
-                          name: file: ''echo "file /lib/firmware/${name} ${file} 0644 0 0"''
-                        ) cfg.preloadFirmware
-                      )}
-                    ''}
-                    ${lib.optionalString (cfg.preloadModules != null) ''
-                      # preinit's load-order names paths below /lib/modules,
-                      # so the image must keep that layout. Only .ko and the
-                      # modules.* metadata are needed: load.sh/unload.sh want
-                      # a shell and insmod, which do not exist this early.
-                      (cd ${cfg.preloadModules} && find lib/modules -type d) | while read -r d; do
-                        echo "dir /$d 0755 0 0"
-                      done
-                      echo "file /lib/modules/load-order ${cfg.preloadModules}/load-order 0644 0 0"
-                      (cd ${cfg.preloadModules} && find lib/modules -type f) | while read -r f; do
-                        case "$f" in
-                          *.ko|*/modules.*)
-                            echo "file /$f ${cfg.preloadModules}/$f 0644 0 0" ;;
-                        esac
-                      done
-                    ''}
-                  ''
-              }
-            ) | ${pkgs.pkgsBuildBuild.gen_init_cpio}/bin/gen_init_cpio /dev/stdin | gzip -9 > $out
-          ''
-      );
     };
   };
 }
