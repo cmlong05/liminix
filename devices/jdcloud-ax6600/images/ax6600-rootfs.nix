@@ -115,6 +115,7 @@ in
     "${modulesPath}/firewall"
     "${modulesPath}/outputs/ext4fs.nix"
     "${modulesPath}/usb.nix"
+    ../locale.nix
     ../sing-box.nix
     ../wireless
     ../wireless/rootfs-firmware.nix
