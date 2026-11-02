@@ -7,21 +7,6 @@ let
     inherit nixpkgs;
   };
   inherit (final) fetchpatch lib;
-  # buildGoModule's fixed-output module fetch does not receive the caller's GOPROXY.
-  goProxy =
-    pkg:
-    pkg.overrideAttrs (o: {
-      passthru = o.passthru // {
-        overrideModAttrs = lib.composeExtensions o.passthru.overrideModAttrs (
-          _finalModAttrs: previousModAttrs: {
-            preBuild = ''
-              export GOPROXY=https://goproxy.cn,direct
-            ''
-            + (previousModAttrs.preBuild or "");
-          }
-        );
-      };
-    });
   luaHost =
     let
       l = prev.lua5_3.overrideAttrs (o: {
@@ -435,22 +420,6 @@ extraPkgs
 
 
   strace = prev.strace.override { libunwind = null; };
-
-  sing-box = crossOnly prev.sing-box goProxy;
-
-  # nixpkgs wraps tailscaled with a PATH of tools built against glibc
-  # (getent, shadow, iptables) - pointless for a musl target - and the
-  # `tailscale` CLI only exists as the symlink that same step creates
-  tailscale =
-    crossOnly prev.tailscale (
-      t: goProxy (t.overrideAttrs (o: {
-        postInstall = ''
-          ln -s $out/bin/tailscaled $out/bin/tailscale
-          moveToOutput "bin/derper" "$derper"
-          moveToOutput "bin/derpprobe" "$derper"
-        '';
-      }))
-    );
 
   ubootQemuAarch64 = final.buildUBoot {
     defconfig = "qemu_arm64_defconfig";
