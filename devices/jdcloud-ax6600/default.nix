@@ -147,6 +147,7 @@
 
           PPPOE = "y";
           VLAN_8021Q = "y";
+          BRIDGE_VLAN_FILTERING = "y";
           IP_ADVANCED_ROUTER = "y";
           IP_MULTIPLE_TABLES = "y";
           IPV6_MULTIPLE_TABLES = "y";

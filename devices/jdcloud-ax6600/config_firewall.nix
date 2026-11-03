@@ -22,6 +22,7 @@
   # allow port
   appendRules = {
     input-ip4-lan = [
+      "tcp dport 5201 accept" # iperf3测速
       ''
         udp dport {
           137 comment "NetBIOS-NS",
