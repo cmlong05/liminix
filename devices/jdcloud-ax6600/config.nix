@@ -115,6 +115,13 @@
         ssid = "MU";
         hw_mode = "a";
         channel = "149";
+        ieee80211ac = 1;
+        ieee80211ax = 1;
+        ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
+        vht_oper_chwidth = 1;
+        vht_oper_centr_freq_seg0_idx = 155;
+        he_oper_chwidth = 1;
+        he_oper_centr_freq_seg0_idx = 155;
         password = "mubimuba";
         security = "wpa2";
       };
