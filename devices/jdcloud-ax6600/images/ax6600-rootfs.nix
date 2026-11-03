@@ -535,7 +535,10 @@ in
   # is run over ssh (it prints a URL to open elsewhere).
   services.tailscale = svc.tailscale.build {
     stateDir = "${stateRoot}/tailscale";
-    dependencies = [ config.services.wan ];
+    dependencies = [
+      config.services.wan
+      config.services.firewall
+    ];
   };
 
   # 关机时不卸载模块。kmodloader 默认的 down 会跑 unload.sh，而卸载
