@@ -19,10 +19,7 @@ let
     enableSCP = true;
   };
 
-  # 桥的成员口，同时用作防火墙 @lan zone。nft 的 iifname 匹配报文到达的
-  # 物理口，oifname 匹配桥设备本身，所以 @lan 里这两类名字都要有，否则
-  # LAN 入向流量（DHCP/DNS/新连接）会被拒。
-  lanMembers = with nifs; [
+  bridgePorts = with nifs; [
     lan1
     lan2
     lan3
@@ -30,6 +27,7 @@ let
     wlan24g
     wlan58g
   ];
+  lanMembers = bridgePorts ++ [ nifs.wan ];
 
   inherit (pkgs.liminix.services) bundle oneshot;
   inherit (pkgs.liminix) outputRef;
@@ -146,6 +144,7 @@ in
     dropbear
     e2fsprogs
     gptfdisk
+    iproute2
     libubootenv
     min-collect-garbage
     nftables
@@ -210,10 +209,60 @@ in
     ifname = "int";
   };
 
-  # 成员列表与防火墙 @lan zone 共用 lanMembers
+  # wan 由 single-line 加入；lanMembers 同时作为防火墙 @lan。
   services.bridge = svc.bridge.members.build {
     primary = config.services.int;
-    members = lanMembers;
+    members = bridgePorts;
+  };
+
+  services.single-line = oneshot {
+    name = "single-line";
+    dependencies = [
+      config.services.int
+      config.services.bridge
+      nifs.wan
+      runtime
+    ];
+    up = ''
+      ip=${pkgs.iproute2}/bin/ip
+      bridge=${pkgs.iproute2}/bin/bridge
+      int=$(output ${config.services.int} ifname)
+      wan=$(output ${nifs.wan} ifname)
+      vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
+
+      case "$vid" in
+        "" | *[!0-9]*)
+          echo "single-line: wan/vlan must be set" >&2
+          exit 1
+          ;;
+      esac
+      test "$vid" != 1 || {
+        echo "single-line: wan/vlan must differ from the LAN VLAN" >&2
+        exit 1
+      }
+
+      vlan_has() {
+        "$bridge" vlan show dev "$1" vid "$2" | grep -Eq "^[[:space:]]*$2([[:space:]]|$)"
+      }
+      vlan_add() {
+        dev=$1
+        vlan=$2
+        shift 2
+        vlan_has "$dev" "$vlan" || "$bridge" vlan add dev "$dev" vid "$vlan" "$@"
+      }
+
+      "$ip" link set dev "$int" type bridge vlan_filtering 1
+      "$ip" link set dev "$wan" master "$int"
+      vlan_add "$wan" 1 pvid untagged
+      vlan_add "$int" 1 pvid untagged self
+      vlan_add "$wan" "$vid"
+      vlan_add "$int" "$vid" self
+      "$ip" link set up dev "$int"
+      "$ip" link set up dev "$wan"
+    '';
+    down = ''
+      ${pkgs.iproute2}/bin/ip link set dev "$(output ${nifs.wan} ifname)" nomaster || true
+    '';
   };
 
   services.int-address = oneshot {
@@ -331,17 +380,15 @@ in
     config.services.dhcpv4
   ];
 
-  # 2.5G WAN as a PPPoE client. Whether the session has to sit inside an
-  # 802.1Q tag is a per-network fact, so the interface it runs on is a
-  # service too.
+  # The 2.5G WAN trunk carries PPPoE in wan/vlan.
   services.wan-if = oneshot {
     name = "wan-if";
     dependencies = [
-      nifs.wan
+      config.services.single-line
       runtime
     ];
     up = ''
-      base=$(output ${nifs.wan} ifname)
+      base=$(output ${config.services.int} ifname)
       vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
       ifname=$base
       mtu=${toString wanMtu.plain}
@@ -367,9 +414,7 @@ in
     '';
   };
 
-  # 光猫的管理地址在 WAN 口的 untagged 侧，拨号用的 ppp0 到不了它：在
-  # wan-if 给出的接口上加一个同网段地址，路由器才有通往光猫的路由。
-  # 光猫管理地址若在 wan/vlan 的 tag 内，这里加的就是那个子接口，无需改动。
+  # 光猫的管理地址位于 wan/vlan 给定的子接口，ppp0 到不了它。
   # LAN 发出的包由下面 firewall 的 @wan masquerade 送上这条路。
   services.wan-ont = oneshot {
     name = "wan-ont";
@@ -529,15 +574,11 @@ in
   # MSS in flight stops the servers sending what the WAN cannot carry.
   services.firewall = config.system.service.firewall.build {
     zones = {
-      # int 是出向（oifname）看到的桥设备，成员口是入向（iifname）看到的
-      # 物理口：@lan 两者都要。
+      # 入向看到物理口，出向看到桥设备，@lan 两套名字都要有。
       lan = [ config.services.int ] ++ lanMembers;
-      # wan-if 给出实际承载 PPPoE 的链路接口（untagged 时是物理口，带 VLAN
-      # 时是 wan.<vid>）：光猫管理地址加在它上面，@wan 必须包含它，masquerade
-      # 与 mss 才会作用于 LAN→光猫的出口。物理口本身也保留。
+      # 物理 wan 现在是 LAN trunk 口；只有 VLAN 子接口属于 WAN zone。
       wan = [
         config.services.wan
-        nifs.wan
         config.services.wan-if
       ];
     };
