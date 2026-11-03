@@ -170,6 +170,24 @@ let
       "wifi/bands/${name}/password"
     else
       throw "wifi.bands.${name}.password: every band needs its own passphrase";
+
+  radioKeys = [
+    "ieee80211ac"
+    "ieee80211ax"
+    "ht_capab"
+    "vht_capab"
+    "vht_oper_chwidth"
+    "vht_oper_centr_freq_seg0_idx"
+    "vht_oper_centr_freq_seg1_idx"
+    "he_oper_chwidth"
+    "he_oper_centr_freq_seg0_idx"
+    "he_oper_centr_freq_seg1_idx"
+  ];
+  bandRadio =
+    name:
+    lib.mapAttrs' (
+      key: _: lib.nameValuePair key (outputRef runtime "wifi/bands/${name}/${key}")
+    ) (lib.filterAttrs (key: _: builtins.elem key radioKeys) (bandConf name));
 in
 {
   imports = [
@@ -321,6 +339,7 @@ in
             wmm_enabled = 1;
             ieee80211n = 1;
           }
+          // bandRadio name
           // securityFor name
           // lib.optionalAttrs (bandSecurity name != "open") {
             wpa_passphrase = outputRef runtime (bandPasswordPath name);
