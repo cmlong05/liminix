@@ -88,7 +88,7 @@
 * 主力路径：内核或 rootfs 变化时，关机后由构建机执行 `update-usb.sh` 刷新 p1/p2。
   eMMC 保持不动；这与其他设备的“内核单独手工刷写”边界一致。
 * 在线路径：构建 `outputs.updater` 后运行 `result-updater/bin/update.sh`，只更新 p2
-  上的 userspace，不传输、不写入 `fit.itb`。内核变化必须回到离线全量升级。
+  上的 userspace，不传输、不写入 `fit.itb`。内核变化需要手动刷入。
 * p2 是唯一持久化层。服务状态位于 `/var/lib/liminix会排除同步
 * 在线只使用 `result-updater/bin/update.sh --fast`：设备侧 `restart-services` 会执行
   `activate /`、更新 s6 数据库并重启受影响的服务。
