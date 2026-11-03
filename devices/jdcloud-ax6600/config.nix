@@ -53,6 +53,12 @@
   };
 
   wan = {
+    # 构建期 WAN 上联口；其余有线口均为 LAN。
+    interface = "wan";
+
+    # 构建期开关：WAN 上联口同时作为 WAN/LAN VLAN trunk。
+    singleLine.enable = true;
+
     # 802.1Q tag the WAN port needs in front of the PPPoE session (many
     # ISPs hand the session out on a VLAN). null, or no key at all, means an
     # untagged WAN.

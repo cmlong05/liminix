@@ -19,16 +19,6 @@ let
     enableSCP = true;
   };
 
-  bridgePorts = with nifs; [
-    lan1
-    lan2
-    lan3
-    lan4
-    wlan24g
-    wlan58g
-  ];
-  lanMembers = bridgePorts ++ [ nifs.wan ];
-
   inherit (pkgs.liminix.services) bundle oneshot;
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
@@ -39,8 +29,61 @@ let
   deploymentJson = import ../deployment-json.nix { inherit lib; };
   inherit (deploymentJson) deployment;
 
+  # 校验 wan.interface，并从五个有线口中选出唯一的 WAN 上联口。
+  wiredPortNames = [
+    "wan"
+    "lan1"
+    "lan2"
+    "lan3"
+    "lan4"
+  ];
+  wanPortName =
+    let
+      name = deployment.wan.interface or "wan";
+    in
+    if builtins.elem name wiredPortNames then
+      name
+    else
+      throw "wan.interface must be one of ${lib.concatStringsSep ", " wiredPortNames}";
+  wanPort = nifs.${wanPortName};
+
+  # 是否配置了单线复用
+  singleLineEnable = (deployment.wan.singleLine or { }).enable or false;
+
+  # VLAN 是构建期参数，single-line 与 wan-if 必须使用同一值。
+  wanVlan =
+    if (deployment.wan.vlan or null) == null then
+      ""
+    else
+      toString deployment.wan.vlan;
+  singleLineVlan =
+    if wanVlan == "" then
+      throw "wan.vlan must be set when wan.singleLine.enable is true"
+    else
+      wanVlan;
+
+  # WAN 上联口不放入普通 access ports；单线模式下由 trunk 服务在 VLAN filtering 后加入。
+  lanAccessPorts =
+    map (name: nifs.${name}) (lib.remove wanPortName wiredPortNames)
+    ++ [
+      nifs.wlan24g
+      nifs.wlan58g
+    ];
+  lanZonePorts = lanAccessPorts ++ lib.optional singleLineEnable wanPort;
+
+  # 仅单线模式让 PPPoE 终止在桥上的 VLAN 子接口。
+  wanBase = if singleLineEnable then config.services.int else wanPort;
+
   runtime = config.services.runtime-config;
   runtimeConfigSeed = pkgs.writeText "runtime-config.json" deploymentJson.text;
+
+  singleLine = svc.singleLine.build {
+    name = "single-line";
+    bridge = config.services.int;
+    uplink = wanPort;
+    vlan = singleLineVlan;
+    dependencies = [ config.services.bridge ];
+  };
 
   # A deployment config may turn IPv6 off; otherwise it is on
   ipv6Enable = deployment.wan.ipv6.enable or true;
@@ -117,6 +160,7 @@ in
     ../sing-box.nix
     ../wireless
     ../wireless/rootfs-firmware.nix
+    ../network
     ../art.nix
   ];
 
@@ -163,7 +207,7 @@ in
     FEATURE_SH_MATH = "y";
     FEATURE_FANCY_PING = "y";
   };
-  
+
   # user = "root" is not optional: liminix builds chrony without libcap (see
   # -PRIVDROP in `chronyd --version`), and a chronyd that has dropped to the
   # module's default "ntp" user cannot keep CAP_SYS_TIME - it runs, but
@@ -209,61 +253,13 @@ in
     ifname = "int";
   };
 
-  # wan 由 single-line 加入；lanMembers 同时作为防火墙 @lan。
+  # 普通 LAN 口加入桥；lanZonePorts 同时作为防火墙 @lan。
   services.bridge = svc.bridge.members.build {
     primary = config.services.int;
-    members = bridgePorts;
+    members = lanAccessPorts;
   };
 
-  services.single-line = oneshot {
-    name = "single-line";
-    dependencies = [
-      config.services.int
-      config.services.bridge
-      nifs.wan
-      runtime
-    ];
-    up = ''
-      ip=${pkgs.iproute2}/bin/ip
-      bridge=${pkgs.iproute2}/bin/bridge
-      int=$(output ${config.services.int} ifname)
-      wan=$(output ${nifs.wan} ifname)
-      vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
-
-      case "$vid" in
-        "" | *[!0-9]*)
-          echo "single-line: wan/vlan must be set" >&2
-          exit 1
-          ;;
-      esac
-      test "$vid" != 1 || {
-        echo "single-line: wan/vlan must differ from the LAN VLAN" >&2
-        exit 1
-      }
-
-      vlan_has() {
-        "$bridge" vlan show dev "$1" vid "$2" | grep -Eq "^[[:space:]]*$2([[:space:]]|$)"
-      }
-      vlan_add() {
-        dev=$1
-        vlan=$2
-        shift 2
-        vlan_has "$dev" "$vlan" || "$bridge" vlan add dev "$dev" vid "$vlan" "$@"
-      }
-
-      "$ip" link set dev "$int" type bridge vlan_filtering 1
-      "$ip" link set dev "$wan" master "$int"
-      vlan_add "$wan" 1 pvid untagged
-      vlan_add "$int" 1 pvid untagged self
-      vlan_add "$wan" "$vid"
-      vlan_add "$int" "$vid" self
-      "$ip" link set up dev "$int"
-      "$ip" link set up dev "$wan"
-    '';
-    down = ''
-      ${pkgs.iproute2}/bin/ip link set dev "$(output ${nifs.wan} ifname)" nomaster || true
-    '';
-  };
+  services.single-line = lib.mkIf singleLineEnable singleLine;
 
   services.int-address = oneshot {
     name = "int-address";
@@ -380,16 +376,14 @@ in
     config.services.dhcpv4
   ];
 
-  # The 2.5G WAN trunk carries PPPoE in wan/vlan.
+  # The selected WAN uplink carries PPPoE in wan/vlan.
   services.wan-if = oneshot {
     name = "wan-if";
-    dependencies = [
-      config.services.single-line
-      runtime
-    ];
+    dependencies = [ wanPort ]
+    ++ lib.optional singleLineEnable singleLine;
     up = ''
-      base=$(output ${config.services.int} ifname)
-      vid=$(output ${runtime} wan/vlan 2>/dev/null || true)
+      base=$(output ${wanBase} ifname)
+      vid=${lib.escapeShellArg wanVlan}
       ifname=$base
       mtu=${toString wanMtu.plain}
       if test -n "$vid" ; then
@@ -575,12 +569,13 @@ in
   services.firewall = config.system.service.firewall.build {
     zones = {
       # 入向看到物理口，出向看到桥设备，@lan 两套名字都要有。
-      lan = [ config.services.int ] ++ lanMembers;
-      # 物理 wan 现在是 LAN trunk 口；只有 VLAN 子接口属于 WAN zone。
+      lan = [ config.services.int ] ++ lanZonePorts;
+      # 单线模式下上联物理口属于 LAN；否则它属于 WAN。
       wan = [
         config.services.wan
         config.services.wan-if
-      ];
+      ]
+      ++ lib.optional (!singleLineEnable) wanPort;
     };
     # PPPoE 的接口名要等拨号成功才有：规则集先不等它（@wan 里暂时少一个
     # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。

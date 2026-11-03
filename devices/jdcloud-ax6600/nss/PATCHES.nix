@@ -340,7 +340,7 @@
       path = "015-frontends-nss-respect-bridge-port-vlan-tagging-for-vlan-over-bridge.patch";
       blob = "8343746858aa3d3e2d53a1b668a535ad22cc4fcd";
       sha256 = "sha256-IrQFONyuaFHs2uS44dlryKenRWcquDF344z49zRQRac=";
-      note = "the one that makes VLAN-over-bridge offload work with bridge VLAN filtering";
+      note = "使 bridge VLAN filtering 下的 VLAN-over-bridge offload 正确工作";
     }
   ];
 
