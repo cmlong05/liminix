@@ -11,6 +11,13 @@ let
 
   cfg = config.jdcloudAx6600.singBox;
   template = ./sing-box/config_temp.json;
+  ruleSetSources = import ./sing-box/SOURCES.nix;
+  fetchRuleSet = source:
+    pkgs.pkgsBuildBuild.fetchurl {
+      name = source.file;
+      url = "https://raw.githubusercontent.com/${source.repo}/${source.rev}/${source.file}";
+      inherit (source) hash;
+    };
 in
 {
   imports = [ "${modulesPath}/sing-box" ];
@@ -86,6 +93,10 @@ in
       etc = dir {
         "sing-box" = dir {
           "config.json.template" = symlink "${template}";
+          rules = dir {
+            ${ruleSetSources.geoip.file} = symlink "${fetchRuleSet ruleSetSources.geoip}";
+            ${ruleSetSources.geosite.file} = symlink "${fetchRuleSet ruleSetSources.geosite}";
+          };
         };
         "ssl" = dir {
           "certs" = dir {
