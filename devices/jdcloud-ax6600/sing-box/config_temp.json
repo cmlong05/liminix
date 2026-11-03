@@ -51,6 +51,9 @@
         "fc00::/7",
         "fe80::/10"
       ],
+      "route_address_set": [
+        "proxy-ip-set"
+      ],
       "exclude_interface": [
         "tailscale0"
       ]
@@ -128,11 +131,6 @@
         "outbound": "direct"
       },
       {
-        "rule_set": "bypass",
-        "action": "route",
-        "outbound": "direct"
-      },
-      {
         "rule_set": "geosite-geolocation-!cn",
         "action": "route",
         "outbound": "proxy"
@@ -140,11 +138,11 @@
     ],
     "rule_set": [
       {
-        "tag": "bypass",
-        "type": "local",
-        "format": "source",
-        "path": "/var/lib/liminix/sing-box/bypass.json"
-      },
+        "tag": "proxy-ip-set",  
+        "type": "remote",  
+        "format": "binary",  
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-!cn.srs"  
+      },  
       {
         "tag": "geosite-geolocation-!cn",
         "type": "remote",
@@ -153,7 +151,7 @@
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs"
       }
     ],
-    "final": "direct",
+    "final": "proxy",
     "default_domain_resolver": "dns-direct"
   }
 }
