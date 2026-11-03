@@ -51,8 +51,8 @@
         "fc00::/7",
         "fe80::/10"
       ],
-      "route_address_set": [
-        "proxy-ip-set"
+      "route_exclude_address_set": [
+        "geoip-cn"
       ],
       "exclude_interface": [
         "tailscale0"
@@ -138,17 +138,16 @@
     ],
     "rule_set": [
       {
-        "tag": "proxy-ip-set",  
-        "type": "remote",  
-        "format": "binary",  
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-!cn.srs"  
-      },  
+        "tag": "geoip-cn",
+        "type": "local",
+        "format": "binary",
+        "path": "/etc/sing-box/rules/geoip-cn.srs"
+      },
       {
         "tag": "geosite-geolocation-!cn",
-        "type": "remote",
+        "type": "local",
         "format": "binary",
-        "download_detour": "proxy",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs"
+        "path": "/etc/sing-box/rules/geosite-geolocation-!cn.srs"
       }
     ],
     "final": "proxy",
