@@ -188,6 +188,7 @@ in
     dropbear
     e2fsprogs
     gptfdisk
+    htop
     iproute2
     libubootenv
     min-collect-garbage
@@ -382,13 +383,25 @@ in
     dependencies = [ wanPort ]
     ++ lib.optional singleLineEnable singleLine;
     up = ''
+      set -e
       base=$(output ${wanBase} ifname)
       vid=${lib.escapeShellArg wanVlan}
       ifname=$base
       mtu=${toString wanMtu.plain}
       if test -n "$vid" ; then
         ifname=$base.$vid
-        ip link add link $base name $ifname type vlan id $vid
+        link=$(ip -d link show dev "$ifname" 2>/dev/null || true)
+        if test -n "$link" ; then
+          case "$link" in
+            *"$ifname@$base:"*"vlan protocol 802.1Q id $vid "*) ;;
+            *)
+              echo "wan-if: $ifname has unexpected VLAN configuration" >&2
+              exit 1
+              ;;
+          esac
+        else
+          ip link add link "$base" name "$ifname" type vlan id "$vid"
+        fi
         mtu=${toString wanMtu.tagged}
         mkdir -p /run/wan-if
         echo $ifname > /run/wan-if/vlan
@@ -637,6 +650,7 @@ in
       "fw_env.config" = symlink "/run/fw_env.config";
       "localtime" = symlink "${pkgs.tzdata}/share/zoneinfo/Asia/Shanghai";
       "resolv.conf" = symlink "/run/resolv.conf";
+      "terminfo" = symlink "${pkgs.ncurses}/share/terminfo";
       "rc-init.d" = dir {
         state-dir = symlink (
           pkgs.writeAshScript "state-dir" { } ''
