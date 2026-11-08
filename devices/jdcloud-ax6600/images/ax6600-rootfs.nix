@@ -180,7 +180,7 @@ in
     imageFormat = "fit";
     commandLine = lib.mkForce (
       [
-        "panic=10 oops=panic loglevel=8"
+        "panic=10 oops=panic loglevel=4"
         "console=ttyMSM0,115200n8"
         "fw_devlink=off"
         "nokaslr"
