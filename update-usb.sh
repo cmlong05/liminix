@@ -28,7 +28,12 @@ else
 fi
 
 lsblk_field() { lsblk -b -dn -o "$2" "$1" 2>/dev/null | tr -d ' \n'; }	# -b：SIZE 输出字节数
-mountpoint_of() { findmnt -rno TARGET --source "$1" 2>/dev/null || true; }
+mountpoint_of() {
+	command -v findmnt >/dev/null 2>&1 || die "findmnt not found"
+	# findmnt exits 1 for "not mounted"; anything else is a real failure.
+	findmnt -rno TARGET --source "$1" 2>/dev/null || test "$?" -eq 1 \
+		|| die "findmnt failed for $1"
+}
 # 分区节点名：sdc -> sdc1，nvme0n1 -> nvme0n1p1
 part() { case "$1" in *[0-9]) echo "${1}p$2" ;; *) echo "$1$2" ;; esac; }
 size_of() {	# 取字节数；读不到就报错，别把 "14.8G" 当数字比
@@ -44,6 +49,11 @@ command -v rsync >/dev/null 2>&1 || die "rsync not found"
 [ "$(lsblk_field "$dev" TYPE)" = disk ] || die "$dev is not a whole block device"
 bytes=$(size_of "$dev")
 [ "$bytes" -lt "$MAX_BYTES" ] || die "$dev is $bytes bytes: refusing disks of 33 GB and more"
+tran=$(lsblk_field "$dev" TRAN)
+case "$tran" in
+	usb) ;;
+	*) test "${FORCE:-0}" = 1 || die "$dev transport is '${tran:-unknown}', expected usb (set FORCE=1 to override)" ;;
+esac
 
 p1=$(part "$dev" 1)
 p2=$(part "$dev" 2)
@@ -59,7 +69,7 @@ check_part "$p1" boot
 check_part "$p2" liminix-root
 
 for f in "$UIMAGE" "$ROOTFS"; do
-	[ -e "$f" ] || die "$f not built (run sh build.sh)"
+	[ -e "$f" ] || die "$f not built (run sh build.sh -u)"
 done
 uimage=$(readlink -f "$UIMAGE")
 rootfs=$(readlink -f "$ROOTFS")
