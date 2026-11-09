@@ -71,9 +71,11 @@ let
     "IN_MALIBU_PHY=FALSE"
     "IN_MP_PHY=FALSE"
     "IN_AQUANTIA_PHY=TRUE"
-    # cflags.mk adds -I<kernel>/drivers/net/phy itself; the nss_phy
-    # headers it includes as "qca-nss-phy/..." are qca-nss-phy's.
-    "EXTRA_CFLAGS=-I${qca-nss-phy}/include -I${kernel.modulesupport}/drivers/net/phy"
+    # 001 expands EXTRA_CFLAGS before -Werror, so the fork's two
+    # -Wno-missing-* flags belong here, not in a local edit to cflags.mk.
+    # cflags.mk adds -I<kernel>/drivers/net/phy itself; the qca-nss-phy/...
+    # headers it includes are qca-nss-phy's.
+    "EXTRA_CFLAGS=-Wno-missing-prototypes -Wno-missing-declarations -I${qca-nss-phy}/include -I${kernel.modulesupport}/drivers/net/phy"
   ];
 in
 kernel-module {
@@ -102,19 +104,6 @@ kernel-module {
   # MK_PATH must be given explicitly: it is only assigned inside the
   # Makefile's `ifndef PRJ_PATH`, and we pass PRJ_PATH on the command line.
   buildScript = ''
-    # cflags.mk appends -Werror after chipping in its own ccflags-y, so
-    # 6.18's -Wmissing-prototypes (ref_port_ctrl.c declares its non-static
-    # helpers nowhere) becomes fatal. Appending to the same ccflags-y puts
-    # the exception last, on the same word level as -Werror.
-    sed -i 's|-DFALLTHROUGH -Werror -Wall|-DFALLTHROUGH -Werror -Wno-error=missing-prototypes -Wall|' mk/cflags.mk
-
-    # ref_uci.c dereferences val->value.ext_val, a member only QSDK's own
-    # switch.h had, and its callers (ref_athtag/ref_mapt/ref_pktedit/
-    # ref_tunnel/ref_vport) are all behind a non-CPPE chip filter. For this
-    # SoC the object is dead weight that cannot compile; the fork's own 6.18
-    # patch drops it from OBJ-COMMON the same way.
-    sed -i 's|src/ref/ref_uci.o ||' mk/obj.mk
-
     # MODULE_INC's first -I is $(PRJ_PATH)/include, so the fetched headers
     # go in at the relative paths they have in the kernel tree: SSDK's
     # <linux/switch.h> is found, and the <uapi/linux/switch.h> it includes
@@ -123,8 +112,8 @@ kernel-module {
     cp ${switch-h} include/linux/switch.h
     cp ${switch-uapi-h} include/uapi/linux/switch.h
 
-    # Each flag has to stay one shell word: EXTRA_CFLAGS carries two -I's,
-    # and a split would hand make the second one as an option of its own.
+    # Each flag has to stay one shell word: a split would hand make the
+    # extra EXTRA_CFLAGS words as options of its own.
     make -j$NIX_BUILD_CORES -C mk \
       PRJ_PATH="$PWD" \
       MK_PATH="$PWD/mk" \

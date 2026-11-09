@@ -42,12 +42,10 @@
   # input-ip6 以 log 规则收尾，而 log 没有 verdict、不会结束链：追加到末尾
   # 虽然仍然生效，每个匹配的包却会先被打一条 DENIED 日志，所以走这里。
   appendRulesBeforeLog = {
-      # ip6 的 input 链不像 ip4 那样默认放行 lo，本机（dnsmasq 等）经
-      # ::1 的解析请求会被拒；546 是 dhcp6c 收 DHCPv6-PD 回复的端口，
-      # 在 ppp0 补进 @wan 集合之前也得能进。
-      input-ip6 = [
-        "iifname lo accept"
-        "udp dport 546 accept"
-      ];
-    };
+    # 546 是 dhcp6c 收 DHCPv6-PD 回复的端口，在 ppp0 补进 @wan 集合之前
+    # 也得能进；iifname lo 已由默认规则放行，不必重复。
+    input-ip6 = [
+      "udp dport 546 accept"
+    ];
+  };
 }

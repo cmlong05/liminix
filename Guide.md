@@ -71,9 +71,6 @@ sudo sgdisk -o \
     -n 1:0:+64M   -c 1:boot            -t 1:ef00 \
     -n 2:0:0      -c 2:liminix-root    -t 2:8300 \
     /dev/sdX
-# 如果无法完成，可先清理擦除后再进行上一步
-# 谨慎使用
-sudo wipefs -a /dev/sd*
 # 重新探测
 sudo partprobe /dev/sdX
 
@@ -87,6 +84,9 @@ sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
 # --fast 通过 restart-services 执行 activate /，不重启设备
 ./result-updater/bin/update.sh --fast root@<device>
 
+# update.sh 在复制 closure 前会先读设备的 /proc/sys/kernel/hostname，与构建期 config.hostname 比较，不一致就拒绝更新，防止把配置推到别的设备。设备 hostname 由 runtime-config 提供，首次刷机、改名或推到另一台同型号板子时可能不同，此时显式放行：
+ALLOW_HOSTNAME_MISMATCH=1 ./result-updater/bin/update.sh --fast root@<device>
+# 该变量在运行 update.sh 的构建机上读取，无需重建镜像，只有精确值 1 生效
 
 # 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
 # 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。

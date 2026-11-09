@@ -1,7 +1,7 @@
 # JDCloud AX6600 (RE-CS-02) — Liminix NSS 满血有线/无线 bring-up
 
-> 分支：`re-cs-02`（HEAD `63bf2e4`）　
-> 内核基线：**Linux 6.18.52**　
+> 分支：`re-cs-02`
+> 内核基线：**Linux 6.18.57**
 > 目标：有线 + 无线走 NSS 满血路径　
 > 参考实现：
   **VIKINGYFY/immortalwrt `main`**（6.18 + NSS 代，唯一同内核版本的实证组合）、
@@ -56,7 +56,8 @@
 
 ## 3. 总体路线
 
-* **内核维持 6.18.52**：与现有 pin、现有 ath11k 补丁集、`hardware.dts` 组装方式一致；
+* **内核跟随 `nss/SOURCES.nix` 的 pin（当前 6.18.57）**
+  ath11k 补丁集与 `hardware.dts` 组装方式按该版本适配，升级后需重新验证；
   NSS 参考实现取 **VIKINGYFY main**。
 * **驱动形态 = loadable kmod**：与 OpenWrt/QSDK 一致，加载顺序
   `qca-ssdk`(30) → `qca-nss-dp`(31) → `qca-nss-drv`(32) → `ecm`；由 `pkgs/kmodloader`

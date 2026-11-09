@@ -1,9 +1,9 @@
-# The primitives the kernel derivation's extraPatchPhase is built from:
-# default.nix sequences the calls, kernel-checks.nix generates the check
-# calls from the `verify` records in the SOURCES.nix files.
+# 内核构建 extraPatchPhase 所用的原语集合：
+#   - default.nix 按序调用这里的函数，完成打补丁与源码树装配
+#   - kernel-checks.nix 依据各 SOURCES.nix 的 verify 记录生成检查调用
 #
-# Sourced, not executed: the working directory (the unpacked kernel tree),
-# the shell, and errexit/pipefail all come from stdenv's setup.
+# 本文件被 source 而非直接执行：工作目录（解包后的内核源码树）、
+# shell 与 errexit/pipefail 均继承自 stdenv 的 setup。
 
 apply_patch() {
   patch -p1 --fuzz="$1" < "$2" || { echo "failed to apply $2"; exit 1; }
