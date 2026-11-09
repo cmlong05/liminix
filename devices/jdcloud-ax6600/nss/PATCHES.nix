@@ -18,16 +18,15 @@
 # expected to fail: the last entry of each list needs the ones before it.
 #
 # Every list here is the fork's, and complete for the part of each package
-# this build compiles. There is no local list any more: the one change that
-# used to be ours - renaming ECM's __ppp_is_multilink() reference - is gone,
-# because the kernel now exports it (0603-2) as the fork arranges it.
+# this build compiles. Adaptations we own are separate .patch files under
+# each package's patches/ directory, referenced by its default.nix.
 {
   ssdk = [
     {
       path = "001-compat-build-flags-common-defines.patch";
       blob = "49a1e74c75dae9f61ce16dae394f58b2ae4aa0a1";
       sha256 = "sha256-getCk1aIa8cbABWKtNPZlf9i95Svjg8PeiZOGQagsBs=";
-      note = "keeps the strict toolchain flags working; guards IN_QCA808X_PHY";
+      note = "keeps the strict toolchain flags working; injects EXTRA_CFLAGS before -Werror; drops src/ref/ref_uci.o from OBJ-COMMON; guards IN_QCA808X_PHY";
     }
     {
       path = "002-compat-phy-mdio-linux-6.18-apis.patch";

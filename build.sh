@@ -11,8 +11,8 @@ target=emmc
 with_updater=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        -e | e) target=emmc ;;
-        -u | u) target=usb ;;
+        -e) target=emmc ;;
+        -u) target=usb ;;
         --updater | -U) with_updater=1 ;;
         *)
             echo "usage: $0 [-e|-u] [--updater]" >&2
@@ -54,7 +54,7 @@ nix-build -Q "$@" \
 -A outputs.rootfs \
 -o "$here/$rootfs"
 
-echo "==> uimage(kernal)" >&2
+echo "==> uimage (kernel)" >&2
 nix-build -Q "$@" \
     -A outputs.uimage \
     -o "$here/$uimage"

@@ -1,5 +1,6 @@
-# JSON rendering of the build-time deployment, used as the image seed in
-# ax6600-rootfs.nix.
+# JSON rendering of the build-time deployment. ax6600-rootfs.nix passes the
+# resulting store path as the runtime-config source: values are fixed at
+# build time, not read from a writable on-device file.
 { lib }:
 let
   deployment =
