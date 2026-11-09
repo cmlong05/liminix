@@ -169,8 +169,10 @@ nix-build -I liminix-config=./my-configuration.nix \
 ----
 
 The update script uses min-copy-closure to copy new or changed packages
-to the device, then (perhaps) reboots it. The reboot behaviour can be
-affected by flags:
+to the device, then (perhaps) reboots it. It first compares the device's
+hostname with the one in the configuration and refuses to continue on a
+mismatch; set `+ALLOW_HOSTNAME_MISMATCH=1+` to override that check. The
+reboot behaviour can be affected by flags:
 
 * [.title-ref]#--no-reboot# will cause it not to reboot at all, if you
 would rather do that yourself. Note that none of the newly-installed or

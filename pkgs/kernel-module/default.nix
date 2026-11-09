@@ -57,7 +57,7 @@ let
   makeArgs = [
     "ARCH=${arch}"
   ]
-  ++ lib.optionals (symvers != [ ]) [ "KBUILD_EXTRA_SYMBOLS=${lib.concatStringsSep " " symvers}" ]
+  ++ lib.optionals (symvers != [ ]) [ "KBUILD_EXTRA_SYMBOLS=\"${lib.concatStringsSep " " symvers}\"" ]
   ++ extraMakeFlags;
 in
 stdenv.mkDerivation {
@@ -108,7 +108,11 @@ stdenv.mkDerivation {
     done
     test -n "$(find $out/lib/modules/0.0 -name '*.ko' -print -quit)" \
       || { echo "no .ko produced by ${name}"; exit 1; }
-    install -m 0644 Module.symvers $out/Module.symvers
+    # kbuild writes Module.symvers into the M= directory, which for a
+    # buildScript package (qca-ssdk's mk/Makefile) is not $PWD.
+    symvers=$(find . -name Module.symvers -print -quit)
+    test -n "$symvers" || { echo "no Module.symvers produced by ${name}"; exit 1; }
+    install -m 0644 "$symvers" $out/Module.symvers
     runHook postInstall
   '';
 }

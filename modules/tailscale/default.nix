@@ -48,11 +48,17 @@ in
         stateDir = mkOption {
           type = types.path;
           default = "/var/lib/tailscale";
-          description = "where the node key and the rest of tailscaled's state live";
+          description = ''
+            where the node key and the rest of tailscaled's state live. The
+            service tightens this directory to 0700, so do not point it at a
+            shared directory. If it is unwritable, state falls back to a
+            separate /run directory and the login is lost on reboot.
+          '';
         };
         socket = mkOption {
           type = types.path;
           default = "/var/run/tailscale/tailscaled.sock";
+          description = "CLI socket; its parent directory is kept separate from stateDir";
         };
         authKey = mkOption {
           type = types.nullOr types.str;
@@ -67,7 +73,10 @@ in
         upArgs = mkOption {
           type = types.listOf types.str;
           default = [ ];
-          description = "extra arguments for tailscale up";
+          description = ''
+            extra arguments for tailscale up, one argv element per list
+            item. Values are passed literally, without shell expansion.
+          '';
         };
       };
     }

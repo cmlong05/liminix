@@ -25,9 +25,10 @@ let
     run = ''
       export SERVICE_STATE=$SERVICE_OUTPUTS/${name}
       ${lib.optionalString (wait-for != null) ''
-        p=${wait-for}
+        p=${lib.escapeShellArg wait-for}
         i=0
         while ! test -e "$p" && test $i -lt ${toString wait-time} ; do sleep 1 ; i=$((i + 1)) ; done
+        test -e "$p" || { echo "timed out waiting for $p" >&2 ; exit 1 ; }
       ''}
       ifname=$(output ${interface} ifname)
       test -n "$ifname" && ${odhcp6c}/bin/odhcp6c -s ${odhcp-script} -e -v -p /run/${name}.pid -P0 $ifname

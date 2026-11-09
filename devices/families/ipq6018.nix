@@ -88,7 +88,6 @@
       # --- basics ---
       BLOCK = "y";
       DEVTMPFS = "y";
-      DEVTMPFS_MOUNT = "y";
     };
   };
 }

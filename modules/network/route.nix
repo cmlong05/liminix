@@ -27,9 +27,10 @@ oneshot {
   # 而 WAN 服务在 IPv4 通了之后就算是起来了。
   up = ''
     ${optionalString (wait-for != null) ''
-      p=${wait-for}
+      p=${lib.escapeShellArg wait-for}
       i=0
       while ! test -e "$p" && test $i -lt ${toString wait-time} ; do sleep 1 ; i=$((i + 1)) ; done
+      test -e "$p" || { echo "timed out waiting for $p" >&2 ; exit 1 ; }
     ''}
     ip route add ${target} via ${via} metric ${toString metric} ${with_dev}
   '';
