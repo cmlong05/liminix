@@ -11,6 +11,9 @@ let
 
   cfg = config.jdcloudAx6600.singBox;
   template = ./sing-box/config_temp.json;
+  templateFile = pkgs.writeText "sing-box-config.json.template" (
+    builtins.replaceStrings [ "\"@TUN_NAME@\"" ] [ builtins.toJSON cfg.tunName ] (builtins.readFile template)
+  );
   ruleSetSources = import ./sing-box/SOURCES.nix;
   fetchRuleSet = source:
     pkgs.pkgsBuildBuild.fetchurl {
@@ -50,6 +53,11 @@ in
 
     services.sing-box = config.system.service.singBox.build {
       configFile = "${cfg.stateDir}/config.json";
+      templateFile = "${templateFile}";
+      dependencies = [
+        config.services.wan
+        config.services.resolvconf
+      ];
       inherit (cfg)
         stateDir
         tunName
@@ -92,7 +100,7 @@ in
     filesystem = dir {
       etc = dir {
         "sing-box" = dir {
-          "config.json.template" = symlink "${template}";
+          "config.json.template" = symlink "${templateFile}";
           rules = dir {
             ${ruleSetSources.geoip.file} = symlink "${fetchRuleSet ruleSetSources.geoip}";
             ${ruleSetSources.geosite.file} = symlink "${fetchRuleSet ruleSetSources.geosite}";
