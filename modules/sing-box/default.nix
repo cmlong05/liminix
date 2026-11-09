@@ -29,6 +29,11 @@ in
         type = types.str;
         default = "sing-box0";
       };
+      templateFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "config copied to configFile when it does not exist yet";
+      };
     };
   };
 }

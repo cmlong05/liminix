@@ -84,7 +84,9 @@ in
         description = ''
           Rules appended to the end of a chain that already exists in the
           ruleset, keyed by chain name. List values merge, so any number
-          of modules can contribute to the same chain.
+          of modules can contribute to the same chain. Prefer this option
+          for module and site rules: rules passed to the service build are
+          concatenated ahead of these and are not deduplicated.
         '';
       };
       appendRulesBeforeLog = mkOption {
@@ -96,7 +98,7 @@ in
           policy; as a log rule has no verdict it does not end the chain,
           so a packet accepted by an appended rule is logged as denied
           first. Rules for something the chain is meant to allow belong
-          here. List values merge.
+          here. A chain without a log rule is an error. List values merge.
         '';
       };
     };
@@ -159,10 +161,13 @@ in
         build =
           args:
           let
+            mergeRules =
+              fromArgs: fromConfig:
+              fromArgs // lib.mapAttrs (k: v: (fromArgs.${k} or [ ]) ++ v) fromConfig;
             args' = args // {
               dependencies = (args.dependencies or [ ]) ++ [ moduleService ];
-              appendRules = config.firewall.appendRules;
-              appendRulesBeforeLog = config.firewall.appendRulesBeforeLog;
+              appendRules = mergeRules (args.appendRules or { }) config.firewall.appendRules;
+              appendRulesBeforeLog = mergeRules (args.appendRulesBeforeLog or { }) config.firewall.appendRulesBeforeLog;
             };
           in
           svc.build args';
