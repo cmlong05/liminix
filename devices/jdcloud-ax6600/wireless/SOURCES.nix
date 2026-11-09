@@ -1,6 +1,10 @@
 # The kernel side of N5 phase 1 (the IPQ6010 AHB radio), and the Q6
 # firmware it runs.
 #
+# The "6.18.52" references below describe the kernel the patch set was
+# selected against. The device pin is now 6.18.57 (../SOURCES.nix); recheck
+# those assumptions and the fuzz-0 hunks whenever the pin moves.
+#
 # Nothing is committed: every patch and every firmware file is fetched at
 # build time from the pins below, by URL and sha256. `sha256` is the flat
 # hash of the file - reproduce it with

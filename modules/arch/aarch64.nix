@@ -8,9 +8,7 @@
   config = {
     kernel.config = {
       CPU_LITTLE_ENDIAN = "y";
-      # (CPU_BIG_ENDIAN=n removed: on arm64 >= 6.18 the option is
-      # promptless under CPU_LITTLE_ENDIAN and olddefconfig drops the
-      # explicit "n", tripping the config-consistency check)
+      # CPU_BIG_ENDIAN omitted: promptless on arm64 >= 6.18, olddefconfig drops "n"
       # CMDLINE_FROM_BOOTLOADER availability is conditional
       # on CMDLINE being set to something non-empty
       CMDLINE = "\"empty=false\"";

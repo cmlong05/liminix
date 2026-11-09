@@ -32,26 +32,29 @@ shift
 test -n "$target_host" || \
     die "Usage: $0 [--no-reboot] [--fast] target-host"
 
-toplevel=$(realpath @toplevel@)
-test -e $toplevel/etc/nix-store-paths || die "missing etc/nix-store-paths, is this really a system configuration?"
-actual_hostname=$($ssh_command $target_host "cat /proc/sys/kernel/hostname") || \
+toplevel=$(realpath "@toplevel@")
+test -e "$toplevel/etc/nix-store-paths" || die "missing etc/nix-store-paths, is this really a system configuration?"
+actual_hostname=$($ssh_command "$target_host" "cat /proc/sys/kernel/hostname") || \
     die "Can't ssh to $target_host"
-test "$actual_hostname" = "$expected_hostname" || \
-    die "Refusing to update $target_host: expected hostname '$expected_hostname', got '$actual_hostname'"
+if test "${ALLOW_HOSTNAME_MISMATCH:-0}" != 1 ; then
+    test "$actual_hostname" = "$expected_hostname" || \
+        die "Refusing to update $target_host: expected hostname '$expected_hostname', got '$actual_hostname' (set ALLOW_HOSTNAME_MISMATCH=1 to override)"
+fi
 
-echo installing from systemConfiguration $toplevel to host $target_host
-min-copy-closure $target_host $toplevel
+echo "installing from systemConfiguration $toplevel to host $target_host"
+min-copy-closure "$target_host" "$toplevel" || die "Failed to copy closure to $target_host"
 ts=$(date +%Y%m%dT%H%M%S)
-configuration=$(realpath --relative-to / $toplevel)
-$ssh_command $target_host "$toplevel/bin/install && { test ! -d /persist || dest=/persist; ln -s $configuration \${dest:-/}/${ts}.configuration; }" \
+configuration=$(realpath --relative-to / "$toplevel")
+$ssh_command "$target_host" "'$toplevel/bin/install' && { test ! -d /persist || dest=/persist; ln -s '$configuration' \"\${dest:-/}/${ts}.configuration\"; }" \
     || die "Failed to install $toplevel on $target_host"
 case "$reboot" in
     reboot)
 	# Direct-root systems have no preinit to activate the new configuration.
-	$ssh_command $target_host "if test ! -d /persist; then $toplevel/bin/activate / || exit; fi; sync; source /etc/profile; reboot"
+	$ssh_command "$target_host" "if test ! -d /persist; then '$toplevel/bin/activate' / || exit; fi; sync; source /etc/profile; reboot"
 	;;
     soft)
-	$ssh_command $target_host $toplevel/bin/restart-services
+	$ssh_command "$target_host" "$toplevel/bin/restart-services" \
+	    || die "Failed to restart services on $target_host"
 	;;
     *)
 	;;
