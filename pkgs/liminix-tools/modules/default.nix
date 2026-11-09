@@ -25,9 +25,15 @@
   # return a builder if these are optional.
   roots ? [ ],
   targets ? [ ],
+  moduleArgs ? { },
 }:
 let
   inherit (lib) concatStringsSep;
+  moduleArgCases = concatStringsSep "\n" (
+    lib.mapAttrsToList (
+      name: args: "${lib.escapeShellArg name}) args=${lib.escapeShellArg args} ;;"
+    ) moduleArgs
+  );
 in
 runCommand "kernel-modules"
   {
@@ -105,7 +111,21 @@ runCommand "kernel-modules"
     {
       echo '#!/bin/sh'
       echo 'O=''${O:-'$out'/lib/modules}'
-      sed 's,^,insmod $O/,g' $out/load-order
+      echo 'while read -r rel; do'
+      echo '  module=''${rel##*/}'
+      echo '  module=''${module%.ko}'
+      echo '  args='
+      echo '  case "$module" in'
+      printf '%s\n' ${lib.escapeShellArg moduleArgCases}
+      echo '  esac'
+      echo '  cmdline_args='
+      echo '  for arg in $(cat /proc/cmdline); do'
+      echo '    case "$arg" in'
+      echo '      "$module".*=*) cmdline_args="$cmdline_args ''${arg#*.}" ;;'
+      echo '    esac'
+      echo '  done'
+      echo '  insmod "$O/$rel" $args $cmdline_args'
+      echo 'done < "$O/../../load-order"'
     } > $out/load.sh
     {
       echo '#!/bin/sh'

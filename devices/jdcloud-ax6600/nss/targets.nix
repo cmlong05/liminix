@@ -19,6 +19,7 @@
 # then points firewall.kernelModules at, so one tree loads both and firewall
 # does not build a second kmodloader.
 let
+  # ath11k calls symbols exported by qca-nss-drv; wired loads first.
   wired = [
     "nf_conntrack"
     "nf_defrag_ipv4"

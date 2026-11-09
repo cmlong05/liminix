@@ -9,6 +9,15 @@
   version ? "0",
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
+  rawConfigFile ? null,
+  allowMissingModuleSymbols ? false,
+  # What to embed as the initramfs, as a raw .config value (usually a
+  # quoted path). It is an argument rather than a `config` entry because
+  # `kernel.config` is `attrsOf nonEmptyStr` and the option type checks
+  # every value: an entry naming an image that is itself built from this
+  # kernel's modulesupport would be forced at type-check time, which is a
+  # cycle. Null means embed nothing.
+  initramfsSource ? null,
 }:
 let
   stdenv = gcc13Stdenv;
@@ -128,7 +137,8 @@ stdenv.mkDerivation rec {
     mkdir -p $headers
     cp -a include .config $headers/
     mkdir -p $modulesupport
-    make modules
+    make ${lib.optionalString allowMissingModuleSymbols "KBUILD_MODPOST_WARN=1"} \
+      modules
     cp -a . $modulesupport
     cp .config $config
   '';

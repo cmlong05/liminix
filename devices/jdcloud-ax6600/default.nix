@@ -29,6 +29,7 @@
     }:
     let
       sources = import ./SOURCES.nix;
+      nssSources = import ./nss/SOURCES.nix;
       kernelSource = sources.kernelDts;
     in
     {
@@ -38,6 +39,7 @@
       ];
 
       kernel = {
+        allowMissingModuleSymbols = true;
         src = pkgs.pkgsBuildBuild.fetchurl {
           name = "linux-${kernelSource.version}.tar.gz";
           inherit (kernelSource) url sha256;
@@ -77,6 +79,13 @@
               };
             wirelessPatches = map wirelessPatch wirelessSources.patches;
 
+            nssWifiPatches = pkgs.pkgsBuildBuild.callPackage ./nss-wifi { };
+            nssWifiHeaders = pkgs.pkgsBuildBuild.callPackage ./nss-wifi/nss-headers.nix {
+              src = pkgs.pkgsBuildBuild.fetchgit {
+                inherit (nssSources.nssDrv) url rev hash name;
+              };
+            };
+
             nssKernelFiles = pkgs.pkgsBuildBuild.callPackage ./nss/kernel-files {
               sources = import ./nss/SOURCES.nix;
             };
@@ -112,10 +121,27 @@
           # rather than drift.
           ${lib.concatMapStringsSep "\n" (p: applyPatch 0 p) (kernelPatches ++ nssEcmPatches)}
           ${baseChecks}
+          apply_patch 0 ${./nss/compat/001-bridge-fdb-pvid.patch}
 
           # wcss and ath11k sets, each at the fuzz its group allows.
           ${lib.concatMapStringsSep "\n" (p: applyPatch p.fuzz p.file) wirelessPatches}
           ${wirelessChecks}
+
+          export NSS_WIFI_PATCHES=${nssWifiPatches}
+          export KCFLAGS="-I${nssWifiHeaders}"
+          test -f ${nssWifiHeaders}/nss_api_if.h
+          test -e ${nssWifiHeaders}/nss_arch.h
+          for p in "$NSS_WIFI_PATCHES"/subsys/*.patch; do
+            apply_patch 3 "$p"
+          done
+          for p in "$NSS_WIFI_PATCHES"/ath11k/*.patch; do
+            apply_patch 3 "$p"
+          done
+          apply_patch 3 ${./nss-wifi/compat/001-native-kernel-6.18.57.patch}
+          apply_patch 3 ${./nss-wifi/compat/002-qos-null-wmi-kernel-6.18.patch}
+          apply_patch 3 ${./nss-wifi/compat/003-qos-null-event-dispatch-kernel-6.18.patch}
+          apply_patch 3 ${./nss-wifi/compat/004-suppress-unsupported-nss-tx-log.patch}
+          ${./nss-wifi/check-patches.sh} "$NSS_WIFI_PATCHES"
 
           install_overlay "$NSS_KERNEL_FILES"
           install_overlay "$DT_INPUTS"

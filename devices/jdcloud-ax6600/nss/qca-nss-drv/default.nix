@@ -61,7 +61,8 @@ let
   # on here to match what the fork actually builds.
   #
   # What remains on is IPV4, IPV6, ETH_RX and the SoC-selected PPE/EDMA
-  # path, plus frequency scaling. N4 turned BRIDGE, PPPOE and VLAN back on:
+  # path, frequency scaling and WIFIOFFLOAD for ath11k. N4 turned BRIDGE,
+  # PPPOE and VLAN back on:
   # the board dts declares all three, and nss_hal registers a handler for a
   # declared feature only when its NSS_DRV_*_ENABLE is compiled in, so
   # leaving them off would silently drop LAN bridging, the PPPoE WAN and
@@ -104,7 +105,6 @@ let
     "VIRT_IF"
     "VXLAN"
     "WIFI_MESH"
-    "WIFIOFFLOAD"
   ];
 
   # The fork's EXTRA_CFLAGS. -DNSS_FIRMWARE_VERSION_12_5 selects the
@@ -159,6 +159,8 @@ kernel-module {
   # files behind a relative symlink, so the whole exports/ tree is copied.
   # nss_ipsecmgr.h is dropped as upstream drops it for this SoC.
   postInstall = ''
+    grep -q 'nss_wifili_get_context' $out/Module.symvers
+    grep -q 'nss_wifi_vdev_tx_msg' $out/Module.symvers
     mkdir -p $out/include/qca-nss-drv
     cp -a exports/. $out/include/qca-nss-drv/
     rm -f $out/include/qca-nss-drv/nss_ipsecmgr.h

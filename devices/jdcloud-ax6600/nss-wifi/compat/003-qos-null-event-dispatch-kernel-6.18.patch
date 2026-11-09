@@ -1,0 +1,12 @@
+--- a/drivers/net/wireless/ath/ath11k/wmi.c
++++ b/drivers/net/wireless/ath/ath11k/wmi.c
+@@ -8823,6 +8823,9 @@ static void ath11k_wmi_tlv_op_rx(struct ath11k_base *ab, struct sk_buff *skb)
+ 	case WMI_MGMT_TX_COMPLETION_EVENTID:
+ 		ath11k_mgmt_tx_compl_event(ab, skb);
+ 		break;
++	case WMI_QOS_NULL_FRAME_TX_COMPLETION_EVENTID:
++		ath11k_qos_null_compl_event(ab, skb);
++		break;
+ 	case WMI_SCAN_EVENTID:
+ 		ath11k_scan_event(ab, skb);
+ 		break;

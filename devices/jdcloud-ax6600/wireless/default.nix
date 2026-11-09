@@ -270,6 +270,9 @@ in
       ATH_COMMON = "m";
       ATH11K = "m";
       ATH11K_AHB = "m";
+      ATH11K_NSS_SUPPORT = "y";
+      ATH11K_MEM_PROFILE_512M = "y";
+      MAC80211_NSS_SUPPORT = "y";
       MAC80211 = "m";
       # The brcmfmac/ath10k style conditionals are off, so this is the only
       # wireless driver in the image; debug is on because bringing a Q6 up

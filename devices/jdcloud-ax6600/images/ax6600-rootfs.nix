@@ -141,6 +141,11 @@ let
   moduleTree = pkgs.liminix.modules.build pkgs {
     roots = [ config.system.outputs.kernel.modulesupport ] ++ moduleFiles;
     targets = moduleTargets;
+    moduleArgs.ath11k = "nss_offload=1 frame_mode=2";
+  };
+
+  nssWifiCheck = pkgs.callPackage ../nss-wifi/check-built.nix {
+    inherit pkgs moduleTree;
   };
 in
 {
@@ -578,6 +583,20 @@ in
     down = "true";
   };
 
+  services.nss-tuning = oneshot {
+    name = "nss-tuning";
+    dependencies = [ config.services.modules ];
+    up = ''
+      if test -w /proc/sys/dev/nss/general/redirect; then
+        echo 1 > /proc/sys/dev/nss/general/redirect
+      fi
+      if test -w /sys/kernel/debug/ecm/ecm_classifier_default/accel_delay_pkts; then
+        echo 1 > /sys/kernel/debug/ecm/ecm_classifier_default/accel_delay_pkts
+      fi
+    '';
+    down = "true";
+  };
+
   firewall.kernelModules = config.services.modules;
 
   firewall.appendRules = siteFirewall.appendRules or { };
@@ -659,6 +678,7 @@ in
       "localtime" = symlink "${pkgs.tzdata}/share/zoneinfo/Asia/Shanghai";
       "resolv.conf" = symlink "/run/resolv.conf";
       "terminfo" = symlink "${pkgs.ncurses}/share/terminfo";
+      "liminix-nss-wifi.check" = symlink "${nssWifiCheck}";
       "rc-init.d" = dir {
         state-dir = symlink (
           pkgs.writeAshScript "state-dir" { } ''
@@ -693,6 +713,9 @@ in
           pkgs.writeAshScript "load-modules" { } ''
             echo "loading kernel modules from ${moduleTree}"
             O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
+            if test -w /proc/sys/dev/nss/general/redirect; then
+              echo 1 > /proc/sys/dev/nss/general/redirect
+            fi
           ''
         );
       };
@@ -727,6 +750,8 @@ in
       "rootwait"
       "rw"
       "init=/bin/init"
+      "ath11k.nss_offload=1"
+      "ath11k.frame_mode=2"
     ];
   };
 

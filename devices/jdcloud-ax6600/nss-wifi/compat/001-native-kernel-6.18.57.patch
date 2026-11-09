@@ -1,0 +1,179 @@
+--- a/drivers/net/wireless/ath/ath11k/dp.c
++++ b/drivers/net/wireless/ath/ath11k/dp.c
+@@ -797,13 +797,15 @@ int ath11k_dp_service_srng(struct ath11k
+ 	int i, j;
+ 	int tot_work_done = 0;
++	bool nss_offload = ab->nss.enabled;
+ 
+-	for (i = 0; i < ab->hw_params.max_tx_ring; i++) {
+-		if (BIT(ab->hw_params.hal_params->tcl2wbm_rbm_map[i].wbm_ring_num) &
+-		    ab->hw_params.ring_mask->tx[grp_id])
+-			ath11k_dp_tx_completion_handler(ab, i);
+-	}
++	if (!nss_offload)
++		for (i = 0; i < ab->hw_params.max_tx_ring; i++) {
++			if (BIT(ab->hw_params.hal_params->tcl2wbm_rbm_map[i].wbm_ring_num) &
++			    ab->hw_params.ring_mask->tx[grp_id])
++				ath11k_dp_tx_completion_handler(ab, i);
++		}
+ 
+-	if (ab->hw_params.ring_mask->rx_err[grp_id]) {
++	if (!nss_offload && ab->hw_params.ring_mask->rx_err[grp_id]) {
+ 		work_done = ath11k_dp_process_rx_err(ab, napi, budget);
+ 		budget -= work_done;
+ 		tot_work_done += work_done;
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -776,0 +777 @@
++ * @nss_ap_isolate: Used for notifying the NSS host about AP isolate feature
+@@ -799 +799,0 @@
+- * @nss_ap_isolate: Used for notifying the NSS host about AP isolate feature
+@@ -878,0 +879 @@
++	bool nss_ap_isolate;
+@@ -903 +903,0 @@
+-	bool nss_ap_isolate;
+--- a/include/uapi/linux/nl80211.h
++++ b/include/uapi/linux/nl80211.h
+@@ -1383,0 +1384,4 @@
++ * @NL80211_CMD_UPDATE_HE_MUEDCA_PARAMS: Updated MU-EDCA parameters from driver.
++ *	This event is used to update dynamic MU-EDCA parameters in Beacon frame,
++ *	coming from driver and now need to be reflected in Beacon frame.
++ *
+@@ -1428,4 +1431,0 @@
+- * @NL80211_CMD_UPDATE_HE_MUEDCA_PARAMS: Updated MU-EDCA parameters from driver.
+- *	This event is used to update dynamic MU-EDCA parameters in Beacon frame,
+- *	coming from driver and now need to be reflected in Beacon frame.
+- *
+--- a/drivers/net/wireless/ath/ath11k/hif.h
++++ b/drivers/net/wireless/ath/ath11k/hif.h
+@@ -35 +34,0 @@
+-};
+@@ -36,0 +36 @@
++};
+--- a/drivers/net/wireless/ath/ath11k/nss.h
++++ b/drivers/net/wireless/ath/ath11k/nss.h
+@@ -97 +97 @@
+-	tstats = this_cpu_ptr(netdev_tstats(wdev->netdev));	\
++	tstats = this_cpu_ptr(wdev->netdev->tstats);	\
+--- a/drivers/net/wireless/ath/ath11k/nss.c
++++ b/drivers/net/wireless/ath/ath11k/nss.c
+@@ -236 +236 @@
+-void ath11k_nss_wifili_event_receive(struct ath11k_base *ab, struct nss_wifili_msg *msg)
++static void ath11k_nss_wifili_event_receive(struct ath11k_base *ab, struct nss_wifili_msg *msg)
+@@ -316 +316 @@
+-void ath11k_nss_process_mic_error(struct ath11k_base *ab, struct sk_buff *skb)
++static void ath11k_nss_process_mic_error(struct ath11k_base *ab, struct sk_buff *skb)
+@@ -402 +402 @@
+-void ath11k_nss_vdev_cfg_cb(void *app_data, struct nss_cmn_msg *msg)
++static void ath11k_nss_vdev_cfg_cb(void *app_data, struct nss_cmn_msg *msg)
+@@ -842 +842 @@
+-void ath11k_nss_vdev_free(struct ath11k_vif *arvif)
++static void ath11k_nss_vdev_free(struct ath11k_vif *arvif)
+@@ -1221 +1221 @@
+-		rx_bytes = u64_stats_read(&stainfo->deflink.rx_stats.bytes);
++		rx_bytes = stainfo->deflink.rx_stats.bytes;
+@@ -1860 +1860 @@
+-	ath11k_info(ab, "nss init soc nss if_num %d userpd_id %d\n", ab->nss.if_num, ab->userpd_id);
++	ath11k_info(ab, "nss init soc nss if_num %d\n", ab->nss.if_num);
+@@ -1987 +1987 @@
+-int ath11k_nss_pdev_init(struct ath11k_base *ab, int radio_id)
++static int ath11k_nss_pdev_init(struct ath11k_base *ab, int radio_id)
+@@ -2107 +2107 @@
+-int ath11k_nss_start(struct ath11k_base *ab)
++static int ath11k_nss_start(struct ath11k_base *ab)
+@@ -2272 +2272 @@
+-int ath11k_nss_pdev_deinit(struct ath11k_base *ab, int radio_id)
++static int ath11k_nss_pdev_deinit(struct ath11k_base *ab, int radio_id)
+--- a/drivers/net/wireless/ath/ath11k/core.c
++++ b/drivers/net/wireless/ath/ath11k/core.c
+@@ -2852 +2852 @@
+-int ath11k_init(void)
++static int ath11k_init(void)
+@@ -2858 +2858 @@
+-void ath11k_exit(void)
++static void ath11k_exit(void)
+--- a/drivers/net/wireless/ath/ath11k/dp_rx.c
++++ b/drivers/net/wireless/ath/ath11k/dp_rx.c
+@@ -1599 +1599 @@
+-void ath11k_copy_to_delay_stats(struct ath11k_peer *peer,
++static void ath11k_copy_to_delay_stats(struct ath11k_peer *peer,
+@@ -1614 +1614 @@
+-void ath11k_copy_to_bar(struct ath11k_peer *peer,
++static void ath11k_copy_to_bar(struct ath11k_peer *peer,
+@@ -5692 +5692 @@
+-void ath11k_dp_rx_mon_process_ulofdma(struct hal_rx_mon_ppdu_info *ppdu_info)
++static void ath11k_dp_rx_mon_process_ulofdma(struct hal_rx_mon_ppdu_info *ppdu_info)
+--- a/net/wireless/util.c
++++ b/net/wireless/util.c
+@@ -2742,0 +2743,3 @@
++	if (sinfo->pertid)
++		return 0;
++
+@@ -2767,3 +2769,0 @@
+-	if (sinfo->pertid)
+-		return 0;
+-
+--- a/drivers/net/wireless/ath/ath11k/core.c
++++ b/drivers/net/wireless/ath/ath11k/core.c
+@@ -23 +23 @@
+-unsigned int nss_offload;
++unsigned int nss_offload = 1;
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -4694 +4694,2 @@
+-				struct ieee80211_key *key, struct sk_buff *skb)
++				struct ieee80211_key *key, struct sk_buff *skb,
++				u32 info_flags, u32 ctrl_flags, u64 *cookie)
+@@ -4741,0 +4743 @@
++	info->flags |= info_flags;
+@@ -4771 +4773,3 @@
+-	if (unlikely(sk_requests_wifi_status(skb->sk) &&
++	if (unlikely((sk_requests_wifi_status(skb->sk) ||
++		      ((ctrl_flags & IEEE80211_TX_CTL_REQ_TX_STATUS) &&
++		       !is_multicast_ether_addr(skb->data))) &&
+@@ -4774 +4778 @@
+-							    &info->flags, NULL);
++							    &info->flags, cookie);
+@@ -4816,2 +4820,5 @@
+-static void __ieee80211_subif_start_xmit_8023(struct sk_buff *skb,
+-					      struct net_device *dev)
++netdev_tx_t __ieee80211_subif_start_xmit_8023(struct sk_buff *skb,
++					      struct net_device *dev,
++					      u32 info_flags,
++					      u32 ctrl_flags,
++					      u64 *cookie)
+@@ -4823,0 +4831 @@
++	bool is_eapol;
+@@ -4827 +4835,3 @@
+-	if (unlikely(sdata->control_port_protocol == ehdr->h_proto))
++	is_eapol = sdata->control_port_protocol == ehdr->h_proto;
++	if (unlikely(is_eapol &&
++		     !(sdata->vif.offload_flags & IEEE80211_OFFLOAD_ENCAP_ENABLED)))
+@@ -4851 +4861 @@
+-		   !test_sta_flag(sta, WLAN_STA_AUTHORIZED))) {
++		   (!test_sta_flag(sta, WLAN_STA_AUTHORIZED) && !is_eapol))) {
+@@ -4863 +4873,2 @@
+-	ieee80211_8023_xmit(sdata, dev, sta, key, skb);
++	ieee80211_8023_xmit(sdata, dev, sta, key, skb,
++			    info_flags, ctrl_flags, cookie);
+@@ -4869,0 +4881 @@
++	return NETDEV_TX_OK;
+@@ -4890 +4902 @@
+-			__ieee80211_subif_start_xmit_8023(skb, dev);
++			__ieee80211_subif_start_xmit_8023(skb, dev, 0, 0, NULL);
+@@ -4892 +4904 @@
+-		__ieee80211_subif_start_xmit_8023(skb, dev);
++		__ieee80211_subif_start_xmit_8023(skb, dev, 0, 0, NULL);
+@@ -6592 +6603,0 @@
+-	/* added hardware encap check for ethernet mode */
+@@ -6594 +6605 @@
+-		ieee80211_subif_start_xmit_8023(skb, skb->dev);
++		__ieee80211_subif_start_xmit_8023(skb, skb->dev, flags, ctrl_flags, cookie);
+--- a/net/mac80211/ieee80211_i.h
++++ b/net/mac80211/ieee80211_i.h
+@@ -2160,0 +2161,5 @@
++netdev_tx_t __ieee80211_subif_start_xmit_8023(struct sk_buff *skb,
++					      struct net_device *dev,
++					      u32 info_flags,
++					      u32 ctrl_flags,
++					      u64 *cookie);
