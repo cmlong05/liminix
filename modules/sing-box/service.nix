@@ -8,6 +8,7 @@
   configFile,
   stateDir,
   tunName,
+  templateFile,
 }:
 let
   inherit (liminix.services) longrun;
@@ -17,21 +18,30 @@ let
 in
 longrun {
   name = "sing-box";
+  notification-fd = 10;
   run = ''
     config=${escapeShellArg configFile}
     state=${escapeShellArg stateDir}
     tun=${escapeShellArg tunName}
+    template=${escapeShellArg (toString templateFile)}
 
     mkdir -m 0700 -p "$state"
 
+    if ! test -s "$config" && test -n "$template" && test -s "$template" ; then
+      cp "$template" "$config"
+      chmod 0600 "$config"
+    fi
+
     if ! test -s "$config" ; then
-      echo "sing-box: no runtime config at $config; transparent routing stays disabled"
-      while : ; do sleep 3600 ; done
+      echo "sing-box: no runtime config at $config" >&2
+      sleep 60
+      exit 1
     fi
 
     if ! ${singBox} check -c "$config" ; then
-      echo "sing-box: invalid runtime config at $config; transparent routing stays disabled"
-      while : ; do sleep 3600 ; done
+      echo "sing-box: invalid runtime config at $config" >&2
+      sleep 60
+      exit 1
     fi
 
     if ! test -c /dev/net/tun ; then
@@ -67,6 +77,8 @@ longrun {
       fi
       sleep 1
     done
+
+    echo ready >&10
 
     wait "$pid"
     status=$?

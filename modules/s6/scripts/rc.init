@@ -42,6 +42,9 @@ fi
 ### Service state (mkstate in service-fns.sh) needs a writable directory
 state_mountpoint=
 test -s /run/state-mountpoint && state_mountpoint=$(cat /run/state-mountpoint)
+if test -z "$state_mountpoint" && test -d /persist ; then
+    state_mountpoint=/persist
+fi
 if test -n "$state_mountpoint" ; then
     mkdir -m 0751 -p "$state_mountpoint/services/state"
     chgrp system "$state_mountpoint/services/state"
