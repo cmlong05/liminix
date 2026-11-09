@@ -33,7 +33,7 @@
     {
       "type": "tun",
       "tag": "tun-in",
-      "interface_name": "sing-box0",
+      "interface_name": "@TUN_NAME@",
       "address": [
         "172.19.0.1/30",
         "fd00::1/126"
