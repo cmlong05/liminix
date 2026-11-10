@@ -26,7 +26,7 @@ let
       fi
       mkdir -p "$state" || exit 1
       chmod 0700 "$state" || echo "tailscaled: cannot set mode 0700 on $state" >&2
-      mkdir -p "${socket%/*}" || exit 1
+      mkdir -p "''${socket%/*}" || exit 1
       # devtmpfs only publishes the misc device as /dev/tun; /dev/net/tun is
       # the udev pathname tailscaled actually opens
       if ! test -c /dev/net/tun ; then
