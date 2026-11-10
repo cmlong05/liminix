@@ -55,12 +55,15 @@
         snapshot (.. (or snapshot-directory state-directory) "/pd-snapshot")
         known (read-snapshot snapshot)
         current (or (dir:output "prefix") [])]
-    (write-snapshot snapshot current)
+    ;; snapshot after updating, not before: update is idempotent, so a
+    ;; crash between the two replays it on the next run, whereas the
+    ;; reverse order would forget the old prefix and leave it on the LAN
     (update-prefixes lan-device known current system)
+    (write-snapshot snapshot current)
     (accumulate [addresses current
                  v (dir:events)]
       (let [new (or (v:output "prefix") [])]
-        (write-snapshot snapshot new)
-        (update-prefixes lan-device addresses new system)))))
+        (update-prefixes lan-device addresses new system)
+        (write-snapshot snapshot new)))))
 
 { : changes : run }

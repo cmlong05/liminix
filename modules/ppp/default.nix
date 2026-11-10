@@ -55,9 +55,13 @@ in
         description = "approximate bandwidth in bytes/second. Used to calculate rate limits for ICMP";
       };
       timeout-up = mkOption {
-        type = types.int;
-        default = 60 * 1000;
-        description = "how long to wait for pppd to be ready, in milliseconds";
+        type = types.nullOr types.int;
+        default = null;
+        description = ''
+          how long to wait for pppd to be ready, in milliseconds. If null,
+          it is derived from lcpEcho: (10 + failure * interval) * 1000, or
+          60 * 1000 when lcpEcho is disabled
+        '';
       };
       redial-interval = mkOption {
         type = types.int;
@@ -135,9 +139,13 @@ in
         description = "options supplied on ppp command line";
       };
       timeout-up = mkOption {
-        type = types.int;
-        default = 60 * 1000;
-        description = "how long to wait for the tunnel to be ready, in milliseconds";
+        type = types.nullOr types.int;
+        default = null;
+        description = ''
+          how long to wait for the tunnel to be ready, in milliseconds. If
+          null, it is derived from lcpEcho: (10 + failure * interval) *
+          1000, or 60 * 1000 when lcpEcho is disabled
+        '';
       };
       redial-interval = mkOption {
         type = types.int;

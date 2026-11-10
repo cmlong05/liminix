@@ -55,11 +55,17 @@ let
         ${watch-outputs}/bin/watch-outputs ${restart-flag} ${name} ${refs}
       '';
     };
+
+  # match by name, not structural equality: comparing service values
+  # with == is fragile when they contain non-comparable members
+  dontWaitNames = map (w: w.name) dontWait;
 in
 service.overrideAttrs (o: {
   buildInputs = (lim.orEmpty o.buildInputs) ++ optional (watch != [ ]) watcher;
   dependencies =
     (lim.orEmpty o.dependencies)
     ++ optional (watch != [ ]) watcher
-    ++ map (s: s "service") (builtins.filter (s: !(lib.elem (s "service") dontWait)) watch);
+    ++ map (s: s "service") (
+      builtins.filter (s: !(builtins.elem (s "service").name dontWaitNames)) watch
+    );
 })

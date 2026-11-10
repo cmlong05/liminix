@@ -85,6 +85,11 @@ in
       # /default-rules.nix), so importing this module is what brings the
       # rules in - and not importing it takes them out again
       #
+      # appendRules throws for chains missing from the ruleset, so a
+      # composition that replaces the default ruleset must carry the four
+      # *-modules chains these names expect (or override firewall.rules
+      # only partially)
+      #
       # keyed on the interface rather than on saddr: with
       # --netfilter-mode=off tailscale installs no subnet-route SNAT, so
       # traffic forwarded between two advertised subnets arrives sourced
