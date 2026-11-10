@@ -9,18 +9,28 @@ firewall="$device_dir/config_firewall.nix"
 
 target=emmc
 with_updater=0
+verbose=0
 while [ $# -gt 0 ]; do
     case "$1" in
         -e) target=emmc ;;
         -u) target=usb ;;
+        -v) verbose=1 ;;
         --updater | -U) with_updater=1 ;;
         *)
-            echo "usage: $0 [-e|-u] [--updater]" >&2
+            echo "usage: $0 [-e|-u] [-v] [--updater]" >&2
             exit 2
             ;;
     esac
     shift
 done
+
+nix_build() {
+    if [ "$verbose" -eq 1 ]; then
+        nix-build "$@"
+    else
+        nix-build -Q "$@"
+    fi
+}
 
 case "$target" in
     emmc)
@@ -43,19 +53,19 @@ set -- \
 
 if [ "$with_updater" -eq 1 ]; then
     echo "==> updater" >&2
-    nix-build -Q "$@" \
+    nix_build "$@" \
         -A outputs.updater \
         -o "$here/$updater"
     exit 0
 fi
 
 echo "==> rootfs ($target)：完整 ext4 镜像（自带 /bin、/etc、fifo）" >&2
-nix-build -Q "$@" \
+nix_build "$@" \
 -A outputs.rootfs \
 -o "$here/$rootfs"
 
 echo "==> uimage (kernel)" >&2
-nix-build -Q "$@" \
+nix_build "$@" \
     -A outputs.uimage \
     -o "$here/$uimage"
 
