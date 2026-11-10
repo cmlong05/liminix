@@ -32,7 +32,10 @@ fi
 mkdir -m 0751 -p /run/services/outputs
 chgrp system /run/services/outputs
 
-### Compose-time hook, run before the service manager starts
+### Compose-time hook, run before the service manager starts.
+### Nothing in this repo writes /etc/rc-init.d or /run/state-mountpoint:
+### a composition (e.g. a device config not committed here) is expected
+### to provide them.
 if test -d /etc/rc-init.d ; then
     for f in /etc/rc-init.d/* ; do
         test -x "$f" && "$f"

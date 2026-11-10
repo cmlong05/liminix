@@ -21,7 +21,7 @@
 let
   name = "${interface.name}.dnsmasq";
   inherit (liminix.services) longrun;
-  inherit (lib) concatStrings concatStringsSep mapAttrsToList;
+  inherit (lib) concatStrings concatStringsSep escapeShellArg mapAttrsToList;
   hostOpt =
     name:
     {
@@ -58,15 +58,15 @@ longrun {
     --dhcp-authoritative \
     ${
       if resolvFile != null then
-        "--resolv-file=${resolvFile}"
+        "--resolv-file=${escapeShellArg resolvFile}"
       else if resolvconf != null then
         "--resolv-file=$(output_path ${resolvconf} resolv.conf)"
       else
         "--no-resolv"
     } \
     ${lib.concatStringsSep " " (mapAttrsToList hostOpt hosts)} \
-    ${if hostsFile != null then "--dhcp-hostsfile=${hostsFile}" else ""} \
-    ${lib.concatStringsSep " " (map (f: "--addn-hosts=${f}") addnHosts)} \
+    ${if hostsFile != null then "--dhcp-hostsfile=${escapeShellArg hostsFile}" else ""} \
+    ${lib.concatStringsSep " " (map (f: "--addn-hosts=${escapeShellArg f}") addnHosts)} \
     --no-hosts \
     --log-dhcp \
     --enable-ra \

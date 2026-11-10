@@ -17,7 +17,7 @@
   username,
   password,
   debug,
-  timeout-up ? 60 * 1000,
+  timeout-up ? null,
   redial-interval ? 30,
 }:
 let
