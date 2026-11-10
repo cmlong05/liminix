@@ -25,10 +25,9 @@ let
     run = ''
       export SERVICE_STATE=$SERVICE_OUTPUTS/${name}
       ${lib.optionalString (wait-for != null) ''
-        p=${lib.escapeShellArg wait-for}
-        i=0
-        while ! test -e "$p" && test $i -lt ${toString wait-time} ; do sleep 1 ; i=$((i + 1)) ; done
-        test -e "$p" || { echo "timed out waiting for $p" >&2 ; exit 1 ; }
+        # wait-for 是调用方给的 shell 表达式（"$(output_path ...)"），不能转义；
+        # 超时只告警：client 失败会让依赖它的 prefix/address 全部跳过。
+        wait_for_path "${wait-for}" ${toString wait-time} || echo "timed out waiting for ${wait-for}" >&2
       ''}
       ifname=$(output ${interface} ifname)
       test -n "$ifname" && ${odhcp6c}/bin/odhcp6c -s ${odhcp-script} -e -v -p /run/${name}.pid -P0 $ifname
