@@ -14,6 +14,11 @@ writeText "service-fns.sh" ''
   }
 
   output_path() { echo $(realpath $1/.outputs)/$2; }
+  wait_for_path() {
+    local i=0
+    while ! test -e "$1" && test $i -lt $2 ; do sleep 1 ; i=$((i + 1)) ; done
+    test -e "$1"
+  }
   SERVICE_OUTPUTS=/run/services/outputs
   SERVICE_STATE=/run/services/state
   mkoutputs() {
