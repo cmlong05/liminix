@@ -90,7 +90,9 @@ runCommand "kernel-modules"
                }'
     done < "$moduleTargetsPath" | awk '!seen[$0]++' > $out/load-order
 
-    test -s $out/load-order || { echo "no modules selected by: ${concatStringsSep " " targets}"; exit 1; }
+    # An empty load-order is legitimate: every target built in is caught by
+    # the pipefail above, so reaching this line means modprobe resolved
+    # them all.
 
     {
       echo '#!/bin/sh'

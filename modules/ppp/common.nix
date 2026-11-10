@@ -17,7 +17,7 @@
   lcpEcho,
   bandwidth,
   ppp-options,
-  timeout-up ? 60 * 1000,
+  timeout-up ? null,
   redial-interval ? 30,
   dependencies ? [ ],
 }:
@@ -29,6 +29,15 @@ let
     ;
   inherit (liminix.services) longrun;
   inherit (builtins) toJSON toString;
+  # 显式设置的 timeout-up 优先；否则沿用旧行为，随 lcpEcho 自动放大——
+  # 回声间隔长的链路， negotiation 也需要更长的就绪窗口
+  timeoutUp =
+    if timeout-up != null then
+      timeout-up
+    else if lcpEcho.failure != null && lcpEcho.interval != null then
+      (10 + lcpEcho.failure * lcpEcho.interval) * 1000
+    else
+      60 * 1000;
 
   ip-up = writeAshScript "ip-up" { } ''
     exec >&5 2>&5
@@ -137,7 +146,7 @@ let
     '';
     notification-fd = 10;
     properties.bandwidth = bandwidth;
-    inherit timeout-up;
+    timeout-up = timeoutUp;
     dependencies = dependencies ++ [ redial ];
   };
 in
