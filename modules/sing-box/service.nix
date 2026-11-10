@@ -8,22 +8,25 @@
   configFile,
   stateDir,
   tunName,
-  templateFile,
+  templateFile ? null,
 }:
 let
   inherit (liminix.services) longrun;
   inherit (lib) escapeShellArg;
   ip = "${iproute2}/bin/ip";
   singBox = "${sing-box}/bin/sing-box";
+  template = if templateFile == null then "" else toString templateFile;
 in
 longrun {
   name = "sing-box";
-  notification-fd = 10;
+  # 不设 notification-fd：配置缺失/无效时本服务只是闲等，不能变成
+  # s6-rc 的超时失败——失败会让依赖它的服务被跳过，且 firewall
+  # 重启它时会连带失败。
   run = ''
     config=${escapeShellArg configFile}
     state=${escapeShellArg stateDir}
     tun=${escapeShellArg tunName}
-    template=${escapeShellArg (toString templateFile)}
+    template=${escapeShellArg template}
 
     mkdir -m 0700 -p "$state"
 
@@ -33,21 +36,22 @@ longrun {
     fi
 
     if ! test -s "$config" ; then
-      echo "sing-box: no runtime config at $config" >&2
-      sleep 60
-      exit 1
+      echo "sing-box: no runtime config at $config; transparent routing stays disabled" >&2
+      while : ; do sleep 3600 ; done
     fi
 
     if ! ${singBox} check -c "$config" ; then
-      echo "sing-box: invalid runtime config at $config" >&2
-      sleep 60
-      exit 1
+      echo "sing-box: invalid runtime config at $config; transparent routing stays disabled" >&2
+      while : ; do sleep 3600 ; done
     fi
 
+    mkdir -p /dev/net
     if ! test -c /dev/net/tun ; then
-      mkdir -p /dev/net
-      mknod /dev/net/tun c 10 200
-      chmod 0600 /dev/net/tun
+      if mknod /dev/net/tun c 10 200 ; then
+        chmod 0600 /dev/net/tun
+      else
+        echo "sing-box: mknod /dev/net/tun failed; transparent routing unavailable" >&2
+      fi
     fi
 
     ${singBox} run -c "$config" &
@@ -77,8 +81,6 @@ longrun {
       fi
       sleep 1
     done
-
-    echo ready >&10
 
     wait "$pid"
     status=$?

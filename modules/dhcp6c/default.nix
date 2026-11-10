@@ -39,7 +39,7 @@ in
       wait-for = mkOption {
         type = types.nullOr types.str;
         default = null;
-        description = "pathname that must exist before the client is started, for interfaces whose IPv6 is only usable later";
+        description = "shell expression evaluating to a path that must exist before the client is started, for interfaces whose IPv6 is only usable later";
       };
       wait-time = mkOption {
         type = types.int;
