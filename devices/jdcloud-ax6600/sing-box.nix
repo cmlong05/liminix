@@ -12,7 +12,7 @@ let
   cfg = config.jdcloudAx6600.singBox;
   template = ./sing-box/config_temp.json;
   templateFile = pkgs.writeText "sing-box-config.json.template" (
-    builtins.replaceStrings [ "\"@TUN_NAME@\"" ] [ builtins.toJSON cfg.tunName ] (builtins.readFile template)
+    builtins.replaceStrings [ "\"@TUN_NAME@\"" ] [ (builtins.toJSON cfg.tunName) ] (builtins.readFile template)
   );
   ruleSetSources = import ./sing-box/SOURCES.nix;
   fetchRuleSet = source:
