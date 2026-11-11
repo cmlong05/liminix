@@ -65,7 +65,7 @@ runCommand "kernel-modules"
       # whichever one won and the image would carry the wrong binary, so
       # an identical duplicate is skipped and a differing one is fatal.
       while IFS= read -r ko; do
-        base=${ko##*/}
+        base=''${ko##*/}
         if test -e "$out/lib/modules/0.0/$base"; then
           cmp -s "$ko" "$out/lib/modules/0.0/$base" || {
             echo "duplicate module $base: $ko differs from the one already collected" >&2

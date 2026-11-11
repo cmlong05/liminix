@@ -107,7 +107,7 @@ stdenv.mkDerivation {
     # Keeping the first copy is right when they are identical; a differing
     # second one would silently replace it, so refuse instead.
     while IFS= read -r ko; do
-      base=${ko##*/}
+      base=''${ko##*/}
       if test -e "$out/lib/modules/0.0/$base"; then
         cmp -s "$ko" "$out/lib/modules/0.0/$base" || {
           echo "duplicate module $base: $ko differs from an earlier one" >&2
