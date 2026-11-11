@@ -9,36 +9,14 @@
   version ? "0",
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
-  rawConfigFile ? null,
-  # What to embed as the initramfs, as a raw .config value (usually a
-  # quoted path). It is an argument rather than a `config` entry because
-  # `kernel.config` is `attrsOf nonEmptyStr` and the option type checks
-  # every value: an entry naming an image that is itself built from this
-  # kernel's modulesupport would be forced at type-check time, which is a
-  # cycle. Null means embed nothing.
-  initramfsSource ? null,
 }:
 let
   stdenv = gcc13Stdenv;
   writeConfig = import ./write-kconfig.nix { inherit lib writeText; };
-  # config items from the attrset (used both standalone and as an
-  # override layer on top of rawConfigFile)
-  attrConfig = writeConfig "kconfig-attr" config;
-  kconfigFile =
-    if rawConfigFile != null then
-      writeText "kconfig" (
-        builtins.readFile rawConfigFile + "\n" + builtins.readFile attrConfig
-      )
-    else
-      attrConfig;
+  kconfigFile = writeConfig "kconfig" config;
   arch = stdenv.hostPlatform.linuxArch;
   targetNames = map baseNameOf targets;
   inherit lib;
-  # appended after olddefconfig so it cannot be lost, and outside the config
-  # attrset so the option type never sees it (see the argument's comment)
-  injectInitramfsSource = lib.optionalString (initramfsSource != null) ''
-    echo 'CONFIG_INITRAMFS_SOURCE="${initramfsSource}"' >> .config
-  '';
 in
 stdenv.mkDerivation rec {
   name = "kernel";
@@ -128,21 +106,11 @@ stdenv.mkDerivation rec {
     cp ${kconfigFile} .config
     cp ${kconfigFile} .config.orig
     make V=1 olddefconfig
-    ${injectInitramfsSource}
-    make V=1 olddefconfig
   '';
-
 
   checkConfigurationPhase = ''
     echo Checking required config items:
-    # Only check the attrset-supplied items: a rawConfigFile (e.g. a
-    # full OpenWrt .config) contains items for a possibly different
-    # kernel version that olddefconfig legitimately drops.
-    # INITRAMFS_SOURCE is not one of them: the value in the attrset is a
-    # placeholder that initramfsSource replaces on purpose.
-    if comm -2 -3 \
-        <(grep 'CONFIG' ${attrConfig} | grep -v '^CONFIG_INITRAMFS_SOURCE=' |sort) \
-        <(grep 'CONFIG' .config|sort) |grep '.'    ; then
+    if comm -2 -3 <(grep 'CONFIG' ${kconfigFile} |sort) <(grep 'CONFIG' .config|sort) |grep '.'    ; then
       echo -e "^^^ Some configuration lost :-(\nPerhaps you have mutually incompatible settings, or have disabled options on which these depend.\n"
       exit 1
     fi

@@ -36,8 +36,9 @@ in
       uimage = callPackage ./kernel/uimage.nix { };
       kernel = callPackage ./kernel { };
     };
-    # one place that assembles a loadable module tree, shared by
-    # pkgs/kmodloader and a fullSystem initramfs. Called as
+    # one place that assembles a loadable module tree, used by
+    # pkgs/kmodloader and by compositions that load modules before s6 is
+    # up (a kmodloader service cannot). Called as
     # `modules.build pkgs { roots = ...; targets = ...; }`; the first
     # argument is the package set, because roots/targets are the caller's
     # and callPackage would otherwise apply them to defaults and hand back
