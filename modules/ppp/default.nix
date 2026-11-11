@@ -68,6 +68,11 @@ in
         default = 30;
         description = "how long to wait between attempts to start the service again after s6-rc has marked it down, in seconds";
       };
+      redial-dependents = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "service names to bring up after PPP recovers, because s6-rc does not start dependents automatically";
+      };
       lcpEcho = {
         adaptive = mkOption {
           description = "send LCP echo-request frames only if no traffic was received from the peer since the last echo-request was sent";

@@ -1,6 +1,6 @@
 { config, pkgs, ... }:
 let
-  inherit (pkgs.liminix.services) target;
+  inherit (pkgs.liminix.services) oneshot target;
   svc = config.system.service;
 in
 rec {
@@ -22,6 +22,15 @@ rec {
     interface = config.hardware.networkInterfaces.wan;
     username = "db123@a.1";
     password = "NotReallyTheSecret";
+    timeout-up = 2000;
+    redial-interval = 1;
+    redial-dependents = [ "pppoe-recovered" ];
+  };
+
+  services.pppoe-recovered = oneshot {
+    name = "pppoe-recovered";
+    dependencies = [ services.pppoe ];
+    up = "touch /run/pppoe-recovered";
   };
 
   services.firewall = svc.firewall.build {

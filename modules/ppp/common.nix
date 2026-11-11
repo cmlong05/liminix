@@ -19,6 +19,7 @@
   ppp-options,
   timeout-up ? null,
   redial-interval ? 30,
+  redial-dependents ? [ ],
   dependencies ? [ ],
 }:
 let
@@ -118,8 +119,7 @@ let
   ];
   # 启动超时（或任何 up 转换失败）会让 s6-rc 把服务标 down，此后
   # s6-supervise 不再拉起 pppd，线路恢复也没人管，所以挂一个长驻服务把
-  # 它 up 回来。用 s6-rc 而不是 s6-svc，依赖它的服务（默认路由、resolvconf、
-  # dhcp6c）才会跟着起来。
+  # 它和依赖它的关键服务一起 up 回来。
   redial = longrun {
     name = "${name}-redial";
     run = ''
@@ -129,7 +129,7 @@ let
       ${s6-rc}/bin/s6-rc -b -a list >/dev/null 2>&1 || true
       while : ; do
         ${s6}/bin/s6-svwait -d $dir
-        ${s6-rc}/bin/s6-rc -b -u change ${name} || true
+        ${s6-rc}/bin/s6-rc -b -u change ${name} ${escapeShellArgs redial-dependents} || true
         sleep ${toString redial-interval}
       done
     '';
