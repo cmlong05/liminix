@@ -117,7 +117,7 @@
    cmds
    [
     ;; deletes are executed before changes
-    "ip address del 2001:0:1:2:3/64 dev ppp0"
+    "ip address del 2001:0:1:2:3/64 dev ppp0 || true"
     "ip address change 2001:ab:cd:ef/64 dev ppp0 valid_lft 7200 preferred_lft 3600"
     ]))
 
