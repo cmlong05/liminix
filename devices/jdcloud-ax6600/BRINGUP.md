@@ -60,9 +60,10 @@
   ath11k 补丁集与 `hardware.dts` 组装方式按该版本适配，升级后需重新验证；
   NSS 参考实现取 **VIKINGYFY main**。
 * **驱动形态 = loadable kmod**：与 OpenWrt/QSDK 一致，加载顺序
-  `qca-ssdk`(30) → `qca-nss-dp`(31) → `qca-nss-drv`(32) → `ecm`；由 `pkgs/kmodloader`
-  用显式 `targets` 加载（`targets` 用 depmod 名字，落地时用
-  `modprobe --show-depends` 校对，必要时回落文件名）。
+  `qca-ssdk`(30) → `qca-nss-dp`(31) → `qca-nss-drv`(32) → `ecm`；由
+  `pkgs.liminix.modules.build` 按显式 `targets` 生成模块树（`targets` 用 depmod
+  名字，构建期用 `modprobe --show-depends` 校对），镜像在 s6-rc 之前用
+  `rc-init.d/modules` 跑 `load.sh`、按 `load-order` 逐个 insmod。
 * **固件**：NSS blob 由驱动按名字请求：`nss_hal.c` 要的是 `qca-nss0.bin`
   （**不是** `qca-nss0-retail.bin`）。OpenWrt 装 retail 名再用
   `/etc/hotplug.d/firmware/10-qca-nss-fw` 改名/链接，**Liminix 没有 hotplug fallback**
