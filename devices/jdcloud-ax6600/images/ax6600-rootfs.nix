@@ -357,8 +357,8 @@ in
           "$(output ${runtime} lan/dhcpRange 2>/dev/null || echo ${lib.escapeShellArg deployment.lan.dhcpRange})"
         ++ lib.optional ipv6Enable "::,constructor:$(output ${config.services.int} ifname),ra-stateless";
       resolvFile = "/run/resolv.conf";
-      hostsFile = "$(output_path ${config.services.dhcp-hosts} hosts)";
-      addnHosts = [ "$(output_path ${config.services.dns-hosts} hosts)" ];
+      hostsFile = "${config.services.dhcp-hosts}/.outputs/hosts";
+      addnHosts = [ "${config.services.dns-hosts}/.outputs/hosts" ];
       dependencies = [
         runtime
         config.services.dhcp-hosts
