@@ -144,7 +144,7 @@ stdenv.mkDerivation rec {
         <(grep 'CONFIG' ${attrConfig} | grep -v '^CONFIG_INITRAMFS_SOURCE=' |sort) \
         <(grep 'CONFIG' .config|sort) |grep '.'    ; then
       echo -e "^^^ Some configuration lost :-(\nPerhaps you have mutually incompatible settings, or have disabled options on which these depend.\n"
-      exit 0
+      exit 1
     fi
     echo "OK"
   '';
