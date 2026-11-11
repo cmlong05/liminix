@@ -442,6 +442,13 @@ in
 
   services.wan = svc.pppoe.build {
     interface = config.services.wan-if;
+    redial-dependents = [
+      "resolvconf"
+      "ntp"
+      "sing-box"
+      "wan-gro"
+    ]
+    ++ lib.optional ipv6Enable "dhcp6c";
     username =
       if deployment.wan.pppoe.username == null then
         null
