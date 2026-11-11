@@ -10,9 +10,16 @@
     deleted))
 
 (fn update-prefixes [wan-device addresses new-addresses exec]
+  ;; `del` is not idempotent the way `change` is: the address is runtime
+  ;; state, so after a reboot - or once its lifetime runs out - it is not
+  ;; there to delete, and `ip` exits 2 with "address not found". Tolerate
+  ;; that, because the snapshot below is written only after the update:
+  ;; an error here leaves the stale prefix on record, the service is
+  ;; restarted, and every run repeats the same failing delete.
   (each [_ p (ipairs (deletions addresses new-addresses))]
     (exec
-     (.. "ip address del " p.address "1/" p.len " dev " wan-device)))
+     (.. "ip address del " p.address "1/" p.len " dev " wan-device
+         " || true")))
   (each [_ p (pairs new-addresses)]
     (exec
      (.. "ip address change " p.address "1/" p.len

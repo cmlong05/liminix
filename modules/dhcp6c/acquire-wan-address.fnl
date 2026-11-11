@@ -10,9 +10,14 @@
     deleted))
 
 (fn update-addresses [wan-device addresses new-addresses exec]
+  ;; The address may already be gone - its lifetime ran out, or the
+  ;; uplink came back with a different one - and `ip` exits 2 saying so.
+  ;; That is the state we wanted, not a reason to abandon the rest of
+  ;; the update.
   (each [_ p (ipairs (deletions addresses new-addresses))]
     (exec
-     (.. "ip address del " p.address "/" p.len " dev " wan-device)))
+     (.. "ip address del " p.address "/" p.len " dev " wan-device
+         " || true")))
   (each [_ p (pairs new-addresses)]
     (exec
      (.. "ip address change " p.address "/" p.len
