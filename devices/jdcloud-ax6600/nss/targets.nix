@@ -1,6 +1,8 @@
-# The modprobe names an image's module tree loads, as two groups. Both
-# `pkgs.liminix.modules.build` (preinit) and `pkgs/kmodloader` (a service) take
-# a list of these and let depmod work out the order.
+# The modprobe names an image's module tree loads, as two groups.
+# `pkgs.liminix.modules.build` takes a list of these and lets depmod work out
+# the order; the image then loads the result itself (ax6600-rootfs runs
+# load.sh from rc-init.d before s6-rc, and keeps a oneshot as firewall's
+# dependency anchor).
 #
 # A target whose .ko the image's kernel does not build is a *build failure*,
 # not a no-op: modules.build runs `modprobe --show-depends` for every name.
@@ -12,8 +14,10 @@
 #     wireless/default.nix build these, since that module is what sets
 #     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB in the kernel config.
 #
-# Not here: the nft_* modules. The rootfs image gets them from
-# modules/firewall's own kmodloader instead.
+# Not here: the nft_* modules. They arrive through
+# config.firewall.kernelModuleTargets, which the image appends to this list and
+# then points firewall.kernelModules at, so one tree loads both and firewall
+# does not build a second kmodloader.
 let
   wired = [
     "nf_conntrack"
