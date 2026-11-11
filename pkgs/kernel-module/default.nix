@@ -103,9 +103,20 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p $out/lib/modules/0.0
-    for ko in $(find . -name '*.ko'); do
-      install -m 0644 $ko $out/lib/modules/0.0/$(basename $ko)
-    done
+    # kbuild may leave the same module name in more than one M= directory.
+    # Keeping the first copy is right when they are identical; a differing
+    # second one would silently replace it, so refuse instead.
+    while IFS= read -r ko; do
+      base=${ko##*/}
+      if test -e "$out/lib/modules/0.0/$base"; then
+        cmp -s "$ko" "$out/lib/modules/0.0/$base" || {
+          echo "duplicate module $base: $ko differs from an earlier one" >&2
+          exit 1
+        }
+      else
+        install -m 0644 "$ko" "$out/lib/modules/0.0/$base"
+      fi
+    done < <(find . -name '*.ko')
     test -n "$(find $out/lib/modules/0.0 -name '*.ko' -print -quit)" \
       || { echo "no .ko produced by ${name}"; exit 1; }
     # kbuild writes Module.symvers into the M= directory, which for a

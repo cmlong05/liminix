@@ -1,13 +1,8 @@
 # The one place that turns a set of `.ko` trees into a loadable module
-# tree. Both consumers in the repo go through it:
-#
-#   * `pkgs/kmodloader` - the oneshot that insmods after s6 is up
-#     (TFTP/phram images, wlan.module)
-#   * `modules/outputs/initramfs.nix` - the tree `pkgs/preinit` loads
-#     before it hands over to s6, which is how a fullSystem image with
-#     loadable modules works at all (a kmodloader *service* cannot: it
-#     needs kernel.modulesupport, and a fullSystem image embeds the whole
-#     rootdir into that same kernel derivation)
+# tree. In this repo `pkgs/kmodloader` goes through it: the oneshot that
+# insmods after s6 is up (TFTP/phram images, wlan.module). A composition
+# that needs the same tree for something else - loading modules from an
+# /etc/rc-init.d hook, say - asks for it rather than copying the shell.
 #
 # Reached as `pkgs.liminix.modules.build pkgs { roots = ...; targets = ...; }`.
 # `roots` is a list of trees containing `*.ko` somewhere (the `modulesupport`
@@ -65,8 +60,21 @@ runCommand "kernel-modules"
       test -n "$root" || continue
       # a kernel tree keeps its .ko files beside the sources and a module
       # package keeps them under lib/modules, so they are collected flat:
-      # 0.0/ is the layout modprobe and preinit look for.
-      find "$root" -name '*.ko' -exec cp -t $out/lib/modules/0.0 {} +
+      # 0.0/ is the layout modprobe looks for. The same module name from
+      # two roots is a conflict rather than a merge - modprobe would load
+      # whichever one won and the image would carry the wrong binary, so
+      # an identical duplicate is skipped and a differing one is fatal.
+      while IFS= read -r ko; do
+        base=${ko##*/}
+        if test -e "$out/lib/modules/0.0/$base"; then
+          cmp -s "$ko" "$out/lib/modules/0.0/$base" || {
+            echo "duplicate module $base: $ko differs from the one already collected" >&2
+            exit 1
+          }
+        else
+          cp "$ko" "$out/lib/modules/0.0/$base"
+        fi
+      done < <(find "$root" -name '*.ko')
       # a kernel tree carries modules.* metadata, a module package only
       # its .ko files; Module.symvers is deliberately not copied here
       for meta in "$root"/modules.*; do
