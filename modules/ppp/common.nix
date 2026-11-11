@@ -5,6 +5,7 @@
   lib,
   s6,
   s6-rc,
+  s6-rc-up-tree,
   serviceFns,
   output-template,
 }:
@@ -26,6 +27,7 @@ let
   inherit (lib)
     optional
     optionals
+    optionalString
     escapeShellArgs
     ;
   inherit (liminix.services) longrun;
@@ -118,18 +120,26 @@ let
     "2"
   ];
   # 启动超时（或任何 up 转换失败）会让 s6-rc 把服务标 down，此后
-  # s6-supervise 不再拉起 pppd，线路恢复也没人管，所以挂一个长驻服务把
-  # 它和依赖它的关键服务一起 up 回来。
+  # s6-supervise 不再拉起 pppd，线路恢复也没人管。s6-rc 的 change 只 up
+  # 服务本身和它的依赖，不 up 依赖它的服务，所以挂一个长驻服务，用
+  # s6-rc-up-tree 拉起整棵反向依赖树（它会跳过被 down 掉的 controlled 服务）。
   redial = longrun {
     name = "${name}-redial";
     run = ''
       dir=/run/service/${name}
       until test -d $dir/supervise ; do sleep 1 ; done
+      # up-tree 调裸名 s6-rc / s6-rc-db
+      export PATH=${s6-rc}/bin:${s6}/bin:${s6-rc-up-tree}/bin:$PATH
       # 等 boot 的 up 序列交出 s6-rc 锁，否则会抢在 runlevel 前面启动服务
-      ${s6-rc}/bin/s6-rc -b -a list >/dev/null 2>&1 || true
+      s6-rc -b -a list >/dev/null 2>&1 || true
       while : ; do
         ${s6}/bin/s6-svwait -d $dir
-        ${s6-rc}/bin/s6-rc -b -u change ${name} ${escapeShellArgs redial-dependents} || true
+        # 没有可拉起的服务时 up-tree 退出 1
+        s6-rc-up-tree ${name} || true
+        ${optionalString (redial-dependents != [ ]) ''
+          # 图里查不到的服务（不声明对 WAN 的依赖）才需要在这里列出
+          s6-rc -b -u change ${escapeShellArgs redial-dependents} || true
+        ''}
         sleep ${toString redial-interval}
       done
     '';

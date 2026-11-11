@@ -71,7 +71,12 @@ in
       redial-dependents = mkOption {
         type = types.listOf types.str;
         default = [ ];
-        description = "service names to bring up after PPP recovers, because s6-rc does not start dependents automatically";
+        description = ''
+          service names to bring up after PPP recovers that the s6-rc
+          dependency graph cannot find. Redial already brings up every
+          service that depends on this one, so only services that do not
+          declare that dependency belong here.
+        '';
       };
       lcpEcho = {
         adaptive = mkOption {
