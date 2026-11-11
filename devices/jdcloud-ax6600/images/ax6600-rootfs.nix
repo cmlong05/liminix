@@ -135,8 +135,9 @@ let
   moduleTargets =
     (import ../nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
 
-  # The same tree pkgs/kmodloader builds for the service, asked for here as
-  # well so the init phase can load it (see etc/rc-init.d/modules below).
+  # The module tree this image loads itself: rc-init.d/modules runs load.sh
+  # from it before s6-rc (see etc/rc-init.d/modules below), and
+  # services.modules keeps a oneshot as firewall's dependency anchor.
   moduleTree = pkgs.liminix.modules.build pkgs {
     roots = [ config.system.outputs.kernel.modulesupport ] ++ moduleFiles;
     targets = moduleTargets;

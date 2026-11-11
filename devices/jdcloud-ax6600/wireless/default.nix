@@ -237,10 +237,10 @@ in
       # The AHB half of ath11k needs the remoteproc framework; the wcss
       # driver itself comes from the kernel patches.
       REMOTEPROC = "y";
-      # A module, not built-in: the mounted-root shapes load it from the
-      # kmodloader once /lib/firmware is on disk, where modules/wlan.nix puts
-      # regulatory.db. Built-in it asks for that file at late_initcall, before
-      # the kernel mounts the root, and the failure sticks.
+      # A module, not built-in: this image loads it from its module tree once
+      # /lib/firmware is on disk, where modules/wlan.nix puts regulatory.db.
+      # Built-in it asks for that file at late_initcall, before the kernel
+      # mounts the root, and the failure sticks.
       CFG80211 = lib.mkForce "m";
 
       # ath11k_peer_rx_frag_setup() allocates a "michael_mic" shash for every
@@ -249,10 +249,11 @@ in
       #   ath11k: failed to allocate michael_mic shash: -2
       #   ath11k: failed to setup dp for peer <mac> on vdev 0 (-2)
       #   ath11k: Failed to add station: <mac> for VDEV: 0
-      # Mainline leaves the symbol at m, and a fullSystem image has no
-      # kmodloader: preinit loads exactly the module tree's load-order and
-      # request_module() has no /sbin/modprobe to fall back on, so `=m`
-      # never loads even though the .ko is carried in the image.
+      # Mainline leaves the symbol at m, and nothing here would load it: the
+      # image runs exactly the module tree's load-order, and request_module()
+      # has no /sbin/modprobe to fall back on (busybox provides insmod and
+      # rmmod, not modprobe), so `=m` never loads even though the .ko is
+      # carried in the image.
       CRYPTO_MICHAEL_MIC = "y";
 
       # hostapd opens /dev/rfkill in rfkill_init() and logs "rfkill: Cannot
