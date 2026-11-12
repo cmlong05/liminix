@@ -1,31 +1,16 @@
-# Deployment values for the JDCloud AX6600 (RE-CS-02)
+# 站点：office —— 默认站点，`sh build.sh` 不带 -c 时就是它
 #
-# To deploy the same board on a different network, copy this file, change
-# the numbers, and select it on the command line with the same `-I` idiom
-# used for the configuration itself:
-#
-#   -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix
-#
-# Without that argument the build uses this file.
+# 共同项在 ./_defaults.nix，这里只写与它不同的部分。新增站点：复制本文件
+# 成 config-<名字>.nix，改下面这几处，再用 `sh build.sh -c <名字>`。
 {
   hostname = "office-ax6600";
-  hardware = {
-    rootDevice = "PARTLABEL=rootfs";
-    usbRootDevice = "PARTLABEL=liminix-root";
-  };
-
-  # Build-time only: also write the s6 log stream to the pstore pmsg
-  # device, so logs outlive a reboot. Requires a rebuild.
-  persistentLogging = true;
 
   lan = {
     address = "10.10.10.10";
-    prefixLength = 24;
     dhcpRange = "10.10.10.50,10.10.10.200,255.255.255.0,12h";
 
-    # Static leases keyed by hostname: `mac` and `ip`
-    # are required, `leasetime` optional (default 86400). Keep the
-    # addresses outside dhcpRange.
+    # 静态租约：`mac` 和 `ip` 必填，`leasetime` 可选（默认 86400），
+    # 地址不要落在 dhcpRange 内
     dhcpHosts = {
       raspberrypi = {
         mac = "B8:27:EB:C0:01:5A";
@@ -45,86 +30,29 @@
       };
     };
 
-    # Local DNS records answered by dnsmasq itself instead of being
-    # forwarded upstream. Keyed by hostname, value is the address.
+    # dnsmasq 自己回答、不转发上游的记录
     dnsHosts = {
       "erp.bumooby.com" = "10.10.10.9";
     };
   };
 
   wan = {
-    # 构建期 WAN 上联口；其余有线口均为 LAN。
-    interface = "wan";
-
-    # 构建期开关：WAN 上联口同时作为 WAN/LAN VLAN trunk。
     singleLine.enable = true;
-
-    # 802.1Q tag the WAN port needs in front of the PPPoE session (many
-    # ISPs hand the session out on a VLAN). null, or no key at all, means an
-    # untagged WAN.
     vlan = 1510;
-
-    # The ONT keeps its management address (usually 192.168.1.1) on the
-    # untagged side of the WAN port, where the PPPoE session cannot reach
-    # it: the router takes an address in that subnet so both it and the
-    # LAN can get there (ax6600-rootfs.nix, service wan-ont).
-    ont = {
-      address = "192.168.1.2";
-      prefixLength = 24;
-    };
-
-    # IPv6 over the same PPPoE session: ask the BRAS for a delegated
-    # prefix (DHCPv6-PD), then hand it to the LAN by SLAAC.
-    ipv6 = {
-      enable = true;
-    };
-
     pppoe = {
       username = "xga102782536";
       password = "443508";
     };
-
-    # Extra upstream resolvers
-    extraResolvers = [
-      "223.5.5.5"
-      "119.29.29.29"
-    ];
   };
 
-  # APs. Read at build time by devices/jdcloud-ax6600/wireless/default.nix and
-  # published through the deployment seed.
-  # `bands` is keyed by which AHB pdev serves it: "24g" and "58g".
-  wifi = {
-    countryCode = "CN";
-    # Build-time switch: false leaves the APs off at boot, to be started by
-    # hand.
-    autostart = true;
-    # Each band names its own passphrase and encryption mode: there is no
-    # wifi-wide one of either, so two SSIDs cannot share a secret by
-    # accident. Both passphrase and mode are build-time values.
-    # Mode: "wpa2" | "wpa2-wpa3" (needs hostapd built with SAE) | "open".
-    bands = {
-      "24g" = {
-        ssid = "MUL";
-        hw_mode = "g";
-        channel = "6";
-        password = "mubimuba";
-        security = "wpa2";
-      };
-      "58g" = {
-        ssid = "MU";
-        hw_mode = "a";
-        channel = "149";
-        ieee80211ac = 1;
-        ieee80211ax = 1;
-        ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
-        vht_oper_chwidth = 1;
-        vht_oper_centr_freq_seg0_idx = 155;
-        he_oper_chwidth = 1;
-        he_oper_centr_freq_seg0_idx = 155;
-        password = "mubimuba";
-        security = "wpa2";
-      };
+  wifi.bands = {
+    "24g" = {
+      ssid = "MUL";
+      password = "mubimuba";
+    };
+    "58g" = {
+      ssid = "MU";
+      password = "mubimuba";
     };
   };
 }
