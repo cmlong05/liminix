@@ -88,8 +88,18 @@ sudo mkfs.ext4 -m 1 -L liminix-root /dev/sdX2
 ALLOW_HOSTNAME_MISMATCH=1 ./result-updater/bin/update.sh --fast root@<device>
 # 该变量在运行 update.sh 的构建机上读取，无需重建镜像，只有精确值 1 生效
 
-# 部署参数在建构时固定：修改 config.nix，或用 -I liminix-deployment=... 指定文件，
+# 部署参数在建构时固定：改 config.nix，或用 -c 换配置文件
+#   ./build.sh -c home            # config-home.nix
+#   ./build.sh -c wuhan           # config-wuhan.nix
+#   ./build.sh -c <任意路径.nix>
+# 站点之间只有 hostname/网段/拨号/VLAN/SSID/口令/静态租约不同，共同项在
+# devices/jdcloud-ax6600/_defaults.nix；新增站点复制任一 config-*.nix 改差异即可。
+# 直接调 nix-build 时用 -I liminix-deployment=<file>，不带则用 config.nix。
 # 然后重新构建并更新镜像。运行时不读取 /etc/liminix/config.json。
+# 站点防火墙规则：-c <站点> 会用 config_firewall-<站点>.nix（存在时），
+# 也可用 -f 指定，-f none 表示不带任何站点放行规则
+#   ./build.sh -c home -f home
+#   ./build.sh -f none
 # update-usb.sh 全量同步 p2，但保留 /var/lib/liminix 状态。
 # kernel/initramfs 变化刷新 p16；完整 rootfs 镜像变化刷新 p18；仅 userspace
 # 变化可使用 updater。
