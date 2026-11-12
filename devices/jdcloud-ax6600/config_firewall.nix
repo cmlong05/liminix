@@ -1,11 +1,15 @@
-# 站点防火墙策略
+# 站点防火墙策略（默认站点的规则）
 #
 # 这份规则不跟着镜像走：只有构建时显式指定才生效
 #
-#   -I liminix-firewall=./devices/jdcloud-ax6600/config_firewall.nix
+#   sh build.sh -c home -f home   # 用 config_firewall-home.nix
+#   sh build.sh -f none           # 镜像不带任何站点放行规则
 #
-# 不带该参数时镜像不带任何站点放行规则（build.sh 已带上）。每条是 nft
-# 规则文本：incomingAllowedIp6 追加进默认留空的 incoming-allowed-ip6
+# build.sh 默认带上本文件；-c <站点> 时优先找 config_firewall-<站点>.nix，
+# 找不到才退回本文件并提示。直接调 nix-build 时用
+# -I liminix-firewall=<file>，不带该参数就是没有站点规则。
+#
+# 每条是 nft 规则文本：incomingAllowedIp6 追加进默认留空的 incoming-allowed-ip6
 # （转发与到本机两条链都会跳进去），appendRules 追加到规则集里已有的链
 # 末尾，appendRulesBeforeLog 则插到链的 log 规则之前，链名见
 # modules/firewall/default-rules.nix。
