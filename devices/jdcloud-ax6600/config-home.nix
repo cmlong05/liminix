@@ -17,8 +17,8 @@
         mac = "3C:7C:3F:50:D8:3F";
         ip = "10.10.0.5";
       };
-      openmediavault = {
-        mac = "34:97:F6:BC:8D:AA";
+      Xiaomi_M2006J10C = {
+        mac = "5a:a8:ee:1f:7f:9b";
         ip = "10.10.0.9";
       };
     };
