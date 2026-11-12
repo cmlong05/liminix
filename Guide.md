@@ -23,9 +23,8 @@ fw_printenv
 # p18: rootfs，ext4
 ### 修改分区名字后验证，确定与config.nix中的相同
 
-### 上传
+### 上传 uimage
 scp -O result-uimage root@10.10.x.1:/tmp/
-scp -O result-rootfs root@10.10.x.1:/tmp/
 
 # 刷写Kernel
 uimage=/tmp/result-uimage
@@ -36,6 +35,8 @@ dd if=/dev/mmcblk0p16 bs="$size" count=1 | md5sum
 # 刷写，之后再验证
 dd if="$uimage" of=/dev/mmcblk0p16 bs=1M
 
+### 上传 rootfs
+scp -O result-rootfs root@10.10.x.1:/tmp/
 # 刷写rootfs
 image=/tmp/result-rootfs
 # 先部分验证
