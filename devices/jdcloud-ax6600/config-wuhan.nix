@@ -1,117 +1,31 @@
-# Deployment values for the JDCloud AX6600 (RE-CS-02)
+# 站点：wuhan —— `sh build.sh -c wuhan`
 #
-# To deploy the same board on a different network, copy this file, change
-# the numbers, and select it on the command line with the same `-I` idiom
-# used for the configuration itself:
-#
-#   -I liminix-deployment=./devices/jdcloud-ax6600/config-lab.nix
-#
-# Without that argument the build uses this file.
+# 共同项在 ./_defaults.nix，这里只写与它不同的部分。
+# 本站在普通非 tag 的 WAN 上拨号（不启用 singleLine、无 vlan），也没有
+# 静态租约和本地 DNS 记录，这些都取 _defaults.nix 的默认值。
 {
   hostname = "wuhan-ax6600";
-  hardware = {
-    rootDevice = "PARTLABEL=rootfs";
-    usbRootDevice = "PARTLABEL=liminix-root";
-  };
-
-  # Build-time only: also write the s6 log stream to the pstore pmsg
-  # device, so logs outlive a reboot. Needs a rebuild, not a config edit.
-  persistentLogging = true;
 
   lan = {
     address = "10.10.2.1";
-    prefixLength = 24;
     dhcpRange = "10.10.2.50,10.10.2.200,255.255.255.0,12h";
-
-    # Static leases keyed by hostname, applied at run time: `mac` and `ip`
-    # are required, `leasetime` optional (default 86400). Keep the
-    # addresses outside dhcpRange.
-    dhcpHosts = {
-    };
-
-    # Local DNS records answered by dnsmasq itself instead of being
-    # forwarded upstream. Keyed by hostname, value is the address.
-    dnsHosts = {
-      "erp.bumooby.com" = "10.10.10.9";
-    };
   };
 
   wan = {
-    # 构建期 WAN 上联口；其余有线口均为 LAN。
-    # interface = "wan";
-
-    # 构建期开关：WAN 上联口同时作为 WAN/LAN VLAN trunk。
-    # singleLine.enable = true;
-
-    # 802.1Q tag the WAN port needs in front of the PPPoE session (many
-    # ISPs hand the session out on a VLAN). null, or no key at all in the
-    # run-time /etc/liminix/config.json, means an untagged WAN.
-    # vlan = 1510;
-
-    # The ONT keeps its management address (usually 192.168.1.1) on the
-    # untagged side of the WAN port, where the PPPoE session cannot reach
-    # it: the router takes an address in that subnet so both it and the
-    # LAN can get there (ax6600-rootfs.nix, service wan-ont).
-    ont = {
-      address = "192.168.1.2";
-      prefixLength = 24;
-    };
-
-    # IPv6 over the same PPPoE session: ask the BRAS for a delegated
-    # prefix (DHCPv6-PD), then hand it to the LAN by SLAAC.
-    ipv6 = {
-      enable = true;
-    };
-
     pppoe = {
       username = "5110010895521";
       password = "071291";
     };
-
-    # Extra upstream resolvers
-    extraResolvers = [
-      "223.5.5.5"
-      "119.29.29.29"
-    ];
   };
 
-  # APs. Read at build time by devices/jdcloud-ax6600/wireless/default.nix
-  # and again at run time from this file's seed in /etc/liminix/config.json, so
-  # changing an SSID, passphrase or channel needs no new image.
-  # `bands` is keyed by which AHB pdev serves it: "24g" and "58g".
-  wifi = {
-    countryCode = "CN";
-    # Build-time switch (a rebuild is needed, unlike the run-time overrides
-    # above): false leaves the APs off at boot, to be started by hand.
-    autostart = true;
-    # Each band names its own passphrase and encryption mode: there is no
-    # wifi-wide one of either, so two SSIDs cannot share a secret by
-    # accident. Passphrases are read at run time; the mode is build-time
-    # only, because hostapd's config is a static file that run time cannot
-    # rewrite.
-    # Mode: "wpa2" | "wpa2-wpa3" (needs hostapd built with SAE) | "open".
-    bands = {
-      "24g" = {
-        ssid = "CHEN";
-        hw_mode = "g";
-        channel = "6";
-        password = "88888888!!";
-        security = "wpa2";
-      };
-      "58g" = {
-        ssid = "CH";
-        hw_mode = "a";
-        channel = "149";
-        ieee80211ac = 1;
-        ieee80211ax = 1;
-        ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
-        vht_oper_chwidth = 1;
-        vht_oper_centr_freq_seg0_idx = 155;
-        he_oper_chwidth = 1;
-        he_oper_centr_freq_seg0_idx = 155;
-        password = "88888888!!";
-        security = "wpa2";
-      };
+  wifi.bands = {
+    "24g" = {
+      ssid = "CHEN";
+      password = "88888888!!";
+    };
+    "58g" = {
+      ssid = "CH";
+      password = "88888888!!";
     };
   };
 }
