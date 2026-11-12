@@ -11,3 +11,4 @@ research/
 .reasonix
 .nixcache
 /config.json
+.workbuddy/
