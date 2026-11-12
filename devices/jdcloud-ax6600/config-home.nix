@@ -1,7 +1,7 @@
 # 站点：home —— `sh build.sh -c home`
 #
 # 共同项在 ./_defaults.nix，这里只写与它不同的部分。
-{
+import ./_defaults.nix {
   hostname = "home-ax6600";
 
   lan = {

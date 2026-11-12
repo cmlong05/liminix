@@ -2,7 +2,7 @@
 #
 # 共同项在 ./_defaults.nix，这里只写与它不同的部分。新增站点：复制本文件
 # 成 config-<名字>.nix，改下面这几处，再用 `sh build.sh -c <名字>`。
-{
+import ./_defaults.nix {
   hostname = "office-ax6600";
 
   lan = {
