@@ -91,11 +91,43 @@
     ;; address before reinstating it
     (expect= del [(. a1 "2001-ab-cd-ef")])))
 
+(fn reconcile-returns-the-new-baseline []
+  ;; the value handed to the next event must be the new address set, not
+  ;; write-snapshot's result (os.rename returns true) - using true as the
+  ;; baseline makes the following event call pairs(true) and die
+  (let [snapshot (os.tmpname)
+        cmds []
+        baseline
+        (subject.reconcile
+         "ppp0" (merge (dup a1) a2) a1
+         (fn [c] (table.insert cmds c)) snapshot)]
+    (expect= baseline a1)
+    (let [cmds2 []]
+      (subject.reconcile
+       "ppp0" baseline a2
+       (fn [c] (table.insert cmds2 c)) snapshot)
+      (expect= (. cmds2 1)
+               "ip address del 2001:ab:cd:ef/64 dev ppp0 || test $? -eq 2"))
+    (os.remove snapshot)))
+
+(fn snapshot-entries-can-be-a-baseline []
+  ;; read-snapshot only restores address/len; deletions must work with
+  ;; just those two fields, so a restart can reconcile with the kernel
+  (let [snapshot (os.tmpname)]
+    (subject.write-snapshot snapshot (merge (dup a1) a2))
+    (let [del (subject.deletions (subject.read-snapshot snapshot) a1)]
+      (expect= (# del) 1)
+      (expect= (. (. del 1) "address") "2001:0:1:2:3")
+      (expect= (. (. del 1) "len") "64"))
+    (os.remove snapshot)))
+
 (first-address)
 (second-address)
 (old-address-is-deleted)
 (changed-lifetime-not-deleted)
 (changed-prefix-is-deleted)
+(reconcile-returns-the-new-baseline)
+(snapshot-entries-can-be-a-baseline)
 
 (let [cmds []]
   (subject.update-addresses
@@ -117,7 +149,7 @@
    cmds
    [
     ;; deletes are executed before changes
-    "ip address del 2001:0:1:2:3/64 dev ppp0 || true"
+    "ip address del 2001:0:1:2:3/64 dev ppp0 || test $? -eq 2"
     "ip address change 2001:ab:cd:ef/64 dev ppp0 valid_lft 7200 preferred_lft 3600"
     ]))
 

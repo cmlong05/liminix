@@ -13,13 +13,14 @@
   ;; `del` is not idempotent the way `change` is: the address is runtime
   ;; state, so after a reboot - or once its lifetime runs out - it is not
   ;; there to delete, and `ip` exits 2 with "address not found". Tolerate
-  ;; that, because the snapshot below is written only after the update:
-  ;; an error here leaves the stale prefix on record, the service is
-  ;; restarted, and every run repeats the same failing delete.
+  ;; *only* that. Other failures (bad device, bad address, EPERM) exit 1
+  ;; and must still fail the update so s6 replays it: `|| true` swallowed
+  ;; those too, leaving the old prefix on the interface while the snapshot
+  ;; had already forgotten it.
   (each [_ p (ipairs (deletions addresses new-addresses))]
     (exec
      (.. "ip address del " p.address "1/" p.len " dev " wan-device
-         " || true")))
+         " || test $? -eq 2")))
   (each [_ p (pairs new-addresses)]
     (exec
      (.. "ip address change " p.address "1/" p.len
@@ -56,21 +57,33 @@
         (os.rename (.. pathname ".new") pathname))
     nil nil))
 
+;; One reconciliation step. Its return value is the baseline for the next
+;; event, so it has to be the new address set - not write-snapshot's result
+;; (os.rename returns true). Using the latter as the accumulator made the
+;; second event call pairs(true) and kill the service.
+(fn reconcile [device addresses new exec snapshot]
+  ;; snapshot after updating, not before: update is idempotent, so a
+  ;; crash between the two replays it on the next run, whereas the
+  ;; reverse order would forget the old prefix and leave it on the LAN
+  (update-prefixes device addresses new exec)
+  (write-snapshot snapshot new)
+  new)
+
 (fn run []
   (let [[state-directory lan-device snapshot-directory] arg
         dir (svc.open state-directory)
         snapshot (.. (or snapshot-directory state-directory) "/pd-snapshot")
         known (read-snapshot snapshot)
-        current (or (dir:output "prefix") [])]
-    ;; snapshot after updating, not before: update is idempotent, so a
-    ;; crash between the two replays it on the next run, whereas the
-    ;; reverse order would forget the old prefix and leave it on the LAN
-    (update-prefixes lan-device known current system)
-    (write-snapshot snapshot current)
-    (accumulate [addresses current
+        initial (dir:output "prefix")]
+    (when initial
+      (reconcile lan-device known initial system snapshot))
+    (accumulate [addresses (or initial known)
                  v (dir:events)]
-      (let [new (or (v:output "prefix") [])]
-        (update-prefixes lan-device addresses new system)
-        (write-snapshot snapshot new)))))
+      (let [new (v:output "prefix")]
+        (if new
+            (reconcile lan-device addresses new system snapshot)
+            ;; a failed read is not "all prefixes were withdrawn": keep
+            ;; the baseline and wait for the next event
+            addresses)))))
 
-{ : changes : run }
+{ : update-prefixes : deletions : reconcile : read-snapshot : write-snapshot : run }
