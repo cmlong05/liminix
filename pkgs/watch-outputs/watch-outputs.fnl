@@ -41,14 +41,22 @@
 (fn changed? [paths old-tree new-tree]
   (accumulate [changed? false
                _ path (ipairs paths)]
-    (or changed? (not (table= (dig old-tree path) (dig new-tree path))))))
+    (let [old (dig old-tree path)
+          new (dig new-tree path)]
+      (or changed?
+          ;; a watched value that is missing this time round is not a
+          ;; change: services publish their outputs by rewriting files, so
+          ;; acting on the instant between truncate and write restarts the
+          ;; controlled service every time its source rewrites itself
+          (and (not= new nil) (not (table= old new)))))))
 
 (define-tests
-  (expect (changed? [["ifname"]] {:ifname "true"} {:ifindex 2}))
+  (expect (not (changed? [["ifname"]] {:ifname "true"} {:ifindex 2})))
   (expect (changed? [["ifname"]] {:ifname "true"} {:ifname "false"}))
   (expect (not (changed? [["ifname"]] {:ifname "true"} {:ifname "true"})))
   (expect (not (changed? [["mtu"]] {:ifname "true"} {:ifname "false"})))
   (expect (not (changed? [["mtu"]] {:ifname "true"} {:ifname "false"})))
+  (expect (changed? [["ifname"]] {} {:ifname "true"}))
   )
 
 (fn do-action [action service]
@@ -79,15 +87,20 @@
          : watched-service
          : paths } (parse-args arg)
         services (open-services output-references)]
+    (var first true)
     (while true
-      (when
-          (accumulate [changed false
-                       service paths (pairs services)]
-            (let [new-tree (service:output ".")]
-              (if (changed? paths (or (. trees service) {}) new-tree)
-                  (do (tset trees service new-tree) true)
-                  changed)))
-        (do-action action controlled-service))
+      (let [changed (accumulate [changed false
+                                 service paths (pairs services)]
+                      (let [new-tree (service:output ".")]
+                        (if (changed? paths (or (. trees service) {}) new-tree)
+                            (do (tset trees service new-tree) true)
+                            changed)))]
+        ;; the first reading only establishes a baseline: the service being
+        ;; watched has already started and read its outputs, so acting on
+        ;; what it has published would restart it for nothing
+        (when (and changed (not first))
+          (do-action action controlled-service))
+        (set first false))
       (wait-for-change services))))
 
 
