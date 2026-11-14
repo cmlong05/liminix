@@ -13,7 +13,6 @@ let
   inherit (builtins)
     filter
     attrValues
-    typeOf
     ;
 
   # This is not a friendly interface to configuring a wireless AP: it
@@ -31,17 +30,13 @@ let
     ctrl_interface_group = 0;
   };
   attrs = defaults // params;
+  isOutputRef = o: builtins.isFunction o || (builtins.isAttrs o && o ? __functor);
   literal_or_output =
     o:
-    (
-      {
-        string = builtins.toJSON;
-        int = builtins.toJSON;
-        lambda = (o: "output(${builtins.toJSON (o "service")}, ${builtins.toJSON (o "path")})");
-      }
-      .${builtins.typeOf o}
-    )
-      o;
+    if isOutputRef o then
+      "output(${builtins.toJSON (o "service")}, ${builtins.toJSON (o "path")})"
+    else
+      builtins.toJSON o;
 
   conf = (
     writeText "hostapd.conf.in" (
@@ -58,7 +53,7 @@ let
       exec ${hostapd}/bin/hostapd -i $(output ${interface} ifname) -P /run/${name}/hostapd.pid -S /run/${name}/hostapd.conf
     '';
   };
-  watch = filter (f: typeOf f == "lambda") (attrValues attrs);
+  watch = filter isOutputRef (attrValues attrs);
 in
 svc.secrets.subscriber.build {
   inherit service watch;
