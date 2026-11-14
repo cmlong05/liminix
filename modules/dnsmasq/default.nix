@@ -37,6 +37,20 @@ in
         type = types.nullOr liminix.lib.types.service;
         default = null;
       };
+      resolvFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Path of a file holding the upstream nameservers, for callers that
+          write it themselves. `resolvconf` cannot express that: dnsmasq
+          exits at start-up if the directory of its --resolv-file does not
+          exist yet, and a service's output directory is created only when
+          that service runs - which for a PPPoE-derived resolv.conf is after
+          dnsmasq would already have started. A path in /run always exists,
+          and dnsmasq watches the directory, so it picks the file up when it
+          appears.
+        '';
+      };
       interface = mkOption {
         type = liminix.lib.types.service;
         default = null;
@@ -44,6 +58,15 @@ in
       upstreams = mkOption {
         type = types.listOf types.str;
         default = [ ];
+      };
+      addnHosts = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = ''
+          Paths of extra files in /etc/hosts format (`IP name`, one per
+          line) that dnsmasq answers from directly instead of forwarding
+          them upstream.
+        '';
       };
       ranges = mkOption {
         type = types.listOf types.str;
@@ -84,6 +107,16 @@ in
             };
           }
         );
+      };
+      hostsFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Path of a file of --dhcp-host lines, one host per line, in the
+          syntax of `hosts` above. dnsmasq reads it at start-up and whenever
+          it receives SIGHUP, so unlike `hosts` - which is fixed in the
+          image - it can carry leases that change on a running system.
+        '';
       };
       domain = mkOption {
         # this can be given multiple times so probably should be
