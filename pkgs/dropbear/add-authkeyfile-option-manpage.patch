@@ -1,0 +1,14 @@
+diff --git a/manpages/dropbear.8 b/manpages/dropbear.8
+index fc44db3..bb968dd 100644
+--- a/manpages/dropbear.8
++++ b/manpages/dropbear.8
+@@ -29,6 +29,9 @@ or automatically with the '-R' option. See "Host Key Files" below.
+ .B \-R
+ Generate hostkeys automatically. See "Host Key Files" below.
+ .TP
++.B \-U \fIauthorized_keys
++Absolute pathname to file containing authorized user keys. May contain the sequences %d, %n, %u which are expanded to the user's home directory, username and numeric uid respectively. Default '%d/.ssh/authorized_keys'.
++.TP
+ .B \-F
+ Don't fork into background.
+ .TP
