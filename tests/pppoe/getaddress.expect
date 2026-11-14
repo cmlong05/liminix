@@ -21,6 +21,13 @@ expect "#READY#"
 send "s6-svwait -U /run/service/wan.link.pppoe\n"
 expect "#READY#"
 
+send "test -e /run/pppoe-recovered && echo RECOVERED\n"
+expect {
+  "RECOVERED" { puts "redial dependents started" }
+  timeout { exit 1 }
+}
+expect "#READY#"
+
 set timeout 30
 send "nft list set ip table-ip lan || touch /non/existent\n"
 expect {

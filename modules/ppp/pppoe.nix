@@ -17,6 +17,9 @@
   username,
   password,
   debug,
+  timeout-up ? null,
+  redial-interval ? 30,
+  redial-dependents ? [ ],
 }:
 let
   name = "${interface.name}.pppoe";
@@ -34,6 +37,9 @@ common {
     lcpEcho
     bandwidth
     ppp-options
+    timeout-up
+    redial-interval
+    redial-dependents
     ;
   command = ''
     exec ${ppp}/bin/pppd pty "${pppoe}/bin/pppoe ${timeoutOpt}  -I $(output ${interface} ifname)" file /run/${name}/ppp-options

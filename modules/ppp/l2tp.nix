@@ -17,6 +17,8 @@
   username,
   password,
   debug,
+  timeout-up ? null,
+  redial-interval ? 30,
 }:
 let
   name = "${lns}.l2tp";
@@ -43,6 +45,8 @@ common {
     lcpEcho
     bandwidth
     ppp-options
+    timeout-up
+    redial-interval
     ;
   command = ''
     touch ${control}

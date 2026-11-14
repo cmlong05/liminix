@@ -27,7 +27,7 @@ pkgs.runCommand "check"
 
     . ${../test-helpers.sh}
 
-    routeros $serverstatedir
+    (sleep 20; routeros $serverstatedir) &
     mkdir vm
     ${img}/run.sh --background ./vm
     expect ${./getaddress.expect}

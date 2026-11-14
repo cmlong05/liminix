@@ -54,6 +54,30 @@ in
         default = null;
         description = "approximate bandwidth in bytes/second. Used to calculate rate limits for ICMP";
       };
+      timeout-up = mkOption {
+        type = types.nullOr types.int;
+        default = null;
+        description = ''
+          how long to wait for pppd to be ready, in milliseconds. If null,
+          it is derived from lcpEcho: (10 + failure * interval) * 1000, or
+          60 * 1000 when lcpEcho is disabled
+        '';
+      };
+      redial-interval = mkOption {
+        type = types.int;
+        default = 30;
+        description = "how long to wait between attempts to start the service again after s6-rc has marked it down, in seconds";
+      };
+      redial-dependents = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = ''
+          service names to bring up after PPP recovers that the s6-rc
+          dependency graph cannot find. Redial already brings up every
+          service that depends on this one, so only services that do not
+          declare that dependency belong here.
+        '';
+      };
       lcpEcho = {
         adaptive = mkOption {
           description = "send LCP echo-request frames only if no traffic was received from the peer since the last echo-request was sent";
@@ -77,8 +101,8 @@ in
         type = types.bool;
       };
       ppp-options = mkOption {
-        type = types.listOf types.str;
-        description = "options supplied on ppp command line";
+        type = types.listOf (liminix.lib.types.replacable types.str);
+        description = "options supplied on ppp command line. An option may also be an outputRef, to be read from the service's output at run time";
         default = [ ];
       };
     };
@@ -123,6 +147,20 @@ in
         type = types.listOf types.str;
         default = [ ];
         description = "options supplied on ppp command line";
+      };
+      timeout-up = mkOption {
+        type = types.nullOr types.int;
+        default = null;
+        description = ''
+          how long to wait for the tunnel to be ready, in milliseconds. If
+          null, it is derived from lcpEcho: (10 + failure * interval) *
+          1000, or 60 * 1000 when lcpEcho is disabled
+        '';
+      };
+      redial-interval = mkOption {
+        type = types.int;
+        default = 30;
+        description = "how long to wait between attempts to start the service again after s6-rc has marked it down, in seconds";
       };
     };
 

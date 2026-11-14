@@ -51,8 +51,9 @@ with a readiness notification won't be started until the service signals
 (by writing to a nominated file descriptor) that it's prepared to start
 work. Most services defined by Liminix also have a `+timeout-up+`
 parameter, which means that if a service has readiness notifications and
-doesn't become ready in the allotted time (defaults 20 seconds) it will
-be terminated and its state set to *down*.
+doesn't become ready in the allotted time (defaults 30 seconds; services
+whose startup is expected to take longer, such as `+pppoe+`, set their
+own) it will be terminated and its state set to *down*.
 
 If the process providing a service dies, it will be restarted
 automatically. Liminix does not automatically set it to *down*.
@@ -60,6 +61,14 @@ automatically. Liminix does not automatically set it to *down*.
 (If the process providing a service dies without ever notifying
 readiness, Liminix will restart it as many times as it has to until the
 timeout period elapses, and then stop it and mark it down.)
+
+A service stopped this way stays down: s6-supervise is no longer
+instructed to start it, so nothing brings it back when the reason for
+the failure goes away. Services whose upstream comes and goes therefore
+carry a longrun that watches for them going down and asks s6-rc to start
+them again - `+pppoe+` and `+l2tp+`, for example, each start a
+`+<name>-redial+` service for this purpose (how often it retries is the
+`+redial-interval+` option).
 
 ==== Controlled services
 
