@@ -11,11 +11,12 @@
   watch,
   service,
   action,
+  dontWait ? [ ],
 }:
 let
   inherit (liminix.services) longrun;
   inherit (builtins) map;
-  inherit (lib) optionals optional concatStringsSep;
+  inherit (lib) optional concatStringsSep;
   inherit (service) name;
 
   restart-flag =
@@ -42,18 +43,29 @@ let
       name = name';
       run = ''
         dir=/run/service/${name}
-        echo waiting for $dir
-        if test -e $dir/notification-fd; then flag="-U"; else flag="-u"; fi
-        ${s6}/bin/s6-svwait $flag /run/service/${name} || exit
+        
+        # oneshot services have no supervise directory to wait for
+        if test -d $dir ; then
+          echo waiting for $dir
+          if test -e $dir/notification-fd; then flag="-U"; else flag="-u"; fi
+          ${s6}/bin/s6-svwait $flag $dir || exit
+        fi
+
         PATH=${s6-rc}/bin:${s6}/bin:${s6-rc-up-tree}/bin:$PATH
         ${watch-outputs}/bin/watch-outputs ${restart-flag} ${name} ${refs}
       '';
     };
+
+  # match by name, not structural equality: comparing service values
+  # with == is fragile when they contain non-comparable members
+  dontWaitNames = map (w: w.name) dontWait;
 in
 service.overrideAttrs (o: {
   buildInputs = (lim.orEmpty o.buildInputs) ++ optional (watch != [ ]) watcher;
   dependencies =
     (lim.orEmpty o.dependencies)
     ++ optional (watch != [ ]) watcher
-    ++ optionals (watch != [ ]) (map (s: s "service") watch);
+    ++ map (s: s "service") (
+      builtins.filter (s: !(builtins.elem (s "service").name dontWaitNames)) watch
+    );
 })
