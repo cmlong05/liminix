@@ -16,7 +16,7 @@ in
     kernel.config = {
       BTRFS_FS = "y";
     };
-    boot.initramfs.enable = true;
+    boot.initramfs.enable = mkIf (config.boot.rootfs.mount == "initramfs") true;
     system.outputs = {
       rootfs =
         let

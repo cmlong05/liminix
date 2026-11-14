@@ -35,7 +35,7 @@ in
       UBIFS_FS = "y";
       UBIFS_FS_SECURITY = "n";
     };
-    boot.initramfs.enable = true;
+    boot.initramfs.enable = mkIf (config.boot.rootfs.mount == "initramfs") true;
 
     system.outputs.ubivolume =
       let
