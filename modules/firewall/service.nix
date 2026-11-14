@@ -3,19 +3,24 @@
   lib,
   firewallgen,
   nftables,
+  s6,
   svc,
   lua,
   output-template,
 }:
 {
+  appendRules,
+  appendRulesBeforeLog ? { },
   rules,
   extraRules,
   zones,
+  dontWait ? [ ],
+  restartAfterReload ? [ ],
 }:
 let
   inherit (liminix.services) longrun;
   inherit (lib.attrsets) mapAttrs' nameValuePair mapAttrsToList;
-  inherit (lib.strings) concatStringsSep;
+  inherit (lib.strings) concatStringsSep escapeShellArg;
   inherit (builtins) concatLists toJSON attrValues;
   inherit (liminix) outputRef;
   mkSet =
@@ -90,21 +95,85 @@ let
     };
 
   sets = (mapAttrs' (n: _: mkSet "ip" n) zones) // (mapAttrs' (n: _: mkSet "ip6" n) zones);
-  allRules = {
+  base = {
     icmp6-ratehook = rateHook6;
     icmp4-ratehook = rateHook4;
   }
   // (lib.recursiveUpdate (lib.recursiveUpdate sets rules) extraRules);
+
+  # A log rule has no verdict, so it does not end the chain: rules appended
+  # after it are still reached, but every packet they accept is logged as
+  # denied first. Insert such rules ahead of the first one instead.
+  insertBeforeLog =
+    name: rules: extra:
+    let
+      n = builtins.length rules;
+      # log may follow a limit statement
+      isLog =
+        rule:
+        let
+          s = lib.trim rule;
+        in
+        lib.hasPrefix "log " s || lib.hasInfix " log " s;
+      at =
+        let
+          logs = builtins.filter
+            (i: isLog (builtins.elemAt rules i))
+            (builtins.genList (i: i) n);
+        in
+        if logs == [ ] then
+          throw "firewall.appendRulesBeforeLog: chain ${name} has no log rule to insert before"
+        else
+          builtins.head logs;
+    in
+    (lib.lists.sublist 0 at rules) ++ extra ++ (lib.lists.sublist at (n - at) rules);
+
+  inserted = lib.mapAttrs (
+    name: extra:
+    if base ? ${name} then
+      base.${name} // { rules = insertBeforeLog name (base.${name}.rules or [ ]) extra; }
+    else
+      throw "firewall.appendRulesBeforeLog names a chain that is not in the ruleset: ${name}"
+  ) appendRulesBeforeLog;
+  withInserted = base // inserted;
+
+  # appendRules is for the case extraRules cannot serve: several modules
+  # all wanting to add to the same chain, where "attrsOf (listOf str)"
+  # merges by concatenation and "attrsOf attrs" would have collided.
+  appended = lib.mapAttrs (
+    name: extra:
+    if withInserted ? ${name} then
+      withInserted.${name} // { rules = (withInserted.${name}.rules or [ ]) ++ extra; }
+    else
+      throw "firewall.appendRules names a chain that is not in the ruleset: ${name}"
+  ) appendRules;
+  allRules = withInserted // appended;
   script = firewallgen "firewall1.nft" allRules;
   name = "firewall";
+  restartServices = concatStringsSep "\n" (
+    map (
+      service:
+      let
+        dir = "/run/service/${service.name}";
+      in
+      ''
+        if test -d ${escapeShellArg dir} && test "$(${s6}/bin/s6-svstat -o up ${escapeShellArg dir})" = true ; then
+          ${s6}/bin/s6-svc -r ${escapeShellArg dir}
+        fi
+      ''
+    ) restartAfterReload
+  );
   service = longrun {
     inherit name;
     run = ''
       PATH=${nftables}/bin:${lua}/bin:$PATH
       reload() {
          echo reloading firewall
-         ${output-template}/bin/output-template '{{' '}}' < ${script}  > /run/${name}/fw.nft;
-         nft -f /run/${name}/fw.nft ;
+         ${output-template}/bin/output-template '{{' '}}' < ${script} > /run/${name}/fw.nft
+         if ! nft -f /run/${name}/fw.nft ; then
+           return 1
+         fi
+         ${restartServices}
       }
       trap reload SIGUSR1
       mkdir -p /run/${name}; in_outputs ${name}
@@ -123,5 +192,5 @@ svc.secrets.subscriber.build {
     mapAttrsToList (_zone: services: map (s: outputRef s "ifname") services) zones
   );
 
-  inherit service;
+  inherit dontWait service;
 }

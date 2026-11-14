@@ -58,6 +58,11 @@ in
       (drop "ip6 saddr 2001:10::/28") # ORCHID [RFC4843].
       (drop "ip6 daddr 2001:10::/28")
 
+      # ahead of the ULA drops below, not after: an overlay that is itself
+      # unique-local (tailscale hands out fd7a:115c:a1e0::/48, inside
+      # fc00::/7) only gets accepted if the module-injected rule comes first
+      "jump forward-ip6-modules"
+
       (drop "ip6 saddr fc00::/7") # unique local source
       (drop "ip6 daddr fc00::/7") # and/or dst addresses [RFC4193]
 
@@ -105,7 +110,7 @@ in
       (accept "oifname @lan iifname @wan ct state established,related")
       (accept "iifname @lan oifname @wan ")
 
-      "log prefix \"DENIED CHAIN=forward-ip6 \""
+      "limit rate 5/minute burst 10 packets log prefix \"DENIED CHAIN=forward-ip6 \" level notice"
     ];
   };
 
@@ -116,6 +121,7 @@ in
     rules = [
       (accept "udp dport 547") # dhcp, could restrict to daddr ff02::1:2
       (accept "udp dport 53") # dns
+      (accept "tcp dport 53") # dns over tcp
       (accept "tcp dport 22")
     ];
   };
@@ -140,11 +146,25 @@ in
       "iifname @lan jump input-ip6-lan"
       "iifname @wan jump input-ip6-wan"
       (if allow-incoming then accept "iifname @wan" else "iifname @wan jump incoming-allowed-ip6")
-      # how does this even make sense in an input chain?
-      (accept "iifname @wan  ct state established,related")
+      (accept "ct state established,related")
       (accept "iifname @lan ")
-      "log prefix \"DENIED CHAIN=input-ip6 \""
+      "jump input-ip6-modules"
+      "limit rate 5/minute burst 10 packets log prefix \"DENIED CHAIN=input-ip6 \" level notice"
     ];
+  };
+
+  # Same injection point as the ip4 pair: filled in by modules, so that an
+  # interface the ruleset knows nothing about can be accepted from outside
+  input-ip6-modules = {
+    type = "filter";
+    family = "ip6";
+    rules = [ ];
+  };
+
+  forward-ip6-modules = {
+    type = "filter";
+    family = "ip6";
+    rules = [ ];
   };
 
   incoming-allowed-ip6 = {
@@ -193,7 +213,10 @@ in
     rules = [
       (accept "udp dport 67") # dhcp
       (accept "udp dport 53") # dns
+      (accept "tcp dport 53") # dns over tcp
       (accept "tcp dport 22") # ssh
+      # site-specific listens (e.g. coap on udp/5684) belong in
+      # firewall.appendRules, not here
     ];
   };
 
@@ -216,7 +239,8 @@ in
       "iifname @wan jump input-ip4-wan"
       "iifname @wan jump incoming-allowed-ip4"
       "ct state established,related accept"
-      "log prefix \"DENIED CHAIN=input-ip4 \""
+      "jump input-ip4-modules"
+      "limit rate 5/minute burst 10 packets log prefix \"DENIED CHAIN=input-ip4 \" level notice"
     ];
   };
 
@@ -229,8 +253,24 @@ in
       "iifname @lan accept"
       "ct state established,related accept"
       "oifname @lan iifname @wan jump incoming-allowed-ip4"
-      "log prefix \"DENIED CHAIN=forward-ip4 \""
+      "jump forward-ip4-modules"
+      "limit rate 5/minute burst 10 packets log prefix \"DENIED CHAIN=forward-ip4 \" level notice"
     ];
+  };
+
+  # Filled in by modules, which is why these jumps are not restricted to
+  # @wan the way incoming-allowed-ip4 is: an interface the ruleset knows
+  # nothing about (tailscale0) has to be nameable from outside it.
+  input-ip4-modules = {
+    type = "filter";
+    family = "ip";
+    rules = [ ];
+  };
+
+  forward-ip4-modules = {
+    type = "filter";
+    family = "ip";
+    rules = [ ];
   };
 
   incoming-allowed-ip4 = {
