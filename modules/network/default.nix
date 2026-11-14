@@ -126,12 +126,22 @@ in
         };
         via = mkOption {
           type = types.str;
-          description = "address of next hop";
+          description = "next hop: either a literal address or a shell expression, e.g. \"$(output svc ipv6-peer-address)\"";
         };
         metric = mkOption {
           type = types.int;
           description = "route metric";
           default = 100;
+        };
+        wait-for = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "shell expression evaluating to a path that must exist before the route is installed, for next hops that are only known later";
+        };
+        wait-time = mkOption {
+          type = types.int;
+          default = 20;
+          description = "how long to keep retrying, in seconds";
         };
       };
 

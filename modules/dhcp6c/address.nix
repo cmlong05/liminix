@@ -10,7 +10,10 @@ let
 in
 longrun {
   inherit name;
-  run = "${script} ${client} $(output ${interface} ifname)";
+  # the client's outputs are emptied when it restarts, so keep our record
+  # of the addresses we put on the WAN somewhere of our own: without it a
+  # restart leaves the previous addresses behind until their lifetime ends
+  run = "${script} ${client} $(output ${interface} ifname) $(mkstate ${name})";
   dependencies = [
     client
     interface
