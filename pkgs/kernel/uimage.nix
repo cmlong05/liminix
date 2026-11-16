@@ -85,7 +85,7 @@ stdenv.mkDerivation {
         };
     };
     _VARS
-    mkimage -f mkimage.its -E ${
+    mkimage -f mkimage.its ${
       lib.optionalString (alignment != null) "-B 0x${lib.toHexString alignment}"
     } kernel.uimage
     mkimage -l kernel.uimage
