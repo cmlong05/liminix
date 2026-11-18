@@ -6,7 +6,7 @@
   ...
 }:
 let
-  inherit (lib) mkOption types;
+  inherit (lib) mkIf mkOption types;
   inherit (pkgs.pseudofile) dir symlink;
 
   cfg = config.jdcloudAx6600.singBox;
@@ -26,6 +26,10 @@ in
   imports = [ "${modulesPath}/sing-box" ];
 
   options.jdcloudAx6600.singBox = {
+    enable = mkOption {
+      type = types.bool;
+      default = true;
+    };
     stateDir = mkOption {
       type = types.str;
       default = "/var/lib/liminix/sing-box";
@@ -51,7 +55,7 @@ in
       "nft_redir"
     ];
 
-    services.sing-box = config.system.service.singBox.build {
+    services.sing-box = lib.mkIf cfg.enable (config.system.service.singBox.build {
       configFile = "${cfg.stateDir}/config.json";
       templateFile = "${templateFile}";
       dependencies = [
@@ -62,7 +66,7 @@ in
         stateDir
         tunName
         ;
-    };
+    });
 
     firewall.appendRules = {
       input-ip4-lan = [
