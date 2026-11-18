@@ -38,8 +38,7 @@ let
   includes = "-I${qca-nss-drv}/include/qca-nss-drv -I${qca-nss-dp}/include/qca-nss-dp -I${qca-ssdk}/include";
 
   # The fork's `ifeq ($(CONFIG_TARGET_qualcommax),y)` block, spelled out so
-  # nothing depends on a Makefile default staying put: PCC is the one that
-  # has to be off, and it is why this list is explicit. Every other
+  # nothing depends on a Makefile default staying put. Every other
   # ECM_*_ENABLE is left unset - the ones that default to "y" there
   # (advanced stats, AE classifier, ...) are what this build wants, since
   # ECM's own debugfs statistics are the N4 evidence.
