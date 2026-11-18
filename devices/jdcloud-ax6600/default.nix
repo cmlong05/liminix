@@ -112,6 +112,7 @@
           # rather than drift.
           ${lib.concatMapStringsSep "\n" (p: applyPatch 0 p) (kernelPatches ++ nssEcmPatches)}
           ${baseChecks}
+          apply_patch 0 ${./nss/compat/001-bridge-fdb-pvid.patch}
 
           # wcss and ath11k sets, each at the fuzz its group allows.
           ${lib.concatMapStringsSep "\n" (p: applyPatch p.fuzz p.file) wirelessPatches}
