@@ -178,6 +178,12 @@ in
     '';
   };
 
+  services.debugfs = oneshot {
+    name = "debugfs";
+    up = "mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug";
+    down = "umount /sys/kernel/debug";
+  };
+
   users.root = {
     # Use mkpasswd -m sha512crypt to create
     # your own hashed password string.
@@ -598,7 +604,7 @@ in
     # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。
     dontWait = [ config.services.wan ];
     # 全量重载会清掉 auto_redirect 的 nft 表。
-    restartAfterReload = [ config.services.sing-box ];
+    restartAfterReload = lib.optional config.jdcloudAx6600.singBox.enable config.services.sing-box;
     extraRules = {
       # The tagged case is the smaller of the two, so clamping to it is
       # right for an untagged WAN as well; MSS is that MTU less the
