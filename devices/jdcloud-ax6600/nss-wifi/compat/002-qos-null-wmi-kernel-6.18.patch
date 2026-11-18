@@ -19,7 +19,7 @@
  	ret = ath11k_wmi_mgmt_send(ar, arvif->vdev_id, buf_id, skb);
  	if (ret) {
  		ath11k_warn(ar->ab, "failed to send mgmt frame: %d\n", ret);
-@@ -6535,8 +6535,8 @@ static int ath11k_mac_mgmt_tx(struct ath11k *ar, struct sk_buff *skb,
+@@ -6535,5 +6535,5 @@ static int ath11k_mac_mgmt_tx(struct ath11k *ar, struct sk_buff *skb,
 -static int ath11k_mac_mgmt_tx(struct ath11k *ar, struct sk_buff *skb,
 -			      bool is_prb_rsp)
 +static int ath11k_mac_tx_over_wmi(struct ath11k *ar, struct sk_buff *skb,
