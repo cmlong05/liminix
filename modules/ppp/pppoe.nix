@@ -24,9 +24,6 @@
 let
   name = "${interface.name}.pppoe";
   common = callPackage ./common.nix { inherit svc; };
-
-  timeoutOpt =
-    if lcpEcho.interval != null then "-T ${builtins.toString (4 * lcpEcho.interval)}" else "";
 in
 common {
   inherit
@@ -41,8 +38,9 @@ common {
     redial-interval
     redial-dependents
     ;
+  # rp-pppoe plugin only accepts device names starting with eth/br/nic-
   command = ''
-    exec ${ppp}/bin/pppd pty "${pppoe}/bin/pppoe ${timeoutOpt}  -I $(output ${interface} ifname)" file /run/${name}/ppp-options
+    exec ${ppp}/bin/pppd plugin ${pppoe}/lib/rp-pppoe.so nic-$(output ${interface} ifname) file /run/${name}/ppp-options
   '';
   dependencies = [ interface ];
 }

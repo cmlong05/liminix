@@ -18,6 +18,11 @@ stdenv.mkDerivation rec {
 
   buildInputs = [ ppp ];
 
+  # The pppd plugin is off by default upstream and skipped silently without this flag.
+  configureFlags = [
+    "--enable-plugin=${ppp.dev}/include"
+  ];
+
   preConfigure = ''
     cd src
     export PPPD=${ppp}/sbin/pppd
@@ -31,7 +36,8 @@ stdenv.mkDerivation rec {
   installPhase = ''
     mkdir -p $out/bin $out/lib
     cp pppoe pppoe-server $out/bin # ppoe-relay pppoe-sniff?
-    test -e rp-pppoe.so && cp rp-pppoe.so $out/lib
+    test -e rp-pppoe.so || { echo "rp-pppoe.so was not built" >&2; exit 1; }
+    cp rp-pppoe.so $out/lib
     true
   '';
   makeFlags = [ "AR:=$(AR)" ];
