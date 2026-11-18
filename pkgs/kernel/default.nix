@@ -9,6 +9,7 @@
   version ? "0",
   extraPatchPhase ? "echo",
   targets ? [ "vmlinux" ],
+  allowMissingModuleSymbols ? false,
 }:
 let
   stdenv = gcc13Stdenv;
@@ -128,7 +129,8 @@ stdenv.mkDerivation rec {
     mkdir -p $headers
     cp -a include .config $headers/
     mkdir -p $modulesupport
-    make modules
+    make ${lib.optionalString allowMissingModuleSymbols "KBUILD_MODPOST_WARN=1"} \
+      modules
     cp -a . $modulesupport
     cp .config $config
   '';

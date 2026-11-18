@@ -38,6 +38,11 @@ in
         default = true;
         description = "support loadable kernel modules";
       };
+      allowMissingModuleSymbols = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Pass KBUILD_MODPOST_WARN=1 when building modules";
+      };
       extraPatchPhase = mkOption {
         default = "true";
         type = types.lines;
@@ -84,7 +89,12 @@ in
       in
       liminix.builders.kernel.override {
         config = mergedConfig;
-        inherit (config.kernel) version src extraPatchPhase;
+        inherit (config.kernel)
+          version
+          src
+          extraPatchPhase
+          allowMissingModuleSymbols
+          ;
         targets = config.kernel.makeTargets;
       };
 
