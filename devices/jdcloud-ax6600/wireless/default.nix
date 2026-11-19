@@ -347,6 +347,9 @@ in
           // securityFor name
           // lib.optionalAttrs (bandSecurity name != "open") {
             wpa_passphrase = outputRef runtime (bandPasswordPath name);
+          }
+          // lib.optionalAttrs (name == "58g") {
+            multicast_to_unicast = 1;
           };
       })
     ) bands);
