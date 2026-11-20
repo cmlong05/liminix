@@ -129,6 +129,7 @@ let
   bands = {
     "24g" = "wlan24g";
     "58g" = "wlan58g";
+    "52g" = "wlan52g";
   };
 
   # Encryption, build-time only: modules/hostapd turns `params` into a
@@ -159,6 +160,7 @@ let
       };
     };
   bandConf = name: (deployment.wifi.bands or { }).${name} or { };
+  bandAutostart = name: (bandConf name).autostart or true;
   bandSecurity =
     name:
     if (bandConf name) ? security then
@@ -323,8 +325,8 @@ in
 
     wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
 
-    # The AHB netdevs
-    # These are the names art-apply renames the AHB radios 
+    # The radio netdevs
+    # These are the names art-apply renames the radios to
     hardware.networkInterfaces = {
       wlan24g = svc.network.link.build {
         ifname = "wlan24g";
@@ -334,15 +336,22 @@ in
         ifname = "wlan58g";
         dependencies = [ config.services.art-apply ];
       };
+      wlan52g = svc.network.link.build {
+        ifname = "wlan52g";
+        dependencies = [ config.services.art-apply ];
+      };
     };
 
     # Unless wifi.autostart is false, one hostapd per band: a longrun
     # service s6 starts at boot. ssid/passphrase/channel come from the
     # runtime-config output tree generated from the build-time deployment.
     # Encryption comes from the per-band `securityFor` instead, see above.
+    # A band with autostart = false gets a controller instead: the AP is
+    # built but not started at boot, and no restart watcher, so a config
+    # reload cannot pull the stopped AP up.
     services = lib.optionalAttrs wifiAutostart (lib.mapAttrs' (
       name: netif:
-      lib.nameValuePair "hostap-${name}" (svc.hostapd.build {
+      lib.nameValuePair "hostap-${name}" (svc.hostapd.build ({
         interface = config.hardware.networkInterfaces.${netif};
         dependencies = config.wireless.apReadyDependencies;
         params =
@@ -359,10 +368,17 @@ in
           // lib.optionalAttrs (bandSecurity name != "open") {
             wpa_passphrase = outputRef runtime (bandPasswordPath name);
           }
-          // lib.optionalAttrs (name == "58g") {
+          // lib.optionalAttrs ((bandConf name).hw_mode or "" == "a") {
             multicast_to_unicast = 1;
           };
-      })
+      }
+      // lib.optionalAttrs (!bandAutostart name) {
+        controller = pkgs.liminix.services.longrun {
+          name = "control-hostap-${name}";
+          run = "while sleep 86400; do true; done";
+        };
+        watch = [ ];
+      }))
     ) bands);
 
     # iw/hostapd stay on the login PATH for debugging.

@@ -68,6 +68,7 @@ let
     ++ [
       nifs.wlan24g
       nifs.wlan58g
+      nifs.wlan52g
     ];
   lanZonePorts = lanAccessPorts ++ lib.optional singleLineEnable wanPort;
 

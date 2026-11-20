@@ -42,5 +42,9 @@ import ./_defaults.nix {
       ssid = "CHEN-5g";
       password = "88888888!!";
     };
+    "52g" = {
+      ssid = "CHEN-52g";
+      password = "88888888!!";
+    };
   };
 }
