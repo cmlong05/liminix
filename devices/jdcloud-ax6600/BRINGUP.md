@@ -24,7 +24,7 @@
 | 前置 | AHB 2.4G/5.8G AP 走标准 hostapd 服务（s6 长驻，`wifi.autostart` 可关） | 已落地 | — |
 | N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
 | N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 已落地 | — |
-| N8 | 外挂 QCN9024 的 5.2G | 待办 | — |
+| N8 | 外挂 QCN9074 的 5.2G | 进行中 | — |
 | N9 | 升级模式：离线全量 + 在线 userspace | 已落地  | — |
 | N10 | 单 ext4 分区启动：kernel + rootfs 同分区，FIT 优先 | 已落地 | — |
 
@@ -80,10 +80,11 @@
 * 参考 VIKINGYFY 6.18 NSS 栈
 
 
-### N8：QCN9024 外挂的 5.2G【待办】
+### N8：QCN9074 外挂的 5.2G【进行中】
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G。
 * 不要设置开机启动，由我手动开启。
-* **验证**：`CH`（QCN9024/QCN9074）出现，hostapd AP 可关联。
+* **验证**：`wlan52g`（QCN9074）出现，手动开启后 hostapd AP 可关联。
+* 实现（test/wlan52g，未上机验证）：内核 PCI 栈 + ATH11K_PCI、QCN9074 固件、ART 校准、wlan52g 接口与 AP、手动开启（controlled service）。
 
 
 ---
