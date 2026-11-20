@@ -54,5 +54,9 @@ import ./_defaults.nix {
       ssid = "MU";
       password = "mubimuba";
     };
+    "52g" = {
+      ssid = "MU-52g";
+      password = "mubimuba";
+    };
   };
 }

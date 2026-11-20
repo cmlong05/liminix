@@ -87,7 +87,9 @@ let
       wmac=$(cat "/run/art/mac.$1" 2>/dev/null) || return 0
       test -n "$wmac" || return 0
       i=0
-      while test "$i" -lt 60 ; do
+      # cap the wait: a radio that never probes (e.g. QCN9074 firmware
+      # stall) must not stall boot past s6-rc's 30s oneshot timeout.
+      while test "$i" -lt 15 ; do
         for d in /sys/class/net/* ; do
           cur=$(basename "$d")
           test "$cur" = "$2" && return 0

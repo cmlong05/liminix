@@ -72,6 +72,7 @@ let
     ++ [
       nifs.wlan24g
       nifs.wlan58g
+      nifs.wlan52g
     ];
   lanZonePorts = lanAccessPorts ++ lib.optional singleLineEnable wanPort;
 
@@ -642,7 +643,9 @@ in
     };
     # PPPoE 的接口名要等拨号成功才有：规则集先不等它（@wan 里暂时少一个
     # ppp0），ip-up 写出 ifname 后由 watch 触发的重载把它补进集合。
-    dontWait = [ config.services.wan ];
+    # wlan52g 同理：52g 固件起不来时 link 等不到接口，防火墙不等它，
+    # 52g 恢复后由 watch 触发重载补进 @lan。
+    dontWait = [ config.services.wan nifs.wlan52g ];
     # 全量重载会清掉 auto_redirect 的 nft 表。
     restartAfterReload = lib.optional config.jdcloudAx6600.singBox.enable config.services.sing-box;
     extraRules = {

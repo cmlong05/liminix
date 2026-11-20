@@ -27,5 +27,9 @@ import ./_defaults.nix {
       ssid = "CH";
       password = "88888888!!";
     };
+    "52g" = {
+      ssid = "CH-52g";
+      password = "88888888!!";
+    };
   };
 }

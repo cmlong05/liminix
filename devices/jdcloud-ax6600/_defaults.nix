@@ -93,6 +93,20 @@ let
           he_oper_centr_freq_seg0_idx = 155;
           security = "wpa2";
         };
+        "52g" = {
+          hw_mode = "a";
+          channel = "36";
+          ieee80211ac = 1;
+          ieee80211ax = 1;
+          ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
+          vht_oper_chwidth = 1;
+          vht_oper_centr_freq_seg0_idx = 42;
+          he_oper_chwidth = 1;
+          he_oper_centr_freq_seg0_idx = 42;
+          # BRINGUP N8: manual start, not at boot.
+          autostart = false;
+          security = "wpa2";
+        };
       };
     };
   };
