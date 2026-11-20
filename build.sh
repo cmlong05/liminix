@@ -123,6 +123,16 @@ nix_build() {
     fi
 }
 
+print_branch_info() {
+    if command -v git >/dev/null 2>&1 && git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
+        branch=$(git -C "$here" symbolic-ref --short -q HEAD 2>/dev/null || echo "(detached HEAD)")
+        commit=$(git -C "$here" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "==> branch: $branch ($commit)" >&2
+    else
+        echo "==> branch: unknown (not a git checkout)" >&2
+    fi
+}
+
 case "$target" in
     emmc)
         config="$device_dir/images/ax6600-rootfs.nix"
@@ -159,6 +169,7 @@ if [ "$with_updater" -eq 1 ]; then
     nix_build "$@" \
         -A outputs.updater \
         -o "$here/$updater"
+    print_branch_info
     exit 0
 fi
 
@@ -186,3 +197,5 @@ for r in "$uimage" "$rootfs"; do
         done
     fi
 done
+
+print_branch_info
