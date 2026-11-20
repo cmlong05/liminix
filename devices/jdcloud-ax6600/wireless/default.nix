@@ -270,6 +270,8 @@ in
       ATH_COMMON = "m";
       ATH11K = "m";
       ATH11K_AHB = "m";
+      # The PCI half, for the QCN9074 on PCIe0 (5.2 GHz).
+      ATH11K_PCI = "m";
       ATH11K_NSS_SUPPORT = "y";
       ATH11K_MEM_PROFILE_512M = "y";
       MAC80211_NSS_SUPPORT = "y";
