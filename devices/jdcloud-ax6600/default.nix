@@ -186,6 +186,14 @@
           PHY_QCOM_QMP = "y";
           PHY_QCOM_QMP_USB = "y";
           PHY_QCOM_QUSB2 = "y";
+
+          # PCIe for the QCN9074 (5.2 GHz) on PCIe0: the bus, the DWC
+          # controller and its QMP PHY. PCI_MSI is explicit: PCIE_QCOM
+          # depends on it, and nothing selects it on arm64.
+          PCI = "y";
+          PCI_MSI = "y";
+          PCIE_QCOM = "y";
+          PHY_QCOM_QMP_PCIE = "y";
           REGULATOR = "y";
           REGULATOR_FIXED_VOLTAGE = "y";
 

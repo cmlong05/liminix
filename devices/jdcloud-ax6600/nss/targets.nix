@@ -10,9 +10,9 @@
 #
 #   * `wired` - conntrack/netfilter plus the NSS drivers. Every image builds
 #     these.
-#   * `wireless` - N5's AHB radio. Only the images that import
+#   * `wireless` - the AHB radio and the PCI QCN9074 (5.2 GHz). Only the images that import
 #     wireless/default.nix build these, since that module is what sets
-#     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB in the kernel config.
+#     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB/ATH11K_PCI in the kernel config.
 #
 # Not here: the nft_* modules. They arrive through
 # config.firewall.kernelModuleTargets, which the image appends to this list and
@@ -41,6 +41,7 @@ let
   wireless = [
     "qcom_q6v5_wcss_sec"
     "ath11k_ahb"
+    "ath11k_pci"
   ];
 in
 {
