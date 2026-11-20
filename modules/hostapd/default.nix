@@ -36,6 +36,16 @@ in
       params = mkOption {
         type = types.attrs;
       };
+      controller = mkOption {
+        type = types.nullOr liminix.lib.types.service;
+        default = null;
+        description = "service controlling this AP: when set, hostapd does not start at boot";
+      };
+      watch = mkOption {
+        type = types.nullOr (types.listOf (types.functionTo types.anything));
+        default = null;
+        description = "secrets paths to subscribe to; null means derive from params";
+      };
     };
   };
 }
