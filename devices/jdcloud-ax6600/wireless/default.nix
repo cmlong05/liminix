@@ -43,6 +43,9 @@ let
   #       by the wcss remoteproc (qcom_q6v5_wcss_sec) for the Q6 and the m3
   #   ath11k/IPQ6018/hw1.0/board-2.bin
   #       ath11k's board data, from the fw.dir in the ipq6018 hw params
+  #   ath11k/QCN9074/hw1.0/amss.bin, m3.bin, board-2.bin
+  #       the QCN9074's firmware (5.2 GHz, PCIe), same repository but a
+  #       separate pin - see ./SOURCES.nix
   #   ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin
   #       this unit's calibration. ath11k builds that name from the bus
   #       and the device name ("cal-%s-%s.bin") and only falls back to
@@ -57,12 +60,15 @@ let
       inherit (p) url sha256;
     };
   firmwarePkg = pkgs.runCommand "ath11k-ipq6018-firmware" { } ''
-    mkdir -p $out/IPQ6018 $out/ath11k/IPQ6018/hw1.0
+    mkdir -p $out/IPQ6018 $out/ath11k/IPQ6018/hw1.0 $out/ath11k/QCN9074/hw1.0
     ${lib.concatMapStringsSep "\n" (
       p: "install -m 0644 ${fetchFirmware p} $out/IPQ6018/${p.path}"
     ) sources.q6Firmware}
     install -m 0644 ${fetchFirmware (builtins.head sources.boardData)} \
       $out/ath11k/IPQ6018/hw1.0/board-2.bin
+    ${lib.concatMapStringsSep "\n" (
+      p: "install -m 0644 ${fetchFirmware p} $out/ath11k/QCN9074/hw1.0/${p.path}"
+    ) sources.qcn9074Firmware}
   '';
 
   # Both deliveries at the bottom of this file hand the kernel an attrsOf
@@ -94,6 +100,9 @@ let
     "IPQ6018/m3_fw.b01"
     "IPQ6018/m3_fw.b02"
     "ath11k/IPQ6018/hw1.0/board-2.bin"
+    "ath11k/QCN9074/hw1.0/amss.bin"
+    "ath11k/QCN9074/hw1.0/m3.bin"
+    "ath11k/QCN9074/hw1.0/board-2.bin"
   ];
 
   # --- deployment ---------------------------------------------------

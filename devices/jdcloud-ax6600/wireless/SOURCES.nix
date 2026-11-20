@@ -80,6 +80,24 @@ let
     { path = "board-2.bin"; sha256 = "sha256-eIPKmmr4Uza2BV8PQsi6NeYfMagYMK6zzTCvugg5q3c="; }
   ];
 
+  # The QCN9074's firmware: same repository, separate pin, so the AHB
+  # firmware above stays at its verified pin. 2.15 branch
+  # (WLAN.HK.2.15.0.1-00553): the first branch whose QMI handshake does
+  # not hang on some hardware (2.5-2.9 do). board-2.bin carries no
+  # JDC-RE-CS-02 variant, so ath11k falls back to the default BDF -
+  # check dmesg for which BDF it picks; immortalwrt's ipq-wifi has no
+  # jdcloud board file at this pin to take instead.
+  qcn9074Ref = "0ad99e44afa4c0dc1fb8f231427082700e562098";
+  qcn9074fw =
+    ps:
+    map (p: p // { url = "https://raw.githubusercontent.com/VIKINGYFY/ath11k-firmware-ddwrt/${qcn9074Ref}/QCN9074/hw1.0/${p.path}"; }) ps;
+
+  qcn9074Firmware = qcn9074fw [
+    { path = "amss.bin"; sha256 = "sha256-ZQUOCrLRF8siabzCbVQCsCIIoa7wPl+VWq3GNECdaqQ="; }
+    { path = "m3.bin"; sha256 = "sha256-HiOMwMM4tHLLaEUmnBKSvmlr21k/4T8JG7SQfBsziCk="; }
+    { path = "board-2.bin"; sha256 = "sha256-SKCHv7WiExK6wT9PRksMJOCvi7SNF8G3WJaVwDJsLuM="; }
+  ];
+
   # Where the `verify` records below look: kernel-tree paths, checked after
   # the patches have been applied.
   ipq6018Dtsi = "arch/arm64/boot/dts/qcom/ipq6018.dtsi";
@@ -241,15 +259,21 @@ let
   # exist for this kernel generation. What is taken here is the subset
   # that carries this board's bring-up, in the fork's own order; the rest
   # is for other silicon (907 ipq5018, 920-925 QCN6122) or for the stages
-  # past association (947, 949, 983, 984 - and 201, 453, 900, 905, which
-  # are PCI, thermal and regulatory). Three entries of the bring-up set
-  # are deliberately absent:
+  # past association (947, 949, 983, 984). 201, 453, 900, 905 were
+  # rechecked for the QCN9074 bring-up and left out: 201 is a no-op
+  # without qcom,bdf-addr/caldb-addr in the DT, 453 is a stability fix
+  # unrelated to bring-up, 900 is OpenWrt build glue for a symbol
+  # mainline does not have (thermal is CONFIG_THERMAL's job), and 905
+  # is a regulatory-policy choice, not needed for the default ch36.
+  #
+  # Three entries of the bring-up set are deliberately absent:
   #
   #   * 102 (mac_phy_caps_parse stride) is already in 6.18.52 - wmi.c has
   #     the kzalloc_objs() form - so there is nothing left to patch;
   #   * 100 (unique QRTR instance ID) is built on MHI_CB_EE_SBL_MODE,
-  #     which 6.18.52's include/linux/mhi.h does not have, and it only
-  #     matters once ath11k-pci drives the QCN9074 (phase 2);
+  #     which neither 6.18.52's nor 6.18.57's include/linux/mhi.h has,
+  #     so it does not compile here; it only matters with more than one
+  #     PCI radio, so a single QCN9074 runs without it for now;
   #   * 931 (m3 dump memory) writes into a local variable that comes from
   #     201, which this board has no use for, so it does not compile here
   #     - and it assigns nothing unless the wifi node carries
@@ -367,7 +391,7 @@ let
   ];
 in
 {
-  inherit ref fwRef q6Firmware boardData wcss ath11k;
+  inherit ref fwRef q6Firmware boardData qcn9074Ref qcn9074Firmware wcss ath11k;
 
   # What the build applies, in this order. `fuzz` is per group: 0 fails
   # the build on context drift rather than absorbing a hunk a few lines
