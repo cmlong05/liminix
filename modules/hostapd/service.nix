@@ -6,7 +6,7 @@
   writeText,
   lib,
 }:
-{ interface, params }:
+{ interface, params, controller ? null, watch ? null }:
 let
   inherit (liminix.services) longrun;
   inherit (lib) concatStringsSep mapAttrsToList;
@@ -44,7 +44,7 @@ let
     )
   );
   service = longrun {
-    inherit name;
+    inherit name controller;
     dependencies = [ interface ];
     run = ''
       mkdir -p /run/${name}
@@ -53,9 +53,10 @@ let
       exec ${hostapd}/bin/hostapd -i $(output ${interface} ifname) -P /run/${name}/hostapd.pid -S /run/${name}/hostapd.conf
     '';
   };
-  watch = filter isOutputRef (attrValues attrs);
+  watchList = if watch != null then watch else filter isOutputRef (attrValues attrs);
 in
 svc.secrets.subscriber.build {
-  inherit service watch;
+  inherit service;
+  watch = watchList;
   action = "restart-all";
 }
