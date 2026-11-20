@@ -3,11 +3,11 @@
 # know, so they are read at boot.
 #
 #   * art-extract runs from rc-init.d, before the module loader, so ath11k
-#     finds a cal file when it probes: it writes one into its service outputs,
-#     and ./rootfs-firmware.nix links ath11k's name for it there. It also
+#     finds a cal file when it probes: it writes them into its service outputs,
+#     and ./rootfs-firmware.nix links ath11k's names for them there. It also
 #     publishes this unit's MACs under /run/art.
 #   * art-apply runs as an s6 oneshot after that: it puts the wired MACs on
-#     lan1..4/wan and renames the two AHB netdevs to fixed names by the MAC
+#     lan1..4/wan and renames the three radio netdevs to fixed names by the MAC
 #     ath11k took out of the cal data.
 #
 # Offsets are structural, never a MAC value. A missing 0:ART is reported and
@@ -38,6 +38,10 @@ let
     # device): offset 0x1000, length 0x20000
     out=$(mkoutputs art-extract)
     dd if="$part" of="$out/cal" bs=4096 skip=1 count=32 2>/dev/null
+
+    # PCI calibration for the QCN9074 (5.2 GHz): offset 0x26800, length
+    # 0x20000 (bs=1024: skip=154, count=128)
+    dd if="$part" of="$out/cal-pci" bs=1024 skip=154 count=128 2>/dev/null
 
     # this unit's MACs, by role: wired in the 0:ART header, radios embedded
     # in the cal blobs (ath11k takes the radio MACs from the cal file itself)
@@ -106,6 +110,7 @@ let
 
     rename_wlan 24g wlan24g
     rename_wlan 58g wlan58g
+    rename_wlan 52g wlan52g
   '';
 in
 {
@@ -113,6 +118,8 @@ in
   # to art-extract's output, which ath11k then opens like any other file.
   wireless.runtimeFirmwareFiles."ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin" =
     "/run/services/outputs/art-extract/cal";
+  wireless.runtimeFirmwareFiles."ath11k/QCN9074/hw1.0/cal-pci-0000:01:00.0.bin" =
+    "/run/services/outputs/art-extract/cal-pci";
 
   filesystem = dir {
     etc = dir {
