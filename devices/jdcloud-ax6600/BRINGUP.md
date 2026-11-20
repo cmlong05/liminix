@@ -22,7 +22,7 @@
 | 前置 | USB 挂根：uimage + squashfs rootfs | 已落地 | `04229a7` |
 | 前置 | USB 挂根：ext4 可写 root | 已落地 | `234723e`、`63bf2e4` |
 | 前置 | AHB 2.4G/5.8G AP 走标准 hostapd 服务（s6 长驻，`wifi.autostart` 可关） | 已落地 | — |
-| N6 | NSS WiFi offload 评估 | 未启动（可选 / 实验） | — |
+| N6 | NSS WiFi offload 评估 | 已落地 | — |
 | N7 | 产品化：持久化、分区、per-unit 数据（ART per-unit 数据落地中） | 已落地 | — |
 | N8 | 外挂 QCN9074 的 5.2G | 进行中 | — |
 | N9 | 升级模式：离线全量 + 在线 userspace | 已落地  | — |
@@ -72,12 +72,6 @@
 ---
 
 ## 4. 分阶段计划
-
-### N6（可选/实验）NSS WiFi offload 评估
-
-* 参考 LibWrt 的 `package/kernel/mac80211/patches/nss/{ath11k,subsys,ath10k}` 与
-  `ATH11K_NSS_SUPPORT`，以及 `NSS_DRV_WIFIOFFLOAD_ENABLE`。
-* 参考 VIKINGYFY 6.18 NSS 栈
 
 
 ### N8：QCN9074 外挂的 5.2G【进行中】
