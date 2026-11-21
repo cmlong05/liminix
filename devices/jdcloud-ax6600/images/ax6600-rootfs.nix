@@ -160,6 +160,7 @@ in
     "${modulesPath}/ssh"
     "${modulesPath}/tailscale"
     "${modulesPath}/firewall"
+    "${modulesPath}/reset-button"
     "${modulesPath}/outputs/ext4fs.nix"
     "${modulesPath}/usb.nix"
     ../locale.nix
@@ -236,6 +237,12 @@ in
       threshold = 1.0;
       limit = -1;
     };
+  };
+
+  # 长按 reset 键 5 秒重启：直接读 GPIO，不经过 input 层。
+  services.reset-button = svc.reset-button.build {
+    gpio = 71;
+    holdSeconds = 5;
   };
 
   services.runtime-config = svc.secrets.local.build {
