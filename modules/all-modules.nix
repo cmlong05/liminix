@@ -29,6 +29,7 @@
     ./outputs/vmroot.nix
     ./ppp
     ./ramdisk.nix
+    ./reset-button
     ./ssh
     ./users.nix
     ./vlan
