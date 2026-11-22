@@ -308,6 +308,9 @@ in
       RPMSG_QCOM_GLINK_SMEM = "y";
       QRTR = "y";
       QRTR_SMD = "y";
+      # The PCI QCN9074 speaks QMI over its MHI IPCR endpoint. Without
+      # this driver the endpoint stays unbound and WLFW never arrives.
+      QRTR_MHI = "m";
 
       # smp2p carries the Q6 start/stop handshake, apcs_glb is the mailbox
       # it signals through, and the tcsr mutex backs SMEM.

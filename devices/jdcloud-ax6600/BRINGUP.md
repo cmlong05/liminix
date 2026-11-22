@@ -62,8 +62,8 @@
 * **驱动形态 = loadable kmod**：与 OpenWrt/QSDK 一致，加载顺序
   `qca-ssdk`(30) → `qca-nss-dp`(31) → `qca-nss-drv`(32) → `ecm`；由
   `pkgs.liminix.modules.build` 按显式 `targets` 生成模块树（`targets` 用 depmod
-  名字，构建期用 `modprobe --show-depends` 校对），镜像在 s6-rc 之前用
-  `rc-init.d/modules` 跑 `load.sh`、按 `load-order` 逐个 insmod。
+  名字，构建期用 `modprobe --show-depends` 校对），镜像在 s6-rc 之前按
+  `load-order` 逐个 insmod；NSS core 完成启动后才加载 `ath11k`。
 * **固件**：NSS blob 由驱动按名字请求：`nss_hal.c` 要的是 `qca-nss0.bin`
   （**不是** `qca-nss0-retail.bin`）。OpenWrt 装 retail 名再用
   `/etc/hotplug.d/firmware/10-qca-nss-fw` 改名/链接，**Liminix 没有 hotplug fallback**
@@ -78,7 +78,16 @@
 * 三频配置：PCI QCN9074 = 5.2G（ch36–64）、AHB 5G pdev = 5.8G（ch149+）、AHB 2.4G。
 * 不要设置开机启动，由我手动开启。
 * **验证**：`wlan52g`（QCN9074）出现，手动开启后 hostapd AP 可关联。
-* 实现（test/wlan52g，未上机验证）：内核 PCI 栈 + ATH11K_PCI、QCN9074 固件、ART 校准、wlan52g 接口与 AP、手动开启（controlled service）。
+* 根因：AHB 与 QCN9074 共用 QRTR 实例 0，PCI host-cap 收到 QMI error 90；
+  需同时加载 `qrtr-mhi`、应用 MHI SBL 回调补丁与 ath11k 唯一实例 ID 补丁。
+* QCN9074 保持 NSS offload；补齐参考实现的 RX/TX、peer 生命周期、DMA
+  所有权和 2K-SKB 数据面补丁，不通过关闭 NSS 规避 PPPoE 共存问题。
+* QCN9074 的 MHI/QRTR/PCI 模块在 AHB 两个 phy 完成后、s6-rc 之前加载，
+  使 NSS 接口先于 PPPoE/ECM 数据路径完成初始化；`qcn-wifi` longrun 只负责
+  等待 PPP 默认路由并接入 `wlan52g`。
+* NSS core 由固件异步启动；`ath11k` 在 `NSS_STATE_INITIALIZED` 之前初始化会
+  返回 `-22`，因此 AHB/QCN 都必须等 NSS core 上报 booted 后再加载。
+* 实现（test/wlan52g，待修复后上机验证）：内核 PCI 栈 + ATH11K_PCI、QCN9074 固件、ART 校准、wlan52g 接口与 AP、手动开启（controlled service）。
 
 
 ---

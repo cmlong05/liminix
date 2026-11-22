@@ -17,12 +17,19 @@ grep -q 'ath11k_nss_tx' \
 test "$(find "$root/inventory/subsys" -type f -name '*.patch' | wc -l)" -eq 26
 test "$(find "$root/inventory/ath11k" -type f -name '*.patch' | wc -l)" -eq 75
 test "$(find "$root/subsys" -type f -name '*.patch' | wc -l)" -eq 4
-test "$(find "$root/ath11k" -type f -name '*.patch' | wc -l)" -eq 16
+test "$(find "$root/ath11k" -type f -name '*.patch' | wc -l)" -eq 23
 
 test -f "$root/subsys/199-001-mac80211-add-nss-support.patch"
 test -f "$root/ath11k/199-003-ath11k-add-nss-support.patch"
 test -f "$root/ath11k/207-ath11k-Enable-256_512MB-profiles.patch"
 test -f "$root/ath11k/214-ath11k-qos-null-frame-tx-over-wmi.patch"
+test -f "$root/ath11k/237-003-ath11k-allocate-dst-ring-descriptors-from-cacheable-.patch"
+test -f "$root/ath11k/237-006-ath11k-Allow-fast-rx-by-bypassing-stats-update.patch"
+test -f "$root/ath11k/314-ath11k-Fix-peer-lookup-failure-in-mgmt-tx-completion.patch"
+test -f "$root/ath11k/318-ath11k-avoid-stack-corrupt-in-nwifi-undecap.patch"
+test -f "$root/ath11k/319-ath11k-fix-double-free-of-peer-rx_tid-during-reo-cmd.patch"
+test -f "$root/ath11k/342-ath11k-provide-access-of-the-dma-buffer-back-to-dma-.patch"
+test -f "$root/ath11k/999-233-ath11k-Disable-rx_header-tlv-for-2K-SKB.patch"
 
 grep -q 'WMI_QOS_NULL_FRAME_TX_SEND_CMDID' \
   "$root/ath11k/214-ath11k-qos-null-frame-tx-over-wmi.patch"

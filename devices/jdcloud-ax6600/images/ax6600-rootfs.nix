@@ -23,7 +23,7 @@ let
     enableSCP = true;
   };
 
-  inherit (pkgs.liminix.services) bundle oneshot;
+  inherit (pkgs.liminix.services) bundle longrun oneshot;
   inherit (pkgs.liminix) outputRef;
   inherit (pkgs.pseudofile) dir symlink;
 
@@ -67,14 +67,14 @@ let
       wanVlan;
 
   # WAN 上联口不放入普通 access ports；单线模式下由 trunk 服务在 VLAN filtering 后加入。
-  lanAccessPorts =
+  lanBridgePorts =
     map (name: nifs.${name}) (lib.remove wanPortName wiredPortNames)
     ++ [
       nifs.wlan24g
       nifs.wlan58g
-      nifs.wlan52g
     ];
-  lanZonePorts = lanAccessPorts ++ lib.optional singleLineEnable wanPort;
+  qcnWlan52g = nifs.wlan52g;
+  lanZonePorts = lanBridgePorts ++ [ qcnWlan52g ] ++ lib.optional singleLineEnable wanPort;
 
   # 仅单线模式让 PPPoE 终止在桥上的 VLAN 子接口。
   wanBase = if singleLineEnable then config.services.int else wanPort;
@@ -147,20 +147,80 @@ let
     nss.qca-nss-ecm
   ];
 
-  moduleTargets =
-    (import ../nss/targets.nix).all ++ config.firewall.kernelModuleTargets;
+  nssTargets = import ../nss/targets.nix;
+  moduleTargets = nssTargets.all ++ config.firewall.kernelModuleTargets;
+  ath11kArgs = "nss_offload=1 frame_mode=2";
 
-  # The module tree this image loads itself: rc-init.d/modules runs load.sh
-  # from it before s6-rc (see etc/rc-init.d/modules below), and
+  # rc-init.d/modules loads this tree before s6-rc (see below), and
   # services.modules keeps a oneshot as firewall's dependency anchor.
   moduleTree = pkgs.liminix.modules.build pkgs {
     roots = [ config.system.outputs.kernel.modulesupport ] ++ moduleFiles;
     targets = moduleTargets;
-    moduleArgs.ath11k = "nss_offload=1 frame_mode=2";
+    moduleArgs.ath11k = ath11kArgs;
   };
 
+  qcnModuleTree = pkgs.liminix.modules.build pkgs {
+    roots = [ config.system.outputs.kernel.modulesupport ] ++ moduleFiles;
+    targets = nssTargets.qcn;
+    moduleArgs.ath11k = ath11kArgs;
+  };
+
+  loadModule = pkgs.writeAshScript "load-module" { } ''
+    set -u
+    O=$1
+    rel=$2
+    module=''${rel##*/}
+    module=''${module%.ko}
+    module=$(printf '%s' "$module" | tr '-' '_')
+    test -d "/sys/module/$module" && exit 0
+    args=
+    case "$module" in
+      ath11k) args=${lib.escapeShellArg ath11kArgs} ;;
+    esac
+    cmdline_args=
+    for arg in $(cat /proc/cmdline); do
+      case "$arg" in
+        "$module".*=*) cmdline_args="$cmdline_args ''${arg#*.}" ;;
+      esac
+    done
+    insmod "$O/$rel" $args $cmdline_args
+  '';
+
+  qcnInit = pkgs.writeAshScript "qcn-init" { } ''
+    set -u
+    export PATH=/bin:/sbin
+    test -d /sys/module/ath11k_ahb || {
+      echo "qcn-init: AHB driver is not loaded; QCN left unloaded" >&2
+      exit 1
+    }
+
+    i=0
+    while test "$i" -lt 30; do
+      phys=0
+      for d in /sys/class/ieee80211/*; do
+        test -e "$d" || continue
+        case "$(readlink "$d")" in
+          */c000000.wifi/*) phys=$((phys + 1)) ;;
+        esac
+      done
+      test "$phys" -ge 2 && break
+      sleep 1
+      i=$((i + 1))
+    done
+    if test "$i" -ge 30; then
+      echo "qcn-init: AHB radios did not initialize; QCN left unloaded" >&2
+      exit 1
+    fi
+
+    O=${qcnModuleTree}/lib/modules
+    while read -r rel; do
+      ${loadModule} "$O" "$rel"
+    done < ${qcnModuleTree}/load-order
+    ${config.wireless.radioRenameScript}
+  '';
+
   nssWifiCheck = pkgs.callPackage ../nss-wifi/check-built.nix {
-    inherit pkgs moduleTree;
+    inherit pkgs moduleTree qcnModuleTree;
   };
 in
 {
@@ -291,7 +351,22 @@ in
   # 普通 LAN 口加入桥；lanZonePorts 同时作为防火墙 @lan。
   services.bridge = svc.bridge.members.build {
     primary = config.services.int;
-    members = lanAccessPorts;
+    members = lanBridgePorts;
+  };
+
+  services.qcn-bridge = oneshot {
+    name = "qcn-bridge";
+    dependencies = [
+      config.services.int
+      qcnWlan52g
+    ];
+    controller = config.services.qcn-wifi;
+    up = ''
+      ip link set dev "$(output ${qcnWlan52g} ifname)" master "$(output ${config.services.int} ifname)"
+    '';
+    down = ''
+      ip link set dev "$(output ${qcnWlan52g} ifname)" nomaster
+    '';
   };
 
   services.single-line = lib.mkIf singleLineEnable singleLine;
@@ -499,6 +574,30 @@ in
       (outputRef config.services.wan-if "mtu")
     ];
   };
+
+  # QCN9074 is probed from rc-init.d after the AHB radios. This service only
+  # bridges the already-probed radio after PPPoE is usable.
+  services.qcn-wifi = longrun {
+    name = "qcn-wifi";
+    dependencies = [ config.services.modules ];
+    run = ''
+      set -eu
+      export PATH=/bin:/sbin
+      until ip route show default table main | grep -q 'dev ppp0'; do
+        sleep 1
+      done
+      sleep 2
+      if ip link show wlan52g >/dev/null 2>&1 ; then
+        ${pkgs.s6-rc}/bin/s6-rc -b -u change wlan52g.link
+        ${pkgs.s6-rc}/bin/s6-rc -b -u change qcn-bridge \
+          || echo "qcn-wifi: wlan52g bridge setup failed" >&2
+      else
+        echo "qcn-wifi: wlan52g did not appear" >&2
+      fi
+      exec sleep infinity
+    '';
+  };
+
   # tailscale warns that UDP forwarding over the PPPoE device is left
   # suboptimal by default. The interface is pppN with N picked by pppd, so
   # find it instead of naming it.
@@ -738,12 +837,39 @@ in
         modules = symlink (
           pkgs.writeAshScript "load-modules" { } ''
             echo "loading kernel modules from ${moduleTree}"
-            O=${moduleTree}/lib/modules sh ${moduleTree}/load.sh
-            if test -w /proc/sys/dev/nss/general/redirect; then
+            O=${moduleTree}/lib/modules
+            nss_ready=unknown
+            while read -r rel; do
+              module=''${rel##*/}
+              module=''${module%.ko}
+              module=$(printf '%s' "$module" | tr '-' '_')
+              case "$module" in
+                ath11k|ath11k_ahb)
+                  if test "$nss_ready" != yes; then
+                    echo "load-modules: skipping $module; NSS core is not ready" >&2
+                    continue
+                  fi
+                  ;;
+              esac
+              ${loadModule} "$O" "$rel"
+              test "$module" = qca_nss_drv || continue
+              i=0
+              while test "$i" -lt 30; do
+                if dmesg | grep 'nss core 0 booted successfully' >/dev/null; then
+                  nss_ready=yes
+                  break
+                fi
+                sleep 1
+                i=$((i + 1))
+              done
+              test "$nss_ready" = yes || echo "load-modules: NSS core did not boot" >&2
+            done < ${moduleTree}/load-order
+            if test "$nss_ready" = yes && test -w /proc/sys/dev/nss/general/redirect; then
               echo 1 > /proc/sys/dev/nss/general/redirect
             fi
           ''
         );
+        zz-qcn = symlink qcnInit;
       };
     };
     var = dir {

@@ -1,7 +1,7 @@
-{ pkgs, moduleTree }:
+{ pkgs, moduleTree, qcnModuleTree }:
 pkgs.runCommand "check-nss-wifi-offload" {
   nativeBuildInputs = [ pkgs.kmod ];
 } ''
-  sh ${./check-built.sh} ${moduleTree}
+  sh ${./check-built.sh} ${moduleTree} ${qcnModuleTree}
   touch $out
 ''

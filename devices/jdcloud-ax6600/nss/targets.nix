@@ -1,8 +1,7 @@
 # The modprobe names an image's module tree loads, as two groups.
 # `pkgs.liminix.modules.build` takes a list of these and lets depmod work out
-# the order; the image then loads the result itself (ax6600-rootfs runs
-# load.sh from rc-init.d before s6-rc, and keeps a oneshot as firewall's
-# dependency anchor).
+# the order; ax6600-rootfs loads the result from rc-init.d before s6-rc and
+# keeps a oneshot as firewall's dependency anchor.
 #
 # A target whose .ko the image's kernel does not build is a *build failure*,
 # not a no-op: modules.build runs `modprobe --show-depends` for every name.
@@ -10,9 +9,9 @@
 #
 #   * `wired` - conntrack/netfilter plus the NSS drivers. Every image builds
 #     these.
-#   * `wireless` - the AHB radio and the PCI QCN9074 (5.2 GHz). Only the images that import
-#     wireless/default.nix build these, since that module is what sets
-#     QCOM_Q6V5_WCSS_SEC/ATH11K_AHB/ATH11K_PCI in the kernel config.
+#   * `wireless` - the AHB radio. It must be available during boot.
+#   * `qcn` - the PCI QCN9074. It is loaded after the AHB radios, but before
+#     s6 starts networking, so its NSS initialization completes first.
 #
 # Not here: the nft_* modules. They arrive through
 # config.firewall.kernelModuleTargets, which the image appends to this list and
@@ -41,10 +40,14 @@ let
   wireless = [
     "qcom_q6v5_wcss_sec"
     "ath11k_ahb"
+  ];
+
+  qcn = [
+    "qrtr-mhi"
     "ath11k_pci"
   ];
 in
 {
-  inherit wired wireless;
+  inherit wired wireless qcn;
   all = wired ++ wireless;
 }

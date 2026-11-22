@@ -104,6 +104,24 @@ let
   wcssSec = "drivers/remoteproc/qcom_q6v5_wcss_sec.c";
   ath11kDir = "drivers/net/wireless/ath/ath11k";
 
+  # QCN9074 needs to publish a QRTR instance ID distinct from the AHB
+  # radio's. The ID can only be programmed in SBL, so MHI provides the
+  # state callback that ath11k patch 100 consumes below.
+  mhi = [
+    {
+      path = "790-bus-mhi-core-add-SBL-state-callback.patch";
+      url = "https://raw.githubusercontent.com/VIKINGYFY/immortalwrt/${ref}/target/linux/generic/pending-6.18/790-bus-mhi-core-add-SBL-state-callback.patch";
+      sha256 = "sha256-221LRfgawmR3uIKlJkqUllTrxj881URbARA1EPFHZRE=";
+      verify = [
+        { kind = "grep"; file = "include/linux/mhi.h"; needle = "MHI_CB_EE_SBL_MODE";
+          label = "790: MHI SBL callback missing"; }
+        { kind = "grep"; file = "drivers/bus/mhi/host/main.c"; needle = "MHI_CB_EE_SBL_MODE";
+          label = "790: MHI SBL callback not emitted"; }
+      ];
+      note = "reports the SBL state so QCN9074 can set its QRTR instance ID before firmware reads it";
+    }
+  ];
+
   # The WCSS remoteproc and its device tree, in the fork's own order.
   # 0184 is here for one header, not for its driver; 0186 is bindings
   # documentation only; the rest is the driver, what it needs, and the
@@ -266,19 +284,29 @@ let
   # mainline does not have (thermal is CONFIG_THERMAL's job), and 905
   # is a regulatory-policy choice, not needed for the default ch36.
   #
-  # Three entries of the bring-up set are deliberately absent:
-  #
   #   * 102 (mac_phy_caps_parse stride) is already in 6.18.52 - wmi.c has
   #     the kzalloc_objs() form - so there is nothing left to patch;
-  #   * 100 (unique QRTR instance ID) is built on MHI_CB_EE_SBL_MODE,
-  #     which neither 6.18.52's nor 6.18.57's include/linux/mhi.h has,
-  #     so it does not compile here; it only matters with more than one
-  #     PCI radio, so a single QCN9074 runs without it for now;
   #   * 931 (m3 dump memory) writes into a local variable that comes from
   #     201, which this board has no use for, so it does not compile here
   #     - and it assigns nothing unless the wifi node carries
   #     qcom,m3-dump-addr, which no board dts in this tree sets.
   ath11k = at "package/kernel/mac80211/patches/ath11k" [
+    {
+      path = "100-wifi-ath11k-use-unique-QRTR-instance-ID.patch";
+      sha256 = "sha256-LEBsAxpnILWBpfHIMrj/x1OrXe8eP5M5Vg6BjKijA6Y=";
+      verify = [
+        { kind = "grep"; file = "${ath11kDir}/mhi.c"; needle = "BHI_ERRDBG2";
+          label = "100: QCN9074 QRTR instance register missing"; }
+        { kind = "grep"; file = "${ath11kDir}/pci.c"; needle = "ab->qmi.service_ins_id = ab->hw_params.qmi_service_ins_id +";
+          label = "100: PCI QMI service instance not made unique"; }
+      ];
+      note = ''
+        QCN9074 shares QRTR node 0 with the AHB radio when both are present.
+        Program BHI_ERRDBG2 in SBL so the PCI WLAN firmware service is
+        published under a distinct instance; without this the second QMI
+        host-cap request returns QMI error 90 (incompatible state).
+      '';
+    }
     {
       path = "101-wifi-ath11k-fix-wrong-usage-of-resource_size-causing.patch";
       verify = [
@@ -402,5 +430,5 @@ in
     let
       group = fuzz: ps: map (p: p // { inherit fuzz; }) ps;
     in
-    group 0 wcss ++ group 3 ath11k;
+    group 0 mhi ++ group 0 wcss ++ group 3 ath11k;
 }

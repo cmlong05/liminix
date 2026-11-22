@@ -12,7 +12,7 @@
 #
 # Offsets are structural, never a MAC value. A missing 0:ART is reported and
 # leaves the built-in firmware and the default names in place.
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 let
   inherit (pkgs.pseudofile) dir symlink;
   inherit (pkgs.liminix.services) oneshot;
@@ -57,31 +57,13 @@ let
     echo "$(mac $((0x18)))"   > /run/art/mac.wan
     echo "$(mac $((0x100e)))" > /run/art/mac.58g
     echo "$(mac $((0x1014)))" > /run/art/mac.24g
-    echo "$(mac $((0x26810)))" > /run/art/mac.52g
+    echo "$(mac $((0x2680e)))" > /run/art/mac.52g
     echo "art-extract: calibration and MACs read from $part"
   '';
 
-  apply = pkgs.writeAshScript "art-apply" { } ''
+  rename = pkgs.writeAshScript "art-rename-radios" { } ''
     set -u
     export PATH=/bin:/sbin
-
-    set_mac() {   # device, role
-      mac=$(cat "/run/art/mac.$2" 2>/dev/null) || return 0
-      test -n "$mac" || return 0
-      i=0
-      while ! ip link show "$1" >/dev/null 2>&1 ; do
-        i=$((i + 1))
-        test "$i" -ge 60 && { echo "art-apply: $1 never appeared" >&2; return 0; }
-        sleep 1
-      done
-      ip link set dev "$1" address "$mac" 2>/dev/null || true
-    }
-
-    set_mac lan1 lan1
-    set_mac lan2 lan2
-    set_mac lan3 lan3
-    set_mac lan4 lan4
-    set_mac wan  wan
 
     rename_wlan() {   # role, fixed name
       wmac=$(cat "/run/art/mac.$1" 2>/dev/null) || return 0
@@ -114,27 +96,61 @@ let
     rename_wlan 58g wlan58g
     rename_wlan 52g wlan52g
   '';
+
+  apply = pkgs.writeAshScript "art-apply" { } ''
+    set -u
+    export PATH=/bin:/sbin
+
+    set_mac() {   # device, role
+      mac=$(cat "/run/art/mac.$2" 2>/dev/null) || return 0
+      test -n "$mac" || return 0
+      i=0
+      while ! ip link show "$1" >/dev/null 2>&1 ; do
+        i=$((i + 1))
+        test "$i" -ge 60 && { echo "art-apply: $1 never appeared" >&2; return 0; }
+        sleep 1
+      done
+      ip link set dev "$1" address "$mac" 2>/dev/null || true
+    }
+
+    set_mac lan1 lan1
+    set_mac lan2 lan2
+    set_mac lan3 lan3
+    set_mac lan4 lan4
+    set_mac wan  wan
+    ${rename}
+  '';
 in
 {
-  # The one firmware name the build cannot fill: rootfs-firmware.nix links it
-  # to art-extract's output, which ath11k then opens like any other file.
-  wireless.runtimeFirmwareFiles."ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin" =
-    "/run/services/outputs/art-extract/cal";
-  wireless.runtimeFirmwareFiles."ath11k/QCN9074/hw1.0/cal-pci-0000:01:00.0.bin" =
-    "/run/services/outputs/art-extract/cal-pci";
-
-  filesystem = dir {
-    etc = dir {
-      "rc-init.d" = dir {
-        # sorts before "modules" (0 < m), so the cal file is in place
-        # before the module loader - and ath11k - runs
-        "05-art" = symlink extract;
-      };
-    };
+  options.wireless.radioRenameScript = lib.mkOption {
+    type = lib.types.package;
+    internal = true;
+    description = "Script that renames radio netdevs to their fixed names.";
   };
 
-  services.art-apply = oneshot {
-    name = "art-apply";
-    up = ''${apply}'';
+  config = {
+    wireless.radioRenameScript = rename;
+
+    # The one firmware name the build cannot fill: rootfs-firmware.nix links it
+    # to art-extract's output, which ath11k then opens like any other file.
+    wireless.runtimeFirmwareFiles."ath11k/IPQ6018/hw1.0/cal-ahb-c000000.wifi.bin" =
+      "/run/services/outputs/art-extract/cal";
+    wireless.runtimeFirmwareFiles."ath11k/QCN9074/hw1.0/cal-pci-0000:01:00.0.bin" =
+      "/run/services/outputs/art-extract/cal-pci";
+
+    filesystem = dir {
+      etc = dir {
+        "rc-init.d" = dir {
+          # sorts before "modules" (0 < m), so the cal file is in place
+          # before the module loader - and ath11k - runs
+          "05-art" = symlink extract;
+        };
+      };
+    };
+
+    services.art-apply = oneshot {
+      name = "art-apply";
+      up = ''${apply}'';
+    };
   };
 }

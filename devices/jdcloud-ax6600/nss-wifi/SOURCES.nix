@@ -33,6 +33,15 @@
       "203-mac80211-ath11k-fw-dynamic-muedca.patch"
       "207-ath11k-Enable-256_512MB-profiles.patch"
       "214-ath11k-qos-null-frame-tx-over-wmi.patch"
+      # Keep QCN9074 on the NSS data path; these are the reference RX/TX,
+      # peer lifetime, DMA ownership and 2K-SKB fixes omitted initially.
+      "237-003-ath11k-allocate-dst-ring-descriptors-from-cacheable-.patch"
+      "237-006-ath11k-Allow-fast-rx-by-bypassing-stats-update.patch"
+      "314-ath11k-Fix-peer-lookup-failure-in-mgmt-tx-completion.patch"
+      "318-ath11k-avoid-stack-corrupt-in-nwifi-undecap.patch"
+      "319-ath11k-fix-double-free-of-peer-rx_tid-during-reo-cmd.patch"
+      "342-ath11k-provide-access-of-the-dma-buffer-back-to-dma-.patch"
+      "999-233-ath11k-Disable-rx_header-tlv-for-2K-SKB.patch"
     ];
   };
 }
