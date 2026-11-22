@@ -19,15 +19,21 @@ dev=$1
 case "$dev" in /dev/*) ;; *) usage ;; esac
 
 # DRY_RUN 只打印；root 直接执行；否则一律走 sudo
+# run_noprompt 专给清理用：sudo -n 绝不弹密码提示，凭证没缓存就直接失败，
+# 否则第一个 sudo 提示处按 Ctrl+C 会触发清理、清理又调 sudo、又弹提示，退不出去。
 if [ "${DRY_RUN:-0}" = 1 ]; then
 	run() { echo "  + $*"; }
+	run_noprompt() { echo "  + $*"; }
 elif [ "$(id -u)" = 0 ]; then
 	run() { "$@"; }
+	run_noprompt() { "$@"; }
 else
 	run() { sudo "$@"; }
+	run_noprompt() { sudo -n "$@" 2>/dev/null || true; }
 fi
 
 lsblk_field() { lsblk -b -dn -o "$2" "$1" 2>/dev/null | tr -d ' \n'; }	# -b：SIZE 输出字节数
+lsblk_text() { lsblk -dn -o "$2" "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }	# 显示用，保留内部空格
 mountpoint_of() {
 	command -v findmnt >/dev/null 2>&1 || die "findmnt not found"
 	# findmnt exits 1 for "not mounted"; anything else is a real failure.
@@ -77,14 +83,28 @@ uimage_bytes=$(stat -c%s "$uimage")
 p1_bytes=$(size_of "$p1")
 [ "$uimage_bytes" -le "$p1_bytes" ] || die "$uimage is $uimage_bytes bytes, p1 only holds $p1_bytes"
 
+# 检查都过了、动手写之前，先把目标盘的身份打印清楚，写错盘之前看一眼
+echo "target disk: $dev"
+echo "  model:     $(lsblk_text "$dev" MODEL)"
+echo "  vendor:    $(lsblk_text "$dev" VENDOR)"
+echo "  serial:    $(lsblk_text "$dev" SERIAL)"
+echo "  size:      $(lsblk_text "$dev" SIZE) ($bytes bytes)"
+echo "  transport: $tran"
+lsblk -o NAME,SIZE,TYPE,PARTLABEL,FSTYPE,MOUNTPOINT "$dev"
+
+# 磁盘信息已打印，动手写之前先认证一次，密码只输一次
+if [ "$(id -u)" != 0 ] && [ "${DRY_RUN:-0}" != 1 ]; then
+	sudo -v
+fi
+
 m1=$(mktemp -d)
 m2=$(mktemp -d)
 mi=$(mktemp -d)
 # 失败或中断时兜底卸载并删掉挂载点
 cleanup() {
-	run umount "$m2" 2>/dev/null || true
-	run umount "$m1" 2>/dev/null || true
-	run umount "$mi" 2>/dev/null || true
+	run_noprompt umount "$m2"
+	run_noprompt umount "$m1"
+	run_noprompt umount "$mi"
 	rmdir "$m1" "$m2" "$mi" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
