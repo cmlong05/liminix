@@ -180,3 +180,6 @@ cat /run/services/state/int.link.dnsmasq/leases
 # 或者持久化位置
 cat /var/lib/liminix/services/state/int.link.dnsmasq/leases
 
+### 查看上一次重启或崩溃前留下的日志：
+ls -l /run/log/previous-boot
+cat /run/log/previous-boot
