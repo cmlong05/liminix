@@ -123,6 +123,15 @@ nix_build() {
     fi
 }
 
+build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+build_commit=unknown
+build_commit_date=unknown
+if command -v git >/dev/null 2>&1 && git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
+    build_commit=$(git -C "$here" rev-parse HEAD)
+    build_commit_date=$(git -C "$here" log -1 --format=%cI HEAD)
+fi
+build_profile=$(basename "$deployment" .nix)
+
 print_branch_info() {
     if command -v git >/dev/null 2>&1 && git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
         branch=$(git -C "$here" symbolic-ref --short -q HEAD 2>/dev/null || echo "(detached HEAD)")
@@ -131,6 +140,10 @@ print_branch_info() {
     else
         echo "==> branch: unknown (not a git checkout)" >&2
     fi
+}
+
+print_build_info() {
+    echo "==> build: profile=$build_profile commit=$build_commit built=$build_date" >&2
 }
 
 case "$target" in
@@ -148,6 +161,10 @@ esac
 
 set -- \
     --arg device "import $device_dir" \
+    --argstr buildCommit "$build_commit" \
+    --argstr buildCommitDate "$build_commit_date" \
+    --argstr buildDate "$build_date" \
+    --argstr buildProfile "$build_profile" \
     -I "liminix-config=$config" \
     -I "liminix-deployment=$deployment"
 
@@ -158,6 +175,7 @@ if [ -n "$firewall" ]; then
 fi
 
 echo "==> deployment: $profile ($deployment)" >&2
+print_build_info
 if [ -n "$firewall" ]; then
     echo "==> firewall: $(basename "$firewall")" >&2
 else

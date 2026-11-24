@@ -6,6 +6,10 @@
   system ? builtins.currentSystem,
   borderVmConf ? ./bordervm.conf.nix,
   imageType ? "primary",
+  buildCommit ? "unknown",
+  buildCommitDate ? "unknown",
+  buildDate ? "unknown",
+  buildProfile ? "unknown",
 }:
 
 let
@@ -34,6 +38,7 @@ let
         _module.args = {
           inherit pkgs;
           inherit (pkgs) lim;
+          inherit buildCommit buildCommitDate buildDate buildProfile;
         };
       }
       ./modules/hardware.nix

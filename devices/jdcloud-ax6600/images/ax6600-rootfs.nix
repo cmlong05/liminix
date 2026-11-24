@@ -10,6 +10,10 @@
   lib,
   modulesPath,
   pkgs,
+  buildCommit,
+  buildCommitDate,
+  buildDate,
+  buildProfile,
   ...
 }:
 let
@@ -76,6 +80,16 @@ let
 
   runtime = config.services.runtime-config;
   runtimeConfigSeed = pkgs.writeText "runtime-config.json" deploymentJson.text;
+  buildMarker = "liminix-build/${buildCommit}/${buildDate}";
+  buildMeta = {
+    marker = buildMarker;
+    commit = buildCommit;
+    commitDate = buildCommitDate;
+    builtAt = buildDate;
+    profile = buildProfile;
+    hostname = config.hostname;
+  };
+  buildMetaJson = pkgs.writeText "liminix-build.json" (builtins.toJSON buildMeta);
 
   singleLine = svc.singleLine.build {
     name = "single-line";
@@ -685,6 +699,9 @@ in
       "resolv.conf" = symlink "/run/resolv.conf";
       "terminfo" = symlink "${pkgs.ncurses}/share/terminfo";
       "liminix-nss-wifi.check" = symlink "${nssWifiCheck}";
+      liminix = dir {
+        "build.json" = symlink "${buildMetaJson}";
+      };
       "rc-init.d" = dir {
         state-dir = symlink (
           pkgs.writeAshScript "state-dir" { } ''
@@ -758,6 +775,7 @@ in
       "init=/bin/init"
       "ath11k.nss_offload=1"
       "ath11k.frame_mode=2"
+      "liminix.build=${buildMarker}"
     ];
   };
 
