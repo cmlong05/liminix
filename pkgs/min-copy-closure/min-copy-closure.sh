@@ -70,7 +70,9 @@ done
 
 if test -z "$needed" ; then
     echo Nothing to copy
-    exit 1
+	echo Consider if next step should continue
+	echo Next step: install
+    exit 0
 fi
 
 echo "cd ${root_prefix} && cpio -d -i >/dev/console"  >&10
