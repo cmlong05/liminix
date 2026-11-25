@@ -123,7 +123,7 @@ nix_build() {
     fi
 }
 
-build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+build_date=$(date -u +%Y-%m-%d)
 build_commit=unknown
 build_commit_date=unknown
 if command -v git >/dev/null 2>&1 && git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
