@@ -82,9 +82,9 @@
   需同时加载 `qrtr-mhi`、应用 MHI SBL 回调补丁与 ath11k 唯一实例 ID 补丁。
 * QCN9074 保持 NSS offload；补齐参考实现的 RX/TX、peer 生命周期、DMA
   所有权和 2K-SKB 数据面补丁，不通过关闭 NSS 规避 PPPoE 共存问题。
-* QCN9074 的 MHI/QRTR/PCI 模块在 AHB 两个 phy 完成后、s6-rc 之前加载，
-  使 NSS 接口先于 PPPoE/ECM 数据路径完成初始化；`qcn-wifi` longrun 只负责
-  等待 PPP 默认路由并接入 `wlan52g`。
+* QCN9074 的 MHI/QRTR/PCI 模块不在开机时加载：`qcn-up`（controlled oneshot）
+  在 AHB 两个 phy 就绪后加载并改名 `wlan52g`，`qcn-bridge` 把它接入 `int`。
+  手动顺序：`s6-rc -u change qcn-bridge`，再 `s6-rc -u change hostap-52g`。
 * NSS core 由固件异步启动；`ath11k` 在 `NSS_STATE_INITIALIZED` 之前初始化会
   返回 `-22`，因此 AHB/QCN 都必须等 NSS core 上报 booted 后再加载。
 * 实现（test/wlan52g，待修复后上机验证）：内核 PCI 栈 + ATH11K_PCI、QCN9074 固件、ART 校准、wlan52g 接口与 AP、手动开启（controlled service）。
@@ -97,6 +97,7 @@
 # per-unit 数据开机时从 0:ART 读出（devices/jdcloud-ax6600/art.nix）：
 #   art-extract（rc-init.d/05-art，先于 modules）：物化 /lib/firmware/ath11k 为
 #     可写目录、写入 cal-ahb-c000000.wifi.bin、导出本机 MAC 到 /run/art/。
-#   art-apply（s6 oneshot）：给 lan1..4/wan 设本机 MAC；按 MAC 把 AHB 两个 netdev
-#     改名成 wlan24g / wlan58g。
+#   radios-init（rc-init.d/zz-radios，modules 之后）：AHB 两个 phy 就绪后，按 MAC 把
+#     两个 netdev 改名成 wlan24g / wlan58g。
+#   art-apply（s6 oneshot）：给 lan1..4/wan 设本机 MAC。
 # 因此接口名固定为 wlan24g(2.4G) / wlan58g(5.8G)，无线 MAC 由 ath11k 从 cal 自动设。

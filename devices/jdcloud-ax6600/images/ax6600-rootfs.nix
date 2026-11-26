@@ -186,37 +186,19 @@ let
     insmod "$O/$rel" $args $cmdline_args
   '';
 
-  qcnInit = pkgs.writeAshScript "qcn-init" { } ''
+  qcnLoad = pkgs.writeAshScript "qcn-up" { } ''
     set -u
     export PATH=/bin:/sbin
-    test -d /sys/module/ath11k_ahb || {
-      echo "qcn-init: AHB driver is not loaded; QCN left unloaded" >&2
+    ${config.wireless.ahbReadyScript} || {
+      echo "qcn-up: QCN left unloaded" >&2
       exit 1
     }
-
-    i=0
-    while test "$i" -lt 30; do
-      phys=0
-      for d in /sys/class/ieee80211/*; do
-        test -e "$d" || continue
-        case "$(readlink "$d")" in
-          */c000000.wifi/*) phys=$((phys + 1)) ;;
-        esac
-      done
-      test "$phys" -ge 2 && break
-      sleep 1
-      i=$((i + 1))
-    done
-    if test "$i" -ge 30; then
-      echo "qcn-init: AHB radios did not initialize; QCN left unloaded" >&2
-      exit 1
-    fi
 
     O=${qcnModuleTree}/lib/modules
     while read -r rel; do
       ${loadModule} "$O" "$rel"
     done < ${qcnModuleTree}/load-order
-    ${config.wireless.radioRenameScript}
+    ${config.wireless.qcnRenameScript}
   '';
 
   nssWifiCheck = pkgs.callPackage ../nss-wifi/check-built.nix {
@@ -354,13 +336,25 @@ in
     members = lanBridgePorts;
   };
 
+  # Controlled: QCN9074 is never loaded at boot. `s6-rc -u change qcn-bridge`
+  # loads it and attaches wlan52g to int.
+  services.qcn-up = oneshot {
+    name = "qcn-up";
+    dependencies = [ config.services.modules ];
+    controller = longrun {
+      name = "control-qcn-up";
+      run = "while sleep 86400; do true; done";
+    };
+    up = ''${qcnLoad}'';
+  };
+
   services.qcn-bridge = oneshot {
     name = "qcn-bridge";
     dependencies = [
       config.services.int
+      config.services.qcn-up
       qcnWlan52g
     ];
-    controller = config.services.qcn-wifi;
     up = ''
       ip link set dev "$(output ${qcnWlan52g} ifname)" master "$(output ${config.services.int} ifname)"
     '';
@@ -573,29 +567,6 @@ in
       "mru"
       (outputRef config.services.wan-if "mtu")
     ];
-  };
-
-  # QCN9074 is probed from rc-init.d after the AHB radios. This service only
-  # bridges the already-probed radio after PPPoE is usable.
-  services.qcn-wifi = longrun {
-    name = "qcn-wifi";
-    dependencies = [ config.services.modules ];
-    run = ''
-      set -eu
-      export PATH=/bin:/sbin
-      until ip route show default table main | grep -q 'dev ppp0'; do
-        sleep 1
-      done
-      sleep 2
-      if ip link show wlan52g >/dev/null 2>&1 ; then
-        ${pkgs.s6-rc}/bin/s6-rc -b -u change wlan52g.link
-        ${pkgs.s6-rc}/bin/s6-rc -b -u change qcn-bridge \
-          || echo "qcn-wifi: wlan52g bridge setup failed" >&2
-      else
-        echo "qcn-wifi: wlan52g did not appear" >&2
-      fi
-      exec sleep infinity
-    '';
   };
 
   # tailscale warns that UDP forwarding over the PPPoE device is left
@@ -855,7 +826,7 @@ in
               test "$module" = qca_nss_drv || continue
               i=0
               while test "$i" -lt 30; do
-                if dmesg | grep 'nss core 0 booted successfully' >/dev/null; then
+                if dmesg | grep -i 'nss core 0 booted successfully' >/dev/null; then
                   nss_ready=yes
                   break
                 fi
@@ -869,7 +840,6 @@ in
             fi
           ''
         );
-        zz-qcn = symlink qcnInit;
       };
     };
     var = dir {

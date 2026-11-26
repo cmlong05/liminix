@@ -328,8 +328,7 @@ in
 
     wireless.firmwareFiles = lib.genAttrs firmwareNames firmwareFile;
 
-    # The radio netdevs
-    # These are the names art-apply renames the radios to
+    # The radio netdevs: AHB ones are renamed in rc-init, the QCN9074 one by qcn-up
     hardware.networkInterfaces = {
       wlan24g = svc.network.link.build {
         ifname = "wlan24g";

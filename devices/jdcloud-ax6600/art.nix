@@ -6,9 +6,10 @@
 #     finds a cal file when it probes: it writes them into its service outputs,
 #     and ./rootfs-firmware.nix links ath11k's names for them there. It also
 #     publishes this unit's MACs under /run/art.
-#   * art-apply runs as an s6 oneshot after that: it puts the wired MACs on
-#     lan1..4/wan and renames the three radio netdevs to fixed names by the MAC
-#     ath11k took out of the cal data.
+#   * radios-init runs from rc-init.d after the module loader: once both AHB
+#     radios have registered it renames their netdevs to fixed names by the MAC
+#     ath11k took out of the cal data. The QCN9074 netdev is renamed by qcn-up.
+#   * art-apply runs as an s6 oneshot: it puts the wired MACs on lan1..4/wan.
 #
 # Offsets are structural, never a MAC value. A missing 0:ART is reported and
 # leaves the built-in firmware and the default names in place.
@@ -61,7 +62,7 @@ let
     echo "art-extract: calibration and MACs read from $part"
   '';
 
-  rename = pkgs.writeAshScript "art-rename-radios" { } ''
+  renameRadios = roles: pkgs.writeAshScript "art-rename-radios" { } ''
     set -u
     export PATH=/bin:/sbin
 
@@ -92,9 +93,39 @@ let
       echo "art-apply: no netdev with MAC $wmac for $2" >&2
     }
 
-    rename_wlan 24g wlan24g
-    rename_wlan 58g wlan58g
-    rename_wlan 52g wlan52g
+    ${lib.concatMapStrings (r: "rename_wlan ${r} wlan${r}\n") roles}
+  '';
+
+  renameAhb = renameRadios [ "24g" "58g" ];
+  renameQcn = renameRadios [ "52g" ];
+
+  ahbReady = pkgs.writeAshScript "ahb-ready" { } ''
+    set -u
+    export PATH=/bin:/sbin
+    test -d /sys/module/ath11k_ahb || {
+      echo "ahb-ready: AHB driver is not loaded" >&2
+      exit 1
+    }
+    i=0
+    while test "$i" -lt 30; do
+      phys=0
+      for d in /sys/class/ieee80211/*; do
+        test -e "$d" || continue
+        case "$(readlink "$d")" in
+          */c000000.wifi/*) phys=$((phys + 1)) ;;
+        esac
+      done
+      test "$phys" -ge 2 && exit 0
+      sleep 1
+      i=$((i + 1))
+    done
+    echo "ahb-ready: AHB radios did not initialize" >&2
+    exit 1
+  '';
+
+  radiosInit = pkgs.writeAshScript "radios-init" { } ''
+    set -u
+    ${ahbReady} && ${renameAhb}
   '';
 
   apply = pkgs.writeAshScript "art-apply" { } ''
@@ -118,18 +149,24 @@ let
     set_mac lan3 lan3
     set_mac lan4 lan4
     set_mac wan  wan
-    ${rename}
   '';
 in
 {
-  options.wireless.radioRenameScript = lib.mkOption {
+  options.wireless.qcnRenameScript = lib.mkOption {
     type = lib.types.package;
     internal = true;
-    description = "Script that renames radio netdevs to their fixed names.";
+    description = "Script that renames the QCN9074 netdev to wlan52g.";
+  };
+
+  options.wireless.ahbReadyScript = lib.mkOption {
+    type = lib.types.package;
+    internal = true;
+    description = "Script that waits for both AHB radios to register.";
   };
 
   config = {
-    wireless.radioRenameScript = rename;
+    wireless.qcnRenameScript = renameQcn;
+    wireless.ahbReadyScript = ahbReady;
 
     # The one firmware name the build cannot fill: rootfs-firmware.nix links it
     # to art-extract's output, which ath11k then opens like any other file.
@@ -144,6 +181,8 @@ in
           # sorts before "modules" (0 < m), so the cal file is in place
           # before the module loader - and ath11k - runs
           "05-art" = symlink extract;
+          # sorts after "modules", so the AHB netdevs exist to be renamed
+          "zz-radios" = symlink radiosInit;
         };
       };
     };
