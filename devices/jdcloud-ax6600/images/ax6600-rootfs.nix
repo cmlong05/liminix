@@ -199,6 +199,59 @@ let
       ${loadModule} "$O" "$rel"
     done < ${qcnModuleTree}/load-order
     ${config.wireless.qcnRenameScript}
+    test -d /sys/class/net/wlan52g || {
+      echo "qcn-up: wlan52g did not appear; QCN load failed" >&2
+      exit 1
+    }
+  '';
+
+  # The NSS WiFi data path keeps its packet buffers in the NSS N2H pool.
+  # With the driver defaults (wifi pool 0, extra pbuf 0, high water 8704)
+  # nss_offload on ath11k has nowhere to put WiFi traffic, so the data path
+  # never actually leaves the CPU even though the radio is "on NSS". The
+  # fork's qca-nss-pbuf init sets the same knobs before wifi binds; these
+  # are its RAM-size profile values.
+  #
+  # It must run after nss-drv has booted the core and before ath11k creates
+  # its NSS interfaces (extra_pbuf_core0 can only be set while still 0), so
+  # the rc-init module loader calls this once it sees the core booted, which
+  # is before it insmods ath11k.
+  nssPbuf = pkgs.writeAshScript "nss-pbuf" { } ''
+    set -u
+    i=0
+    while test "$i" -lt 10; do
+      test -w /proc/sys/dev/nss/n2hcfg/n2h_wifi_pool_buf && break
+      sleep 1
+      i=$((i + 1))
+    done
+    test -w /proc/sys/dev/nss/n2hcfg/n2h_wifi_pool_buf || {
+      echo "nss-pbuf: n2hcfg sysctls never appeared" >&2
+      exit 1
+    }
+
+    echo 0 > /proc/sys/dev/nss/clock/auto_scale 2>/dev/null || true
+    echo 2048 > /proc/sys/dev/nss/n2hcfg/n2h_queue_limit_core0 2>/dev/null || true
+
+    memtotal=$(grep '^MemTotal' /proc/meminfo | tr -cd '0-9')
+    : "''${memtotal:=0}"
+    if test "$memtotal" -le 256000; then
+      extra=4000000; high=16384; wifi=8192
+    elif test "$memtotal" -le 512000; then
+      extra=8000000; high=32768; wifi=16384
+    else
+      extra=10000000; high=65536; wifi=32768
+    fi
+
+    current=$(cat /proc/sys/dev/nss/n2hcfg/extra_pbuf_core0 2>/dev/null || echo 0)
+    if test "''${current:-0}" = 0; then
+      echo "$extra" > /proc/sys/dev/nss/n2hcfg/extra_pbuf_core0 2>/dev/null || true
+    fi
+    echo "$high" > /proc/sys/dev/nss/n2hcfg/n2h_high_water_core0 2>/dev/null || true
+    echo "$wifi" > /proc/sys/dev/nss/n2hcfg/n2h_wifi_pool_buf 2>/dev/null || true
+
+    cpus=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
+    : "''${cpus:=1}"
+    echo $(( (1 << cpus) - 1 )) > /proc/sys/dev/nss/rps/hash_bitmap 2>/dev/null || true
   '';
 
   nssWifiCheck = pkgs.callPackage ../nss-wifi/check-built.nix {
@@ -354,9 +407,25 @@ in
       config.services.int
       config.services.qcn-up
       qcnWlan52g
+      # Hostapd puts wlan52g in AP mode before it joins the bridge.
+      config.services."hostap-52g"
     ];
     up = ''
-      ip link set dev "$(output ${qcnWlan52g} ifname)" master "$(output ${config.services.int} ifname)"
+      ifname=$(output ${qcnWlan52g} ifname)
+      # cfg80211 sets IFF_DONT_BRIDGE while the netdev is STATION and clears
+      # it only once hostapd switches it to AP. The longrun dependency is up
+      # before the AP is announced, so wait for carrier (AP started).
+      i=0
+      while test "$i" -lt 30; do
+        test "$(cat /sys/class/net/$ifname/carrier 2>/dev/null)" = 1 && break
+        sleep 1
+        i=$((i + 1))
+      done
+      test "$i" -lt 30 || {
+        echo "qcn-bridge: $ifname never became an AP" >&2
+        exit 1
+      }
+      ip link set dev "$ifname" master "$(output ${config.services.int} ifname)"
     '';
     down = ''
       ip link set dev "$(output ${qcnWlan52g} ifname)" nomaster
@@ -678,6 +747,9 @@ in
     name = "nss-tuning";
     dependencies = [ config.services.modules ];
     up = ''
+      # rc-init sets these before ath11k loads; repeat them so a boot that
+      # fell back to this oneshot's load.sh still gets the WiFi pools.
+      ${nssPbuf} || echo "nss-tuning: NSS pbuf setup failed" >&2
       if test -w /proc/sys/dev/nss/general/redirect; then
         echo 1 > /proc/sys/dev/nss/general/redirect
       fi
@@ -834,6 +906,9 @@ in
                 i=$((i + 1))
               done
               test "$nss_ready" = yes || echo "load-modules: NSS core did not boot" >&2
+              if test "$nss_ready" = yes; then
+                ${nssPbuf} || echo "load-modules: NSS WiFi pbuf setup failed" >&2
+              fi
             done < ${moduleTree}/load-order
             if test "$nss_ready" = yes && test -w /proc/sys/dev/nss/general/redirect; then
               echo 1 > /proc/sys/dev/nss/general/redirect

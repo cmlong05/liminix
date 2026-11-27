@@ -340,7 +340,9 @@ in
       };
       wlan52g = svc.network.link.build {
         ifname = "wlan52g";
-        dependencies = [ config.services.art-apply ];
+        # qcn-up loads ath11k_pci and renames the netdev; the link must not
+        # run before that or the IPv6 sysctl path does not exist yet.
+        dependencies = [ config.services.qcn-up ];
       };
     };
 

@@ -80,11 +80,17 @@
 * **验证**：`wlan52g`（QCN9074）出现，手动开启后 hostapd AP 可关联。
 * 根因：AHB 与 QCN9074 共用 QRTR 实例 0，PCI host-cap 收到 QMI error 90；
   需同时加载 `qrtr-mhi`、应用 MHI SBL 回调补丁与 ath11k 唯一实例 ID 补丁。
-* QCN9074 保持 NSS offload；补齐参考实现的 RX/TX、peer 生命周期、DMA
-  所有权和 2K-SKB 数据面补丁，不通过关闭 NSS 规避 PPPoE 共存问题。
+* QCN9074 走 NSS offload（NSS 的 external wifili 接口，AHB 用 internal），
+  与参考实现一致（`ath11k.nss_offload=1` 对两者都生效）。此前按 PCI bus
+  关掉 NSS 的 007 补丁已移除。真正缺的是 NSS WiFi 的 N2H/pbuf 配置：驱动
+  默认 `n2h_wifi_pool_buf=0`、`extra_pbuf_core0=0`，ath11k 即使开了 NSS
+  也没有 WiFi 缓冲池，数据面仍留在 CPU（测速时 CPU 打满）。镜像在 rc-init
+  加载模块时、ath11k 之前按参考 `qca-nss-pbuf` 的 RAM 档位写入这些 sysctl
+  （`images/ax6600-rootfs.nix` 的 `nss-pbuf`）。
 * QCN9074 的 MHI/QRTR/PCI 模块不在开机时加载：`qcn-up`（controlled oneshot）
   在 AHB 两个 phy 就绪后加载并改名 `wlan52g`，`qcn-bridge` 把它接入 `int`。
-  手动顺序：`s6-rc -u change qcn-bridge`，再 `s6-rc -u change hostap-52g`。
+  手动顺序：`s6-rc -u change qcn-bridge`（它按序拉起 `qcn-up`、`wlan52g.link`、
+  52g hostapd，再把 `wlan52g` 接入 `int`）。
 * NSS core 由固件异步启动；`ath11k` 在 `NSS_STATE_INITIALIZED` 之前初始化会
   返回 `-22`，因此 AHB/QCN 都必须等 NSS core 上报 booted 后再加载。
 * 实现（test/wlan52g，待修复后上机验证）：内核 PCI 栈 + ATH11K_PCI、QCN9074 固件、ART 校准、wlan52g 接口与 AP、手动开启（controlled service）。
