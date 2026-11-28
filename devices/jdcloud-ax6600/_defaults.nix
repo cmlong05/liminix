@@ -99,10 +99,13 @@ let
           ieee80211ac = 1;
           ieee80211ax = 1;
           ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
-          vht_oper_chwidth = 1;
-          vht_oper_centr_freq_seg0_idx = 42;
-          he_oper_chwidth = 1;
-          he_oper_centr_freq_seg0_idx = 42;
+          # 160 MHz on channels 36-64 (centre 50). Note: channels 52-64
+          # are DFS in CN, so CAC at AP start is expected and the AP may
+          # move away if radar is detected.
+          vht_oper_chwidth = 2;
+          vht_oper_centr_freq_seg0_idx = 50;
+          he_oper_chwidth = 2;
+          he_oper_centr_freq_seg0_idx = 50;
           # BRINGUP N8: manual start, not at boot.
           autostart = false;
           security = "wpa2";
