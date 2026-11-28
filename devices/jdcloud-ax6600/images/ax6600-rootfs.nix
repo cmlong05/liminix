@@ -307,8 +307,30 @@ let
       exit 1
     }
 
+    # Write, then read back. Previously every write was "|| true", so a
+    # failed sysctl left WiFi traffic on the CPU silently - the only symptom
+    # was a slow speedtest with a pegged CPU. Now each key knob reports a
+    # mismatch to stderr and the script ends with a one-line summary. It
+    # still does NOT exit non-zero: this runs early in boot and a failure
+    # must not take down the dependent services.
+    set_n2h() {
+      path=$1
+      value=$2
+      echo "$value" > "$path" 2>/dev/null || {
+        echo "nss-pbuf: cannot write $path" >&2
+        return 1
+      }
+      readback=$(cat "$path" 2>/dev/null) || readback=""
+      if test "''${readback:-}" != "$value"; then
+        echo "nss-pbuf: $path did not stick (wrote $value, read back ''${readback:-<unreadable>})" >&2
+        return 1
+      fi
+      return 0
+    }
+    failures=0
+
     echo 0 > /proc/sys/dev/nss/clock/auto_scale 2>/dev/null || true
-    echo 2048 > /proc/sys/dev/nss/n2hcfg/n2h_queue_limit_core0 2>/dev/null || true
+    set_n2h /proc/sys/dev/nss/n2hcfg/n2h_queue_limit_core0 2048 || failures=$((failures + 1))
 
     memtotal=$(grep '^MemTotal' /proc/meminfo | tr -cd '0-9')
     : "''${memtotal:=0}"
@@ -320,16 +342,23 @@ let
       extra=10000000; high=65536; wifi=32768
     fi
 
+    # extra_pbuf_core0 can only be set from 0, so skip (don't fail) if the
+    # qca-nss-pbuf module already initialised it.
     current=$(cat /proc/sys/dev/nss/n2hcfg/extra_pbuf_core0 2>/dev/null || echo 0)
     if test "''${current:-0}" = 0; then
-      echo "$extra" > /proc/sys/dev/nss/n2hcfg/extra_pbuf_core0 2>/dev/null || true
+      set_n2h /proc/sys/dev/nss/n2hcfg/extra_pbuf_core0 "$extra" || failures=$((failures + 1))
     fi
-    echo "$high" > /proc/sys/dev/nss/n2hcfg/n2h_high_water_core0 2>/dev/null || true
-    echo "$wifi" > /proc/sys/dev/nss/n2hcfg/n2h_wifi_pool_buf 2>/dev/null || true
+    set_n2h /proc/sys/dev/nss/n2hcfg/n2h_high_water_core0 "$high" || failures=$((failures + 1))
+    set_n2h /proc/sys/dev/nss/n2hcfg/n2h_wifi_pool_buf "$wifi" || failures=$((failures + 1))
 
     cpus=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
     : "''${cpus:=1}"
-    echo $(( (1 << cpus) - 1 )) > /proc/sys/dev/nss/rps/hash_bitmap 2>/dev/null || true
+    bitmap=$(( (1 << cpus) - 1 ))
+    set_n2h /proc/sys/dev/nss/rps/hash_bitmap "$bitmap" || failures=$((failures + 1))
+
+    if test "$failures" -gt 0; then
+      echo "nss-pbuf: $failures N2H setting(s) failed - WiFi offload may stay on CPU; check 'dmesg' and sysctl readback" >&2
+    fi
   '';
 
   nssWifiCheck = pkgs.callPackage ../nss-wifi/check-built.nix {
