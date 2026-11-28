@@ -95,6 +95,18 @@ in
           type = types.nullOr types.int;
           example = 1480;
         };
+        ifupTimeout = mkOption {
+          type = types.int;
+          default = 0;
+          example = 10;
+          description = ''
+            Seconds to wait for the netdev to appear before giving up.
+            0 (the default) waits forever, preserving the original
+            behaviour for interfaces that legitimately probe slowly.
+            Only set a positive value for interfaces whose driver may
+            never create the netdev at all, e.g. wlan52g on QCN9074.
+          '';
+        };
       };
       address = config.system.callService ./address.nix {
         interface = mkOption {

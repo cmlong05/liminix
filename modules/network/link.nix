@@ -6,6 +6,7 @@
   ifname,
   devpath ? null,
   mtu,
+  ifupTimeout ? 0,
 }:
 # if devpath is supplied, we rename the interface at that
 # path to have the specified name.
@@ -32,7 +33,7 @@ oneshot {
           accept_ra = 0;
         }
       } )
-    ${liminix.networking.ifup name ifname}
+    ${liminix.networking.ifup name ifname ifupTimeout}
   '';
   down = "ip link set down dev ${ifname}";
 }

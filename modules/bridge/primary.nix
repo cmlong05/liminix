@@ -13,7 +13,7 @@ oneshot rec {
     if ! ip link show dev "${ifname}" >/dev/null 2>&1; then
       ip link add name "${ifname}" type bridge
     fi
-    ${liminix.networking.ifup name ifname}
+    ${liminix.networking.ifup name ifname 0}
   '';
   down = "ip link set down dev ${ifname}";
 }

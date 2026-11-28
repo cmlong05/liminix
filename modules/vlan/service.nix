@@ -14,7 +14,7 @@ oneshot rec {
   name = "${ifname}.link";
   up = ''
     ip link add link $(output ${primary} ifname) name ${ifname} type vlan id ${vid}
-    ${liminix.networking.ifup name ifname}
+    ${liminix.networking.ifup name ifname 0}
     (in_outputs ${name}
      echo ${ifname} > ifname
     )

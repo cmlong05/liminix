@@ -342,6 +342,10 @@ in
       };
       wlan52g = svc.network.link.build {
         ifname = "wlan52g";
+        # QCN9074 may never probe if its firmware fails to load: bound the
+        # appearance wait to 10s instead of stalling the qcn-bridge chain
+        # forever. Other interfaces keep ifup's wait-forever default.
+        ifupTimeout = 10;
         # qcn-up loads ath11k_pci and renames the netdev; the link must not
         # run before that or the IPv6 sysctl path does not exist yet.
         dependencies = [ config.services.qcn-up ];
