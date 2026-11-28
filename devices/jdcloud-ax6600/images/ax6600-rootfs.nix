@@ -205,6 +205,84 @@ let
     }
   '';
 
+  # qcn-up's down runs after s6-rc has brought down hostap-52g and
+  # wlan52g.link (reverse dependency order), so nothing still holds the
+  # netdev. Unload the PCI half so the QCN9074 powers off with 5.2G;
+  # ath11k itself stays loaded because the AHB radio shares it.
+  qcnUnload = pkgs.writeAshScript "qcn-down" { } ''
+    set -u
+    export PATH=/bin:/sbin
+    for m in ath11k_pci qrtr_mhi; do
+      test -d "/sys/module/$m" || continue
+      rmmod "$m" 2>/dev/null || true
+    done
+    i=0
+    while test -e /sys/class/net/wlan52g && test "$i" -lt 20; do
+      sleep 1
+      i=$((i + 1))
+    done
+  '';
+
+  # 长按 WPS 键 3 秒开关 5.2G WiFi（QCN9074）。
+  # 开启：拉起 qcn-bridge，它按序带起 qcn-up、wlan52g.link、hostap-52g，
+  # 最后把 wlan52g 接入 int。关闭：down qcn-up，s6-rc 先停 hostapd 和
+  # wlan52g.link，再由 qcn-up 的 down 卸载 ath11k_pci/qrtr_mhi。
+  # 开启中蓝灯闪、成功后蓝灯常亮；关闭中绿灯闪、成功后绿灯常亮。
+  wifi52gToggle = pkgs.writeAshScript "wifi-52g-toggle" { } ''
+    set -u
+    export PATH=${pkgs.s6-rc}/bin:${pkgs.s6}/bin:/bin:/sbin
+
+    led() { echo "$2" > "/sys/class/leds/$1:status/brightness" 2>/dev/null || true; }
+
+    blink() {
+      while :; do
+        led "$1" 255
+        ${pkgs.coreutils}/bin/sleep 0.2
+        led "$1" 0
+        ${pkgs.coreutils}/bin/sleep 0.2
+      done
+    }
+
+    # 状态转换期间后台闪烁；结束后先停闪烁再写最终状态，避免闪到一半停住。
+    if s6-rc -a list 2>/dev/null | grep -qx qcn-up; then
+      echo "wifi-52g-toggle: stopping 5.2G"
+      led blue 0
+      led green 0
+      blink green &
+      pid=$!
+      if s6-rc -b -d change qcn-up; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        led blue 0
+        led red 0
+        led green 255
+      else
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        led green 0
+        led blue 255
+      fi
+    else
+      echo "wifi-52g-toggle: starting 5.2G"
+      led green 0
+      led blue 0
+      blink blue &
+      pid=$!
+      if s6-rc -b -u change qcn-bridge; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        led green 0
+        led red 0
+        led blue 255
+      else
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        led blue 0
+        led green 255
+      fi
+    fi
+  '';
+
   # The NSS WiFi data path keeps its packet buffers in the NSS N2H pool.
   # With the driver defaults (wifi pool 0, extra pbuf 0, high water 8704)
   # nss_offload on ath11k has nowhere to put WiFi traffic, so the data path
@@ -270,7 +348,7 @@ in
     "${modulesPath}/ssh"
     "${modulesPath}/tailscale"
     "${modulesPath}/firewall"
-    "${modulesPath}/reset-button"
+    "${modulesPath}/gpio-button"
     "${modulesPath}/outputs/ext4fs.nix"
     "${modulesPath}/usb.nix"
     ../locale.nix
@@ -350,10 +428,20 @@ in
   };
 
   # 长按 reset 键 5 秒重启：直接读 GPIO，不经过 input 层。
-  services.reset-button = svc.reset-button.build {
+  services.reset-button = svc.gpio-button.build {
+    name = "reset-button";
     gpio = 71;
     holdSeconds = 5;
   };
+
+  # 长按 WPS 键（GPIO 72）3 秒开关 5.2G WiFi。
+  services.wifi-button = svc.gpio-button.build {
+    name = "wifi-button";
+    gpio = 72;
+    holdSeconds = 3;
+    command = "${wifi52gToggle}";
+  };
+
 
   services.runtime-config = svc.secrets.local.build {
     name = "runtime-config";
@@ -399,6 +487,7 @@ in
       run = "while sleep 86400; do true; done";
     };
     up = ''${qcnLoad}'';
+    down = ''${qcnUnload}'';
   };
 
   services.qcn-bridge = oneshot {
