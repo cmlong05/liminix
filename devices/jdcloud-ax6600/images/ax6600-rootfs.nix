@@ -277,6 +277,8 @@ let
       else
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
+        # 桥接失败时把 qcn 链路一并收回，避免绿灯亮着而 SSID 仍在广播。
+        s6-rc -b -d change qcn-up >/dev/null 2>&1 || true
         led blue 0
         led green 255
       fi
@@ -521,6 +523,8 @@ in
 
   services.qcn-bridge = oneshot {
     name = "qcn-bridge";
+    # oneshot 默认 30s 超时，会早于 160 MHz 的 60s CAC 把 up 判失败。
+    timeout-up = 4 * 60 * 1000;
     dependencies = [
       config.services.int
       config.services.qcn-up
@@ -532,14 +536,17 @@ in
       ifname=$(output ${qcnWlan52g} ifname)
       # cfg80211 sets IFF_DONT_BRIDGE while the netdev is STATION and clears
       # it only once hostapd switches it to AP. The longrun dependency is up
-      # before the AP is announced, so wait for carrier (AP started).
+      # before the AP is announced, so wait for carrier (AP started). 160 MHz
+      # on 36-64 includes DFS channels, so hostapd runs a 60 s CAC first;
+      # the wait must outlast that or a healthy start is reported as failed.
+      apWaitSeconds=180
       i=0
-      while test "$i" -lt 30; do
+      while test "$i" -lt "$apWaitSeconds"; do
         test "$(cat /sys/class/net/$ifname/carrier 2>/dev/null)" = 1 && break
         sleep 1
         i=$((i + 1))
       done
-      test "$i" -lt 30 || {
+      test "$i" -lt "$apWaitSeconds" || {
         echo "qcn-bridge: $ifname never became an AP" >&2
         exit 1
       }
