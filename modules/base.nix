@@ -87,6 +87,17 @@ in
         default = "bootargs";
         description = "Kernel command line's devicetree node";
       };
+      buildMarker = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        internal = true;
+        description = ''
+          Build identifier recorded in the device tree
+          (chosen/liminix-build) when the image is assembled. It lets the
+          kernel image and the rootfs be matched to the same build without
+          compiling the identifier into the kernel command line.
+        '';
+      };
       imageType = mkOption {
         type = types.enum [
           "primary"

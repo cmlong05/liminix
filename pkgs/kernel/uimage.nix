@@ -17,6 +17,7 @@ in
   kernel,
   commandLine,
   commandLineDtbNode ? "bootargs",
+  buildMarker ? null,
   entryPoint,
   extraName ? "", # e.g. socFamily
   loadAddress,
@@ -29,7 +30,7 @@ stdenv.mkDerivation {
   phases = [
     "preparePhase"
     (
-      if commandLine != null then
+      if commandLine != null || buildMarker != null then
         assert dtb != null;
         "mungeDtbPhase"
       else
@@ -49,7 +50,12 @@ stdenv.mkDerivation {
   '';
   mungeDtbPhase = ''
     dtc -I dtb -O dts -o tmp.dts ${dtb}
-    echo '/{ chosen { ${commandLineDtbNode} = ${builtins.toJSON commandLine}; }; };'  >> tmp.dts
+    ${lib.optionalString (commandLine != null) ''
+      echo '/{ chosen { ${commandLineDtbNode} = ${builtins.toJSON commandLine}; }; };'  >> tmp.dts
+    ''}
+    ${lib.optionalString (buildMarker != null) ''
+      echo '/{ chosen { liminix-build = ${builtins.toJSON buildMarker}; }; };' >> tmp.dts
+    ''}
     dtc -I dts -O dtb -o tmp.dtb tmp.dts
   '';
 
