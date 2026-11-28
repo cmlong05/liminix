@@ -1038,8 +1038,10 @@ in
       "init=/bin/init"
       "ath11k.nss_offload=1"
       "ath11k.frame_mode=2"
-      "liminix.build=${buildMarker}"
     ];
+    # Recorded in the FIT's device tree at image assembly time, not in
+    # CONFIG_CMDLINE, so a new commit/date does not force a kernel rebuild.
+    buildMarker = buildMarker;
   };
 
   kernel.config = {

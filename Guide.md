@@ -20,7 +20,7 @@ fw_printenv
 
 构建标识由 `build.sh` 自动写入：
 - `/etc/liminix/build.json`：完整提交、提交日期、构建时间、站点与 hostname。
-- `/proc/cmdline`：`liminix.build=<commit>/<构建时间>`，用于确认当前内核。
+- `/proc/device-tree/chosen/liminix-build`：`liminix-build/<commit>/<构建日期>`，用于确认当前内核。
 
 刷写前在构建机校验同一组产物：
 
@@ -30,9 +30,9 @@ fw_printenv
 刷写并重启后，在路由器上检查：
 
     cat /etc/liminix/build.json
-    grep -o 'liminix.build=[^ ]*' /proc/cmdline
+    tr -d '\0' < /proc/device-tree/chosen/liminix-build; echo
 
-两者中的 `liminix-build/<commit>/<时间>` 必须一致；不一致表示 kernel 和 rootfs 不是同一次构建（常见于只更新 userspace 或只刷内核）。
+两者中的 `liminix-build/<commit>/<日期>` 必须一致；不一致表示 kernel 和 rootfs 不是同一次构建（常见于只更新 userspace 或只刷内核）。
 
 ### eMMC 固定布局
 # p16: 0:HLOS，只放 fit.itb（kernel + dtb + initramfs，cmdline 内嵌）

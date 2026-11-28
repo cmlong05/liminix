@@ -44,7 +44,7 @@ done
 
 uimage=$(readlink -f "$uimage")
 rootfs=$(readlink -f "$rootfs")
-kernel_marker=$("$strings_bin" "$uimage" | sed -n 's/.*liminix\.build=\([^ ]*\).*/\1/p' | tail -n 1)
+kernel_marker=$("$strings_bin" "$uimage" | sed -n 's/.*\(liminix-build\/[^ ]*\).*/\1/p' | tail -n 1)
 rootfs_json=$("$debugfs_bin" -R "cat /etc/liminix/build.json" "$rootfs" 2>/dev/null)
 rootfs_marker=$(printf '%s\n' "$rootfs_json" | sed -n 's/.*"marker":"\([^"]*\)".*/\1/p')
 
