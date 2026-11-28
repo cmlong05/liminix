@@ -182,6 +182,7 @@ in
   routeros = callPackage ./routeros { };
   rxi-json = callPackage ./rxi-json { };
   run-liminix-vm = callPackage ./run-liminix-vm { };
+  gpio-button = callPackage ./gpio-button { };
   s6-init-bin = callPackage ./s6-init-bin { };
   s6-rc-database = callPackage ./s6-rc-database { };
   s6-rc-round-robin = callPackage ./s6-rc-round-robin { };
