@@ -98,10 +98,13 @@ let
           channel = "36";
           ieee80211ac = 1;
           ieee80211ax = 1;
+          # 160 MHz on channels 36-64 (centre 50). Channels 52-64 are DFS
+          # in CN, so ieee80211d/h enable regulatory + radar detection and
+          # hostapd performs CAC at AP start; the AP may move away if radar
+          # is detected. Keep ieee80211d=1 when ieee80211h=1 is set.
+          ieee80211d = 1;
+          ieee80211h = 1;
           ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
-          # 160 MHz on channels 36-64 (centre 50). Note: channels 52-64
-          # are DFS in CN, so CAC at AP start is expected and the AP may
-          # move away if radar is detected.
           vht_oper_chwidth = 2;
           vht_oper_centr_freq_seg0_idx = 50;
           he_oper_chwidth = 2;

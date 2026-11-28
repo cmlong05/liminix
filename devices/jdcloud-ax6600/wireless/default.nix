@@ -185,6 +185,8 @@ let
   radioKeys = [
     "ieee80211ac"
     "ieee80211ax"
+    "ieee80211d"
+    "ieee80211h"
     "ht_capab"
     "vht_capab"
     "vht_oper_chwidth"
