@@ -101,10 +101,12 @@ let
           # is 0, so without this no AC capability is advertised at all),
           # and clears the HE beamformer bits from the firmware caps unless
           # he_*_beamformer is set. Both have to be explicit to enable
-          # beamforming. The AHB 5G pdev is 2x2, hence BF-ANTENNA-2 /
-          # SOUNDING-DIMENSION-2 (2 STS); the rest follows
-          # examples/nwa50ax-ap.nix.
-          vht_capab = "[MAX-MPDU-7991][SU-BEAMFORMEE][SU-BEAMFORMER][BF-ANTENNA-2][SOUNDING-DIMENSION-2][RXLDPC][SHORT-GI-80][MAX-A-MPDU-LEN-EXP3][RX-ANTENNA-PATTERN][TX-ANTENNA-PATTERN][TX-STBC-2BY1][RX-STBC-1][MU-BEAMFORMER]";
+          # beamforming. The AHB 5G pdev's firmware advertises SU/MU
+          # beamformer but NOT SU beamformee (VHT cap 0x338909b2 on
+          # phy0), and hostapd refuses to start if a configured bit is
+          # absent, so BFEE and BF-ANTENNA are deliberately left out.
+          # Sounding dimensions are 2 (the firmware reports 1).
+          vht_capab = "[MAX-MPDU-7991][SU-BEAMFORMER][SOUNDING-DIMENSION-2][RXLDPC][SHORT-GI-80][MAX-A-MPDU-LEN-EXP3][RX-ANTENNA-PATTERN][TX-ANTENNA-PATTERN][TX-STBC-2BY1][RX-STBC-1][MU-BEAMFORMER]";
           he_su_beamformer = 1;
           he_su_beamformee = 1;
           he_mu_beamformer = 1;
