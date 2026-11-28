@@ -189,6 +189,12 @@ let
     "ieee80211h"
     "ht_capab"
     "vht_capab"
+    # hostapd only advertises HE beamforming when these are set; they are
+    # intentionally part of the deployment-driven radio keys so a site can
+    # keep the band defaults or override them like any other radio knob.
+    "he_su_beamformer"
+    "he_su_beamformee"
+    "he_mu_beamformer"
     "vht_oper_chwidth"
     "vht_oper_centr_freq_seg0_idx"
     "vht_oper_centr_freq_seg1_idx"

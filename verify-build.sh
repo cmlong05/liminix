@@ -46,6 +46,13 @@ uimage=$(readlink -f "$uimage")
 rootfs=$(readlink -f "$rootfs")
 kernel_marker=$("$strings_bin" "$uimage" | sed -n 's/.*\(liminix-build\/[^ ]*\).*/\1/p' | tail -n 1)
 rootfs_json=$("$debugfs_bin" -R "cat /etc/liminix/build.json" "$rootfs" 2>/dev/null)
+# The image installs /etc/liminix/build.json as a symlink to the store
+# (devices/jdcloud-ax6600/images/ax6600-rootfs.nix), and debugfs "cat"
+# prints a symlink's target instead of the file it points to, so follow
+# it in the host store when that is what we got.
+case "$rootfs_json" in
+    /nix/store/*) rootfs_json=$(cat "$rootfs_json" 2>/dev/null) ;;
+esac
 rootfs_marker=$(printf '%s\n' "$rootfs_json" | sed -n 's/.*"marker":"\([^"]*\)".*/\1/p')
 
 test -n "$kernel_marker" || { echo "verify-build.sh: no build marker in $uimage" >&2; exit 1; }

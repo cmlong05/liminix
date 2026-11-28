@@ -79,6 +79,16 @@ let
         "24g" = {
           hw_mode = "g";
           channel = "6";
+          # The AHB 2.4G pdev is 2x2 11ax, so it gets the same HE setup as
+          # the 5G bands. There is no VHT on 2.4G, so vht_capab is absent.
+          # ht_capab has to be explicit as well: hostapd advertises the HT
+          # capability field exactly as configured (default 0), so without
+          # it a 2.4G client would see no HT40/short-GI/LDPC.
+          ieee80211ax = 1;
+          ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
+          he_su_beamformer = 1;
+          he_su_beamformee = 1;
+          he_mu_beamformer = 1;
           security = "wpa2";
         };
         "58g" = {
@@ -87,6 +97,17 @@ let
           ieee80211ac = 1;
           ieee80211ax = 1;
           ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
+          # hostapd advertises VHT caps exactly as given here (the default
+          # is 0, so without this no AC capability is advertised at all),
+          # and clears the HE beamformer bits from the firmware caps unless
+          # he_*_beamformer is set. Both have to be explicit to enable
+          # beamforming. The AHB 5G pdev is 2x2, hence BF-ANTENNA-2 /
+          # SOUNDING-DIMENSION-2 (2 STS); the rest follows
+          # examples/nwa50ax-ap.nix.
+          vht_capab = "[MAX-MPDU-7991][SU-BEAMFORMEE][SU-BEAMFORMER][BF-ANTENNA-2][SOUNDING-DIMENSION-2][RXLDPC][SHORT-GI-80][MAX-A-MPDU-LEN-EXP3][RX-ANTENNA-PATTERN][TX-ANTENNA-PATTERN][TX-STBC-2BY1][RX-STBC-1][MU-BEAMFORMER]";
+          he_su_beamformer = 1;
+          he_su_beamformee = 1;
+          he_mu_beamformer = 1;
           vht_oper_chwidth = 1;
           vht_oper_centr_freq_seg0_idx = 155;
           he_oper_chwidth = 1;
@@ -105,6 +126,15 @@ let
           ieee80211d = 1;
           ieee80211h = 1;
           ht_capab = "[HT40+][SHORT-GI-20][SHORT-GI-40]";
+          # Same beamforming setup as 5.8G, but the QCN9074 is 4x4, hence
+          # BF-ANTENNA-4 / SOUNDING-DIMENSION-4 (4 STS), plus the 160 MHz
+          # bits: on the initial bring-up (not a channel switch) hostapd
+          # does not add VHT_CAP_SUPP_CHAN_WIDTH_160MHZ by itself, so
+          # [VHT160] is required for vht_oper_chwidth = 2 to be consistent.
+          vht_capab = "[MAX-MPDU-7991][SU-BEAMFORMEE][SU-BEAMFORMER][BF-ANTENNA-4][SOUNDING-DIMENSION-4][RXLDPC][SHORT-GI-80][SHORT-GI-160][VHT160][MAX-A-MPDU-LEN-EXP3][RX-ANTENNA-PATTERN][TX-ANTENNA-PATTERN][TX-STBC-2BY1][RX-STBC-1][MU-BEAMFORMER]";
+          he_su_beamformer = 1;
+          he_su_beamformee = 1;
+          he_mu_beamformer = 1;
           vht_oper_chwidth = 2;
           vht_oper_centr_freq_seg0_idx = 50;
           he_oper_chwidth = 2;
